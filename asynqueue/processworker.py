@@ -18,14 +18,13 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
 
 """
-An IWorker implementation using Perspective Broker (PB) over STDIO.
-
-Based on coding by Konrads Smelkovs
+An IWorker implementation using python's multiprocessing.Pipe
 """
 
 import sys, os.path
 from twisted.internet import protocol, stdio, reactor, defer
-from twisted.spread import pb
+
+from multiprocessing import Pool, Pipe
 
 import jobs
 

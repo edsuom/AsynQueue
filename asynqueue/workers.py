@@ -215,6 +215,107 @@ class ThreadWorker(object):
             self.d.callback(None)
 
 
+class ProcessWorker(object):
+    """
+    I implement an L{IWorker} that runs tasks in a dedicated worker
+    process.
+
+    You can define one or more specialties that I am qualified to handle with
+    string arguments.
+
+    """
+    pollInterval = 0.01
+    
+    implements(IWorker)
+    cQualified = []
+    
+    def __init__(self, *specialties):
+        import multiprocessing as mp
+        self.iQualified = list(specialties)
+        self.cMain, self.cProcess = mp.Pipe()
+        self.process = mp.Process(target=self._loop)
+        self.process.start()
+
+    def _loop(self):
+        """
+        Runs a loop in a dedicated thread that waits for new tasks. The
+        loop exits when a C{None} object is supplied as a task.
+
+        """
+        while True:
+            # Wait here for the next task
+            callSpec = self.cProcess.recv()
+            if callSpec is None:
+                break
+            f, args, kw = callSpec
+            try:
+                result = f(*args, **kw)
+                # If the task causes this python interpreter process
+                # to hang, the method call will not reach this point.
+            except Exception, e:
+                self.cProcess.send(failure.Failure(e))
+            else:
+                self.cProcess.send(result)
+        # Broken out of loop, ready for the process to end
+
+    def setResignator(self, callableObject):
+        """
+        There's nothing that would make me resign.
+        """
+
+    def _pollForResult(self, d, connection):
+        if connection.poll():
+            result = connection.recv()
+            if isinstance(result, failure.Failure):
+                d.errback(result)
+            else:
+                d.callback(result)
+        reactor.callLater(
+            self.pollInterval, self._pollForResult, d, connection)
+        
+    def run(self, task):
+        """
+        Starts a process for this worker if one not started already, along with
+        a L{threading.Event} object for cross-thread signaling.
+        """
+        if hasattr(self, 'd') and not self.d.called:
+            raise errors.ImplementationError(
+                "Task Loop not ready to deal with a task now")
+        self.d = defer.Deferred()
+        if task is None:
+            callSpec = None
+        else:
+            callSpec = task.callTuple
+        self.cMain.send(callSpec)
+        self._pollForResult(d, self.cMain)
+        return self.d
+    
+    def stop(self):
+        """
+        The returned deferred fires when the task loop has ended and its
+        process terminated.
+
+        """
+        if not self.process.is_alive():
+            return defer.succeed(None)
+        if hasattr(self, 'd') and not self.d.called:
+            d = defer.Deferred()
+            d.addCallback(lambda _: self.stop())
+            self.d.chainDeferred(d)
+        else:
+            d = self.run(None)
+        d.addCallback(lambda _ : self.process.join())
+        return d
+
+    def crash(self):
+        """
+        Unfortunately, a process can only terminate itself, so calling
+        this method only forces firing of the deferred returned from a
+        previous call to L{stop} and returns the task that hung the
+        thread.
+        """
+        # TODO: Convert if needed from ThreadWorker
+            
 class RemoteCallWorker(object):
     """
     Instances of me provide an L{IWorker} that dispatches
