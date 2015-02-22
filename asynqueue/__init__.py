@@ -36,3 +36,5 @@ class ThreadQueue(TaskQueue):
         for null in xrange(N):
             worker = ThreadWorker()
             self.attachWorker(worker)
+
+    

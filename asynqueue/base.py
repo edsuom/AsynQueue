@@ -153,34 +153,10 @@ class LoadInfoProducer(object):
         self.shutdown()
 
 
-class TaskQueue(object):
+
+class QueueBase(object):
     """
-    I am a task queue for dispatching arbitrary callables to be run by one or
-    more worker objects.
-
-    You can construct me with one or more workers, or you can attach them later
-    with L{attachWorker}, in which you'll receive an ID that you can use to
-    detach the worker.
-
-    @keyword timeout: A number of seconds after which to more drastically
-      terminate my workers if they haven't gracefully shut down by that point.
-
-    @keyword warn: Set this option C{True} to only warn that a call
-      made after queue shutdown is being ignored, rather than raising
-      an exception.
-
     """
-    def __init__(self, *args, **kw):
-        self._taskFactory = tasks.TaskFactory()
-        self.mgr = tasks.WorkerManager()
-        self.heap = Priority()
-        self.loadInfoProducer = LoadInfoProducer()
-        for worker in args:
-            self.attachWorker(worker)
-        self._startup()
-        self.timeout = kw.get('timeout', None)
-        self.warnOnly = kw.get('warn', False)
-
     def _startup(self):
         """
         Starts up a L{defer.deferredGenerator} that runs the queue. This method
@@ -242,6 +218,58 @@ class TaskQueue(object):
             d = defer.succeed([])
         d.addCallback(cleanup)
         return d
+
+    def cancelSeries(self, series):
+        """
+        Cancels any pending tasks in the specified I{series}, unceremoniously
+        removing them from the queue.
+        """
+        self.heap.cancel(lambda item: getattr(item, 'series', None) == series)
+    
+    def subscribe(self, consumer):
+        """
+        Subscribes the supplied provider of L{interfaces.IConsumer}
+        to updates on the number of tasks queued whenever it goes up or down.
+
+        The figure is the integer number of calls currently pending, i.e., the
+        number of tasks that have been queued up but haven't yet been called
+        plus those that have been called but haven't yet returned a result.
+        """
+        if interfaces.IConsumer.providedBy(consumer):
+            self.loadInfoProducer.registerConsumer(consumer)
+        else:
+            raise ImplementationError(
+                "Object doesn't provide the IConsumer interface")
+
+
+
+class TaskQueue(QueueBase):
+    """
+    I am a task queue for dispatching arbitrary callables to be run by one or
+    more worker objects.
+
+    You can construct me with one or more workers, or you can attach them later
+    with L{attachWorker}, in which you'll receive an ID that you can use to
+    detach the worker.
+
+    @keyword timeout: A number of seconds after which to more drastically
+      terminate my workers if they haven't gracefully shut down by that point.
+
+    @keyword warn: Set this option C{True} to only warn that a call
+      made after queue shutdown is being ignored, rather than raising
+      an exception.
+
+    """
+    def __init__(self, *args, **kw):
+        self._taskFactory = tasks.TaskFactory()
+        self.mgr = tasks.WorkerManager()
+        self.heap = Priority()
+        self.loadInfoProducer = LoadInfoProducer()
+        for worker in args:
+            self.attachWorker(worker)
+        self._startup()
+        self.timeout = kw.get('timeout', None)
+        self.warnOnly = kw.get('warn', False)
     
     def attachWorker(self, worker):
         """
@@ -300,6 +328,119 @@ class TaskQueue(object):
         if ID is None:
             return self.mgr.workers.values()
         return self.mgr.workers.get(ID, None)
+    
+    def call(self, func, *args, **kw):
+        """
+        Puts a call to I{func} with any supplied arguments and keywords into
+        the pipeline, returning a deferred to the eventual result of the call
+        when it is eventually pulled from the pipeline and run.
+
+        Scheduling of the call is impacted by the I{niceness} keyword that can
+        be included in addition to any keywords for the call. As with UNIX
+        niceness, the value should be an integer where 0 is normal scheduling,
+        negative numbers are higher priority, and positive numbers are lower
+        priority.
+
+        Tasks in a series of tasks all having niceness N+10 are dequeued and
+        run at approximately half the rate of tasks in another series with
+        niceness N.
+        
+        @keyword niceness: Scheduling niceness, an integer between -20 and 20,
+          with lower numbers having higher scheduling priority as in UNIX
+          C{nice} and C{renice}.
+
+        @keyword series: A hashable object uniquely identifying a series for
+          this task. Tasks of multiple different series will be run with
+          somewhat concurrent scheduling between the series even if they are
+          dumped into the queue in big batches, whereas tasks within a single
+          series will always run in sequence (except for niceness adjustments).
+        
+        @keyword doNext: Set C{True} to assign highest possible priority, even
+          higher than a deeply queued task with niceness = -20.
+        
+        @keyword doLast: Set C{True} to assign priority so low that any
+          other-priority task gets run before this one, no matter how long this
+          task has been queued up.
+
+        @keyword timeout: A timeout interval in seconds from when a worker gets
+          a task assignment for the call, after which the call will be retried.
+
+        """
+        def oneLessPending(result):
+            self.loadInfoProducer.oneLess()
+            return result
+        
+        if not self.isRunning():
+            if self.warnOnly:
+                argString = ", ".join([str(x) for x in args])
+                kwString = ", ".join(
+                    ["%s=%s" % (str(name), str(value))
+                     for name, value in kw.iteritems()])
+                if args and kw:
+                    sepString = ", "
+                else:
+                    sepString = ""
+                print "Queue shut down, ignoring call\n  %s(%s%s%s)\n" \
+                      % (str(func), argString, sepString, kwString)
+            else:
+                raise QueueRunError(
+                    "Cannot call after the queue has been shut down")
+        self.loadInfoProducer.oneMore()
+        niceness = kw.pop('niceness', 0)
+        series = kw.pop('series', None)
+        timeout = kw.pop('timeout', None)
+        task = self._taskFactory.new(func, args, kw, niceness, series, timeout)
+        if kw.pop('doNext', False):
+            task.priority = -1000000
+        elif kw.pop('doLast', False):
+            task.priority = 1000000
+        self.heap.put(task)
+        task.d.addBoth(oneLessPending)
+        return task.d
+
+
+class ProcessQueue(TaskQueue):
+    """
+    I am a task queue for dispatching arbitrary callables to be run by
+    a process pool under Python's multiprocessing package.
+
+    """
+    def __init__(self, N):
+        self.heap = Priority()
+        self.loadInfoProducer = LoadInfoProducer()
+        self.pool = multiprocessing.Pool(processes=N)
+        self._startup()
+        self.timeout = kw.get('timeout', None)
+        self.warnOnly = kw.get('warn', False)
+    
+    def isRunning(self):
+        """
+        Returns C{True} if the queue is running, C{False} otherwise.
+        """
+        return hasattr(self, '_triggerID')
+    
+    def shutdown(self):
+        """
+        Initiates a shutdown of the queue by putting a lowest-possible priority
+        C{None} object onto the priority heap instead of a task.
+        
+        @return: A deferred that fires when all the workers have shut
+          down, with a list of any tasks left unfinished in the queue.
+        
+        """
+        def cleanup(unfinishedTasks):
+            if hasattr(self, '_triggerID'):
+                reactor.removeSystemEventTrigger(self._triggerID)
+                del self._triggerID
+            return unfinishedTasks
+        
+        if self.isRunning():
+            self.heap.put(None)
+            d = self._d
+        else:
+            d = defer.succeed([])
+        d.addCallback(cleanup)
+        return d
     
     def call(self, func, *args, **kw):
         """
