@@ -37,4 +37,18 @@ class ThreadQueue(TaskQueue):
             worker = ThreadWorker()
             self.attachWorker(worker)
 
+
+class ProcessQueue(TaskQueue):
+    """
+    I am a task queue for dispatching arbitrary callables to be run by
+    workers from a pool of I{N} worker processes, the number I{N}
+    being specified as the sole argument of my constructor.
+
+    """
+    def __init__(self, N, **kw):
+        TaskQueue.__init__(self, **kw)
+        for null in xrange(N):
+            worker = ProcessWorker()
+            self.attachWorker(worker)
+
     

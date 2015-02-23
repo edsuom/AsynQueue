@@ -22,6 +22,7 @@ Unit tests for asynqueue.workers
 """
 
 import time, random, threading
+import multiprocessing as mp
 import zope.interface
 from twisted.internet import defer
 from twisted.trial.unittest import TestCase
@@ -29,7 +30,7 @@ from twisted.trial.unittest import TestCase
 from util import base, workers, errors
 
 
-VERBOSE = False
+VERBOSE = True
 
 
 class NoCAttr(object):
@@ -153,6 +154,78 @@ class TestThreadWorker(TestCase):
         dList = []
         for x in xrange(N):
             d = self.queue.call(self._blockingTask, x)
+            d.addCallback(gotResult)
+            dList.append(d)
+        d = defer.DeferredList(dList)
+        d.addCallback(checkResults)
+        return d
+
+
+def blockingTask(x):
+    delay = random.uniform(1.5, 2.0)
+    if VERBOSE:
+        print "Running %f sec. task in process %d" % \
+            (delay, mp.current_process().pid)
+    time.sleep(delay)
+    return 2*x
+
+
+class TestProcessWorker(TestCase):
+    def setUp(self):
+        self.worker = workers.ProcessWorker()
+        self.queue = base.TaskQueue()
+        self.queue.attachWorker(self.worker)
+
+    def tearDown(self):
+        return self.queue.shutdown()
+
+    def checkStopped(self, null):
+        self.failIf(self.worker.process.is_alive())
+            
+    def testShutdown(self):
+        d = self.queue.call(blockingTask, 0)
+        d.addCallback(lambda _: self.queue.shutdown())
+        d.addCallback(self.checkStopped)
+        return d
+
+    def testShutdownWithoutRunning(self):
+        d = self.queue.shutdown()
+        d.addCallback(self.checkStopped)
+        return d
+
+    def testStop(self):
+        d = self.queue.call(blockingTask, 0)
+        d.addCallback(lambda _: self.worker.stop())
+        d.addCallback(self.checkStopped)
+        return d
+
+    def testOneTask(self):
+        d = self.queue.call(blockingTask, 15)
+        d.addCallback(self.failUnlessEqual, 30)
+        return d
+
+    def testMultipleWorkers(self):
+        N = 20
+        mutable = []
+
+        def gotResult(result):
+            if VERBOSE:
+                print "Task result: %s" % result
+            mutable.append(result)
+
+        def checkResults(null):
+            self.failUnlessEqual(len(mutable), N)
+            self.failUnlessEqual(
+                sum(mutable),
+                sum([2*x for x in xrange(N)]))
+
+        # Create and attach two more workers, for a total of three
+        for null in xrange(2):
+            worker = workers.ProcessWorker()
+            self.queue.attachWorker(worker)
+        dList = []
+        for x in xrange(N):
+            d = self.queue.call(blockingTask, x)
             d.addCallback(gotResult)
             dList.append(d)
         d = defer.DeferredList(dList)

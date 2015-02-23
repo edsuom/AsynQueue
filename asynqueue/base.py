@@ -242,7 +242,6 @@ class QueueBase(object):
                 "Object doesn't provide the IConsumer interface")
 
 
-
 class TaskQueue(QueueBase):
     """
     I am a task queue for dispatching arbitrary callables to be run by one or
@@ -397,13 +396,4 @@ class TaskQueue(QueueBase):
         self.heap.put(task)
         task.d.addBoth(oneLessPending)
         return task.d
-
-
-class ProcessQueue(TaskQueue):
-    """
-    I am a task queue for dispatching arbitrary callables to be run by
-    a process pool under Python's multiprocessing package.
-
-    """
-    # TODO (maybe)
     
