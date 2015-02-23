@@ -211,6 +211,54 @@ class ThreadWorker(object):
             self.d.callback(None)
 
 
+class ProcessUniverse(object):
+    """
+    Each process lives in one of these
+    """
+    def __init__(self, connection):
+        self.connection = connection
+    
+    def set(self, name, theCallable):
+        """
+        Sets a named callable object
+        """
+        setattr(self, name, theCallable)
+        return "OK"
+
+    def get(self, name):
+        """
+        Gets a named callable object
+        """
+        return getattr(self, name)
+
+    def loop(self):
+        """
+        Runs a loop in a dedicated thread that waits for new tasks. The
+        loop exits when a C{None} object is supplied as a task.
+        """
+        while True:
+            # Wait here for the next task
+            callSpec = self.connection.recv()
+            if callSpec is None:
+                # Termination task, no reply expected; just exit the
+                # loop
+                break
+            f, args, kw = callSpec
+            if isinstance(f, str):
+                # Callable objects can be named as strings if defined
+                f = self.get(f)
+            try:
+                result = f(*args, **kw)
+                # If the task causes this python interpreter process
+                # to hang, the method call will not reach this point.
+            except Exception, e:
+                self.connection.send(failure.Failure(e))
+            else:
+                self.connection.send(result)
+        # Broken out of loop, ready for the process to end
+        self.connection.close()
+    
+            
 class ProcessWorker(object):
     """
     I implement an L{IWorker} that runs tasks in a dedicated worker
@@ -219,48 +267,45 @@ class ProcessWorker(object):
     You can define one or more specialties that I am qualified to handle with
     string arguments.
 
+    Define process-local versions of objects with keywords. Then you
+    can access the objects by name in tasks.
+
     """
     pollInterval = 0.01
     
     implements(IWorker)
     cQualified = []
     
-    def __init__(self, *specialties):
+    def __init__(self, *specialties, **kw):
+        self.namedCallables = []
         import multiprocessing as mp
         self.iQualified = list(specialties)
         self.cMain, self.cProcess = mp.Pipe()
-        self.process = mp.Process(target=self._loop)
+        pu = ProcessUniverse(self.cProcess)
+        self.process = mp.Process(target=pu.loop)
         self.process.start()
-
-    def _loop(self):
-        """
-        Runs a loop in a dedicated thread that waits for new tasks. The
-        loop exits when a C{None} object is supplied as a task.
-        """
-        while True:
-            # Wait here for the next task
-            callSpec = self.cProcess.recv()
-            if callSpec is None:
-                # Termination task, no reply expected; just exit the
-                # loop
-                break
-            f, args, kw = callSpec
-            try:
-                result = f(*args, **kw)
-                # If the task causes this python interpreter process
-                # to hang, the method call will not reach this point.
-            except Exception, e:
-                self.cProcess.send(failure.Failure(e))
+        # Set named callables
+        # TODO: Doesn't work; something about a handle not being
+        # specified on the other end
+        for name, value in kw.iteritems():
+            self.send((pu.set, (name, value), {}))
+            result = self.cMain.recv()
+            if result == "OK":
+                self.namedCallables.append(name)
+            elif isinstance(result, failure.Failure):
+                result.raiseException()
             else:
-                self.cProcess.send(result)
-        # Broken out of loop, ready for the process to end
-        self.cProcess.close()
+                raise Exception(
+                    "Error setting named callable '{}'".format(name))
+            
+    def send(self, stuff):
+        self.cMain.send(stuff)
 
     def setResignator(self, callableObject):
         """
         There's nothing that would make me resign.
         """
-
+        
     def run(self, task):
         """
         Sends the task callable and args, kw to the process (must all be
@@ -287,13 +332,13 @@ class ProcessWorker(object):
         self.d = defer.Deferred()
         if task is None:
             # A termination task
-            self.cMain.send(None)
+            self.send(None)
             # Wait (a very short amount of time) for the process loop
             # to exit
             self.process.join()
             self.d.callback(None)
         else:
-            self.cMain.send(task.callTuple)
+            self.send(task.callTuple)
             # The first and possibly only poll for a result
             pollForResult()
         # The returned deferred fires when the result is finally

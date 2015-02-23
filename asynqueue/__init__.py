@@ -40,15 +40,23 @@ class ThreadQueue(TaskQueue):
 
 class ProcessQueue(TaskQueue):
     """
-    I am a task queue for dispatching arbitrary callables to be run by
-    workers from a pool of I{N} worker processes, the number I{N}
-    being specified as the sole argument of my constructor.
+    I am a task queue for dispatching picklable or keyword-supplied
+    callables to be run by workers from a pool of I{N} worker
+    processes, the number I{N} being specified as the sole argument of
+    my constructor.
+
+    Besides the reserved keywords 'timeout' and 'warn' that you can
+    supply for my underlying TaskQueue constructor, you can supply
+    local callable objects to the constructor with keywords and then
+    supply only the keyword strings as callables for your tasks.
 
     """
     def __init__(self, N, **kw):
         TaskQueue.__init__(self, **kw)
+        for reservedKW in ('timeout', 'warn'):
+            kw.pop(reservedKW, None)
         for null in xrange(N):
-            worker = ProcessWorker()
+            worker = ProcessWorker(**kw)
             self.attachWorker(worker)
 
     

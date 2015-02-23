@@ -396,4 +396,3 @@ class TaskQueue(QueueBase):
         self.heap.put(task)
         task.d.addBoth(oneLessPending)
         return task.d
-    
