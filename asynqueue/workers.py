@@ -215,14 +215,11 @@ class ProcessUniverse(object):
     """
     Each process lives in one of these
     """
-    def __init__(self, connection):
-        self.connection = connection
-    
-    def set(self, name, theCallable):
+    def set(self, name, f):
         """
         Sets a named callable object
         """
-        setattr(self, name, theCallable)
+        setattr(self, name, f)
         return "OK"
 
     def get(self, name):
@@ -231,14 +228,14 @@ class ProcessUniverse(object):
         """
         return getattr(self, name)
 
-    def loop(self):
+    def loop(self, connection):
         """
         Runs a loop in a dedicated thread that waits for new tasks. The
         loop exits when a C{None} object is supplied as a task.
         """
         while True:
             # Wait here for the next task
-            callSpec = self.connection.recv()
+            callSpec = connection.recv()
             if callSpec is None:
                 # Termination task, no reply expected; just exit the
                 # loop
@@ -252,11 +249,11 @@ class ProcessUniverse(object):
                 # If the task causes this python interpreter process
                 # to hang, the method call will not reach this point.
             except Exception, e:
-                self.connection.send(failure.Failure(e))
+                connection.send(failure.Failure(e))
             else:
-                self.connection.send(result)
+                connection.send(result)
         # Broken out of loop, ready for the process to end
-        self.connection.close()
+        connection.close()
     
             
 class ProcessWorker(object):
@@ -277,24 +274,19 @@ class ProcessWorker(object):
     cQualified = []
     
     def __init__(self, *specialties, **kw):
-        self.namedCallables = []
         import multiprocessing as mp
         self.iQualified = list(specialties)
-        self.cMain, self.cProcess = mp.Pipe()
-        pu = ProcessUniverse(self.cProcess)
-        self.process = mp.Process(target=pu.loop)
+        self.cMain, cProcess = mp.Pipe()
+        pu = ProcessUniverse()
+        self.process = mp.Process(target=pu.loop, args=(cProcess,))
         self.process.start()
         # Set named callables
-        # TODO: Doesn't work; something about a handle not being
-        # specified on the other end
-        for name, value in kw.iteritems():
-            self.send((pu.set, (name, value), {}))
+        for name, f in kw.iteritems():
+            self.send(('set', (name, f), {}))
             result = self.cMain.recv()
-            if result == "OK":
-                self.namedCallables.append(name)
-            elif isinstance(result, failure.Failure):
+            if isinstance(result, failure.Failure):
                 result.raiseException()
-            else:
+            elif result != "OK":
                 raise Exception(
                     "Error setting named callable '{}'".format(name))
             
@@ -529,3 +521,41 @@ class RemoteInterfaceWorker(RemoteCallWorker):
         self.jobs.append(job)
         d.addBoth(self.doneTrying, job)
         # The task's deferred is NOT returned!
+
+
+class BogusWorker(object):
+    implements(IWorker)
+    cQualified = []
+
+    def __init__(self, **kw):
+        self.iQualified = []
+        self._namedCallables = {}
+        # Set named callables, just like a real ProcessWorker
+        for name, f in kw.iteritems():
+            self._namedCallables[name] = f
+
+    def setResignator(self, callableObject):
+        """
+        There's nothing that would make me resign.
+        """
+
+    def run(self, task):
+        func, args, kw = task.callTuple
+        if isinstance(func, str):
+            func = self._namedCallables[func]
+        print "\nTask: ", func, args, kw
+        try:
+            result = func(*args, **kw)
+            task.callback(result)
+            d = defer.succeed(result)
+        except:
+            result = failure.Failure()
+            task.errback(result)
+            d = defer.fail(result)
+        return d
+
+    def stop(self):
+        return defer.succeed(None)
+
+    def crash(self):
+        return []

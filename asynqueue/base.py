@@ -156,8 +156,9 @@ class LoadInfoProducer(object):
 
 class QueueBase(object):
     """
+    Base class for asynchronous queues
     """
-    def _startup(self):
+    def startup(self):
         """
         Starts up a L{defer.deferredGenerator} that runs the queue. This method
         can only be run once, by the constructor upon instantiation.
@@ -258,6 +259,10 @@ class TaskQueue(QueueBase):
       made after queue shutdown is being ignored, rather than raising
       an exception.
 
+    @keyword profile: Set to a filename and each call will be run
+        under a profiler. The profiler stats will be dumped to the
+        filename when the queue shuts down.
+
     """
     def __init__(self, *args, **kw):
         self._taskFactory = tasks.TaskFactory()
@@ -266,9 +271,10 @@ class TaskQueue(QueueBase):
         self.loadInfoProducer = LoadInfoProducer()
         for worker in args:
             self.attachWorker(worker)
-        self._startup()
+        self.startup()
         self.timeout = kw.get('timeout', None)
         self.warnOnly = kw.get('warn', False)
+        self.profile = kw.get('profile', None)
     
     def attachWorker(self, worker):
         """

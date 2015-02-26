@@ -53,10 +53,23 @@ class ProcessQueue(TaskQueue):
     """
     def __init__(self, N, **kw):
         TaskQueue.__init__(self, **kw)
-        for reservedKW in ('timeout', 'warn'):
+        for reservedKW in ('timeout', 'warn', 'profile'):
             kw.pop(reservedKW, None)
         for null in xrange(N):
             worker = ProcessWorker(**kw)
             self.attachWorker(worker)
 
+    
+class BogusQueue(TaskQueue):
+    """
+    I am a stand-in for a real task queue, running all tasks
+    immediately in the same thread
+    """
+    def __init__(self, **kw):
+        TaskQueue.__init__(self, **kw)
+        self.attachWorker(BogusWorker())
+        for reservedKW in ('timeout', 'warn', 'profile'):
+            kw.pop(reservedKW, None)
+        worker = BogusWorker(**kw)
+        self.attachWorker(worker)
     

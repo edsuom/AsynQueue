@@ -170,6 +170,21 @@ def blockingTask(x):
     return 2*x
 
 
+class TestProcessWorker_namedCallable(TestCase):
+    def setUp(self):
+        self.worker = workers.ProcessWorker(bt=blockingTask)
+        self.queue = base.TaskQueue()
+        self.queue.attachWorker(self.worker)
+
+    def tearDown(self):
+        return self.queue.shutdown()
+
+    def testNamedCallable(self):
+        d = self.queue.call('bt', 10)
+        d.addCallback(self.failUnlessEqual, 20)
+        return d
+
+
 class TestProcessWorker(TestCase):
     def setUp(self):
         self.worker = workers.ProcessWorker()
