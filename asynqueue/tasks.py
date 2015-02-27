@@ -192,12 +192,11 @@ class Assignment(object):
 
     def accept(self, worker):
         """
-        Called when the worker accepts the assignment, firing my
-        deferred.
+        Called when the worker accepts the assignment, firing my deferred.
         
         @return: Another deferred that fires when the worker is ready to accept
           B{another} assignment following this one.
-
+        
         """
         self.d.callback(None)
         self.task.startTimer()
@@ -211,9 +210,11 @@ class AssignmentFactory(object):
     def __init__(self):
         self.waiting = {}
         self.pending = {}
+        self.broadcast = {}
 
     def cancelRequests(self, worker):
         """
+        Cancel this worker's assignment requests
         """
         for series, dList in getattr(worker, 'assignments', {}).iteritems():
             requestsWaiting = self.waiting.get(series, [])
@@ -226,9 +227,10 @@ class AssignmentFactory(object):
         Called to request a new assignment in the specified I{series} of tasks
         for the supplied I{worker}.
 
-        When a new assignment in the series is finally ready in the queue for
-        this worker, the deferred for the assignment request will fire with an
-        instance of me that has been constructed with the task to be assigned.
+        When a new assignment in the series is finally ready in the
+        queue for this worker, the deferred for the assignment request
+        will fire with an instance of L{Assignment} that has been
+        constructed with the task to be assigned.
 
         If the worker is still gainfully employed when it accepts the
         assignment, and is not just wrapping up its work after having been
@@ -269,6 +271,24 @@ class AssignmentFactory(object):
         else:
             self.pending.setdefault(series, []).append(assignment)
         return assignment.d
+
+    def newBroadcast(self, workers, task):
+        """
+        Creates and a new broadcast assignment for the supplied
+        I{task}, returning a deferred that fires when the assignment
+        has been accepted by all workers qualified for its task
+        series.
+
+        The task isn't run through the regular queue; each qualified
+        worker runs it immediately after completing its current
+        assignment. Don't call this method before all workers are done
+        with any previous broadcast assignment.
+
+        TODO: Not sure how I'm going to implement this without making
+        a huge mess.
+        """
+        raise NotImplementedError(
+            "Broadcast assignments not yet implemented")
 
 
 class WorkerManager(object):
@@ -402,7 +422,7 @@ class WorkerManager(object):
             d.addCallback(reassignTasks)
         return d
     
-    def assignment(self, task):
+    def assignment(self, task, broadcast=False):
         """
         Generates a new assignment for the supplied I{task}.
 
@@ -410,9 +430,18 @@ class WorkerManager(object):
         becomes ready for another task following this one, an assignment
         request will be entered for it to obtain another task of the same
         series.
+
+        @keyword broadcast: Set C{True} if the task is to be run by
+          all workers. In that case, the deferred only fires when all
+          workers have accepted their copies of the task. (TODO)
         
-        @return: A deferred that fires when the task has been assigned to a
-          worker and it has accepted the assignment.
+        @return: A deferred that fires when the task has been assigned
+          to a worker and it has accepted the assignment, or in
+          broadcast mode, when all workers have accepted their copies
+          of the assignment.
 
         """
+        if broadcast:
+            return self.assignmentFactory.newBroadcast(
+                self.workers.values(), task)
         return self.assignmentFactory.new(task)

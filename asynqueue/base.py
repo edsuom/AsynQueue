@@ -199,12 +199,11 @@ class QueueBase(object):
     
     def shutdown(self):
         """
-        Initiates a shutdown of the queue by putting a lowest-possible priority
-        C{None} object onto the priority heap instead of a task.
+        Initiates a shutdown of the queue by putting a lowest-possible
+        priority C{None} object onto the priority heap.
         
         @return: A deferred that fires when all the workers have shut
           down, with a list of any tasks left unfinished in the queue.
-        
         """
         def cleanup(unfinishedTasks):
             if hasattr(self, '_triggerID'):
@@ -402,3 +401,16 @@ class TaskQueue(QueueBase):
         self.heap.put(task)
         task.d.addBoth(oneLessPending)
         return task.d
+
+    def callAll(self, func, *args, **kw):
+        """
+        Puts a call to I{func} with any supplied arguments and keywords into
+        the pipeline, returning a deferred to the eventual result of the call
+        when it is eventually pulled from the pipeline and run.
+
+        TODO: Not sure how I'm going to implement this without making
+        a huge mess.
+        """
+        raise NotImplementedError(
+            "Broadcast assignments not yet implemented")
+        
