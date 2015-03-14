@@ -151,7 +151,8 @@ class ThreadWorker(object):
                 # If the task causes the thread to hang, the method
                 # call will not reach this point.
             except Exception, e:
-                reactor.callFromThread(task.errback, failure.Failure(e))
+                reactor.callFromThread(
+                    task.errback, failure.Failure(e, captureVars=True))
             else:
                 reactor.callFromThread(task.callback, result)
         # Broken out of loop, ready for the thread to end
@@ -249,7 +250,7 @@ class ProcessUniverse(object):
                 # If the task causes this python interpreter process
                 # to hang, the method call will not reach this point.
             except Exception, e:
-                connection.send(failure.Failure(e))
+                connection.send(failure.Failure(e, captureVars=True))
             else:
                 connection.send(result)
         # Broken out of loop, ready for the process to end
@@ -325,8 +326,8 @@ class ProcessWorker(object):
         if task is None:
             # A termination task
             self.send(None)
-            # Wait (a very short amount of time) for the process loop
-            # to exit
+            # Wait (probably just a very short amount of time) for the
+            # process loop to exit
             self.process.join()
             self.d.callback(None)
         else:
@@ -339,7 +340,7 @@ class ProcessWorker(object):
         return self.d
 
     def _killProcess(self, null):
-        self.cMain.close()
+        self.cMain.send(None)
         self.process.terminate()
     
     def stop(self):
