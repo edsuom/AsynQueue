@@ -153,7 +153,6 @@ class LoadInfoProducer(object):
         self.shutdown()
 
 
-
 class QueueBase(object):
     """
     Base class for asynchronous queues
@@ -163,27 +162,17 @@ class QueueBase(object):
         Starts up a L{defer.deferredGenerator} that runs the queue. This method
         can only be run once, by the constructor upon instantiation.
         """
-        @defer.deferredGenerator
+        @defer.inlineCallbacks
         def runner():
             while True:
-                wfd = defer.waitForDeferred(self.heap.get())
-                yield wfd
-                task = wfd.getResult()
+                task = yield self.heap.get()
                 if task is None:
                     break
-                wfd = defer.waitForDeferred(self.mgr.assignment(task))
-                yield wfd; wfd.getResult()
+                yield self.mgr.assignment(task)
             # Clean up after the loop exits
-            wfd = defer.waitForDeferred(self.mgr.shutdown(self.timeout))
-            yield wfd
+            result = yield self.mgr.shutdown(self.timeout)
             self.heap.shutdown()
-            # The result of the runner is a list of any unfinished tasks.
-            result = []
-            try:
-                result = wfd.getResult()
-            except:
-                pass
-            yield result
+            defer.returnValue(result)
         
         if self.isRunning():
             raise QueueRunError("Startup only occurs upon instantiation")
@@ -225,6 +214,13 @@ class QueueBase(object):
         removing them from the queue.
         """
         self.heap.cancel(lambda item: getattr(item, 'series', None) == series)
+
+    def cancelAll(self):
+        """
+        Cancels all pending tasks, unceremoniously removing them from the
+        queue.
+        """
+        self.heap.cancel(lambda item: True)
     
     def subscribe(self, consumer):
         """

@@ -114,19 +114,49 @@ class IWorker(Interface):
         """
 
 
-class ThreadWorker(object):
+class LocalWorker(object):
+    """
+    Subclasses of me implement an L{IWorker} that runs tasks locally.
+    """
+    implements(IWorker)
+    cQualified = []
+
+    def setResignator(self, callableObject):
+        """
+        There's nothing that would make a local worker ever resign.
+        """
+    
+    def taskRan(self, result):
+        status, result = result
+        if status:
+            self.d.callback(result)
+        elif result == 'Timeout':
+            # A timeout in a local worker is a show-stopper, at least
+            # until I come up with a sensible way to deal with that
+            # situation. Retrying with a hung thread sounds messy, for
+            # one thing.
+            self.d.errback(failure.Failure(errors.TimeoutError))
+        else:
+            # Running the task raised an exception for the worker, and
+            # it provided details as a string.
+            self.d.errback(
+                failure.Failure(
+                    errors.LocalWorkerError(result)))
+
+    
+class ThreadWorker(LocalWorker):
     """
     I implement an L{IWorker} that runs tasks in a dedicated worker thread.
 
     You can define one or more specialties that I am qualified to handle with
     string arguments.
     """
-    implements(IWorker)
-    cQualified = []
-
+    universe = ThreadUniverse
+    
     def __init__(self, *specialties):
-        import threading
         self.iQualified = list(specialties)
+        self.
+        import threading
         self.event = threading.Event()
         self.thread = threading.Thread(target=self._loop)
         self.thread.start()
@@ -150,18 +180,20 @@ class ThreadWorker(object):
                 result = f(*args, **kw)
                 # If the task causes the thread to hang, the method
                 # call will not reach this point.
-            except Exception, e:
-                reactor.callFromThread(
-                    task.errback, failure.Failure(e, captureVars=True))
+            except Exception as e:
+                import traceback
+                lineList = [
+                    "Exception '{}'".format(str(e)),
+                    " running task '{}':".format(repr(self.task))]
+                lineList.append(
+                    "-" * (max([len(x) for x in lineList]) + 1))
+                lineList.append("".join(traceback.format_tb(e[2])))
+                statusResult = (False, "\n".join(lineList))
             else:
-                reactor.callFromThread(task.callback, result)
+                statusResult = (True, result)
+            reactor.callFromThread(task.callback, statusResult)
         # Broken out of loop, ready for the thread to end
         reactor.callFromThread(self.d.callback, None)
-
-    def setResignator(self, callableObject):
-        """
-        There's nothing that would make me resign.
-        """
 
     def run(self, task):
         if hasattr(self, 'd') and not self.d.called:
@@ -212,10 +244,13 @@ class ThreadWorker(object):
             self.d.callback(None)
 
 
-class ProcessUniverse(object):
+class WorkerUniverse(object):
     """
-    Each process lives in one of these
+    Each local worker lives in one of these
     """
+    def __init__(self, *args):
+        self.args = list(args)
+    
     def set(self, name, f):
         """
         Sets a named callable object
@@ -229,30 +264,43 @@ class ProcessUniverse(object):
         """
         return getattr(self, name)
 
-    def loop(self, connection):
+    def waitForTask(self):
+        return connection.recv()
+
+    def sendResult(self, statusResult):
+        connection.send(result)        
+    
+    def loop(self, *args):
         """
         Runs a loop in a dedicated thread that waits for new tasks. The
-        loop exits when a C{None} object is supplied as a task.
+        loop exits when a C{None} object is supplied as the task.
         """
+        self.args.extend(list(args))
         while True:
             # Wait here for the next task
-            callSpec = connection.recv()
-            if callSpec is None:
+            task = self.waitForTask()
+            if task is None:
                 # Termination task, no reply expected; just exit the
                 # loop
                 break
-            f, args, kw = callSpec
-            if isinstance(f, str):
-                # Callable objects can be named as strings if defined
-                f = self.get(f)
+            f, args, kw = task.callTuple
             try:
                 result = f(*args, **kw)
-                # If the task causes this python interpreter process
-                # to hang, the method call will not reach this point.
-            except Exception, e:
-                connection.send(failure.Failure(e, captureVars=True))
+                # If the task causes the thread to hang, the method
+                # call will not reach this point.
+            except Exception as e:
+                import traceback
+                lineList = [
+                    "Exception '{}'".format(str(e)),
+                    " running task '{}':".format(repr(self.task))]
+                lineList.append(
+                    "-" * (max([len(x) for x in lineList]) + 1))
+                lineList.append("".join(traceback.format_tb(e[2])))
+                statusResult = (False, "\n".join(lineList))
             else:
-                connection.send(result)
+                statusResult = (True, result)
+            self.sendResult(statusResult)
+
         # Broken out of loop, ready for the process to end
         connection.close()
     

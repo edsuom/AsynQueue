@@ -29,12 +29,10 @@ class QueueRunError(Exception):
     An attempt was made to dispatch tasks when the dispatcher isn't running.
     """
 
-
 class ImplementationError(Exception):
     """
     There was a problem implementing the required interface.
     """
-
 
 class InvariantError(Invalid):
     """
@@ -42,3 +40,15 @@ class InvariantError(Invalid):
     """
     def __repr__(self):
         return "InvariantError(%r)" % self.args
+
+class TimeoutError(Exception):
+    """
+    A local worker took too long to provide a result.
+    """
+
+class LocalWorkerError(Exception):
+    """
+    A local worker ran into an exception trying to run a task.
+    """
+    def __init__(self, details):
+        self.details = details
