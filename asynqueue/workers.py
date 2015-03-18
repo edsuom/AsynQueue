@@ -123,7 +123,7 @@ class LocalWorker(object):
 
     def setResignator(self, callableObject):
         """
-        There's nothing that would make a local worker ever resign.
+        There's nothing that would make a local worker resign on its own.
         """
     
     def taskRan(self, result):
@@ -142,7 +142,179 @@ class LocalWorker(object):
             self.d.errback(
                 failure.Failure(
                     errors.LocalWorkerError(result)))
+    
+    def run(self, task):
+        """
+        Sends the task callable, args, kw to the process returns a
+        deferred to the eventual result.
 
+        You must make sure that the local worker is ready for the next
+        task before running this with another one.
+
+        """
+        def pollForResult():
+            if self.cMain.poll():
+                result = self.cMain.recv()
+                if isinstance(result, failure.Failure):
+                    self.task.errback(result)
+                else:
+                    self.task.callback(result)
+                # One way or the other, we have a result, so fire the
+                # deferred that is returned from the run method call
+                self.d.callback(None)
+            else:
+                reactor.callLater(self.pollInterval, pollForResult)
+
+        # A local worker is strictly one task at a time
+        if hasattr(self, 'd') and not self.d.called:
+            raise errors.ImplementationError(
+                "Task Loop not ready to deal with a task now")
+        self.task = task
+        self.d = defer.Deferred()
+        if task is None:
+            # A termination task
+            self.send(None)
+            # Blocking wait (probably just a very short amount of
+            # time) for the local worker's task's loop to exit
+            self.process.join()
+            self.d.callback(None)
+        else:
+            self.send(task.callTuple)
+            # The first and possibly only poll for a result
+            pollForResult()
+        # The returned deferred fires when the result is finally
+        # obtained (it may already have fired in the case of a
+        # termination task)
+        return self.d
+
+            
+
+class WorkerUniverse(object):
+    """
+    Each local worker lives in one of these
+    """
+    def __init__(self, *args):
+        self.args = list(args)
+    
+    def set(self, name, f):
+        """
+        Sets a named callable object
+        """
+        setattr(self, name, f)
+        return "OK"
+
+    def get(self, name):
+        """
+        Gets a named callable object
+        """
+        return getattr(self, name)
+
+    def waitForTask(self):
+        return connection.recv()
+
+    def sendResult(self, statusResult):
+        connection.send(result)        
+    
+    def loop(self, *args):
+        """
+        Runs a loop in a dedicated thread that waits for new tasks. The
+        loop exits when a C{None} object is supplied as the task.
+        """
+        self.args.extend(list(args))
+        while True:
+            # Wait here for the next task
+            task = self.waitForTask()
+            if task is None:
+                # Termination task, no reply expected; just exit the
+                # loop
+                break
+            f, args, kw = task.callTuple
+            try:
+                result = f(*args, **kw)
+                # If the task causes the thread to hang, the method
+                # call will not reach this point.
+            except Exception as e:
+                import traceback
+                lineList = [
+                    "Exception '{}'".format(str(e)),
+                    " running task '{}':".format(repr(self.task))]
+                lineList.append(
+                    "-" * (max([len(x) for x in lineList]) + 1))
+                lineList.append("".join(traceback.format_tb(e[2])))
+                statusResult = (False, "\n".join(lineList))
+            else:
+                statusResult = (True, result)
+            self.sendResult(statusResult)
+
+        # Broken out of loop, ready for the process to end
+        connection.close()
+
+            
+class ProcessWorker(object):
+    """
+    I implement an L{IWorker} that runs tasks in a dedicated worker
+    process.
+
+    You can define one or more specialties that I am qualified to handle with
+    string arguments.
+
+    Define process-local versions of objects with keywords. Then you
+    can access the objects by name in tasks.
+
+    """
+    pollInterval = 0.01
+    
+    implements(IWorker)
+    cQualified = []
+    
+            
+    def send(self, stuff):
+        self.cMain.send(stuff)
+        
+
+    def _killProcess(self, null):
+        self.cMain.send(None)
+        self.process.terminate()
+    
+    def stop(self):
+        """
+        The returned deferred fires when the task loop has ended and its
+        process terminated.
+        """
+        if not self.process.is_alive():
+            # Already stopped
+            return defer.succeed(None)
+        if hasattr(self, 'd') and not self.d.called:
+            # Running a task, wait for it to finish
+            d = defer.Deferred()
+            d.addCallback(lambda _: self.stop())
+            self.d.chainDeferred(d)
+        else:
+            # Running and awaiting a task, send it a null task to shut
+            # it down
+            d = self.run(None)
+        d.addCallback(self._killProcess)
+        return d
+
+    def crash(self):
+        self._killProcess(None)
+        if self.task is not None and not self.task.d.called:
+            result = [self.task]
+        else:
+            # This shouldn't happen
+            result = []
+        if hasattr(self, 'd') and not self.d.called:
+            del self.task
+            self.d.callback(None)
+
+    def waitForTask(self):
+        return connection.recv()
+
+    def sendResult(self, statusResult):
+        connection.send(result)        
+
+
+            
     
 class ThreadWorker(LocalWorker):
     """
@@ -234,185 +406,6 @@ class ThreadWorker(LocalWorker):
         previous call to L{stop} and returns the task that hung the
         thread.
         """
-        if self.task is not None and not self.task.d.called:
-            result = [self.task]
-        else:
-            # This shouldn't happen
-            result = []
-        if hasattr(self, 'd') and not self.d.called:
-            del self.task
-            self.d.callback(None)
-
-
-class WorkerUniverse(object):
-    """
-    Each local worker lives in one of these
-    """
-    def __init__(self, *args):
-        self.args = list(args)
-    
-    def set(self, name, f):
-        """
-        Sets a named callable object
-        """
-        setattr(self, name, f)
-        return "OK"
-
-    def get(self, name):
-        """
-        Gets a named callable object
-        """
-        return getattr(self, name)
-
-    def waitForTask(self):
-        return connection.recv()
-
-    def sendResult(self, statusResult):
-        connection.send(result)        
-    
-    def loop(self, *args):
-        """
-        Runs a loop in a dedicated thread that waits for new tasks. The
-        loop exits when a C{None} object is supplied as the task.
-        """
-        self.args.extend(list(args))
-        while True:
-            # Wait here for the next task
-            task = self.waitForTask()
-            if task is None:
-                # Termination task, no reply expected; just exit the
-                # loop
-                break
-            f, args, kw = task.callTuple
-            try:
-                result = f(*args, **kw)
-                # If the task causes the thread to hang, the method
-                # call will not reach this point.
-            except Exception as e:
-                import traceback
-                lineList = [
-                    "Exception '{}'".format(str(e)),
-                    " running task '{}':".format(repr(self.task))]
-                lineList.append(
-                    "-" * (max([len(x) for x in lineList]) + 1))
-                lineList.append("".join(traceback.format_tb(e[2])))
-                statusResult = (False, "\n".join(lineList))
-            else:
-                statusResult = (True, result)
-            self.sendResult(statusResult)
-
-        # Broken out of loop, ready for the process to end
-        connection.close()
-    
-            
-class ProcessWorker(object):
-    """
-    I implement an L{IWorker} that runs tasks in a dedicated worker
-    process.
-
-    You can define one or more specialties that I am qualified to handle with
-    string arguments.
-
-    Define process-local versions of objects with keywords. Then you
-    can access the objects by name in tasks.
-
-    """
-    pollInterval = 0.01
-    
-    implements(IWorker)
-    cQualified = []
-    
-    def __init__(self, *specialties, **kw):
-        import multiprocessing as mp
-        self.iQualified = list(specialties)
-        self.cMain, cProcess = mp.Pipe()
-        pu = ProcessUniverse()
-        self.process = mp.Process(target=pu.loop, args=(cProcess,))
-        self.process.start()
-        # Set named callables
-        for name, f in kw.iteritems():
-            self.send(('set', (name, f), {}))
-            result = self.cMain.recv()
-            if isinstance(result, failure.Failure):
-                result.raiseException()
-            elif result != "OK":
-                raise Exception(
-                    "Error setting named callable '{}'".format(name))
-            
-    def send(self, stuff):
-        self.cMain.send(stuff)
-
-    def setResignator(self, callableObject):
-        """
-        There's nothing that would make me resign.
-        """
-        
-    def run(self, task):
-        """
-        Sends the task callable and args, kw to the process (must all be
-        picklable) and polls the interprocess connection for a result
-        """
-        def pollForResult():
-            if self.cMain.poll():
-                result = self.cMain.recv()
-                if isinstance(result, failure.Failure):
-                    self.task.errback(result)
-                else:
-                    self.task.callback(result)
-                # One way or the other, we have a result, so fire the
-                # deferred that is returned from the run method call
-                self.d.callback(None)
-            else:
-                reactor.callLater(self.pollInterval, pollForResult)
-
-        # Like ThreadWorker, ProcessWorker is strictly one task at a time
-        if hasattr(self, 'd') and not self.d.called:
-            raise errors.ImplementationError(
-                "Task Loop not ready to deal with a task now")
-        self.task = task
-        self.d = defer.Deferred()
-        if task is None:
-            # A termination task
-            self.send(None)
-            # Wait (probably just a very short amount of time) for the
-            # process loop to exit
-            self.process.join()
-            self.d.callback(None)
-        else:
-            self.send(task.callTuple)
-            # The first and possibly only poll for a result
-            pollForResult()
-        # The returned deferred fires when the result is finally
-        # obtained (it may already have fired in the case of a
-        # termination task)
-        return self.d
-
-    def _killProcess(self, null):
-        self.cMain.send(None)
-        self.process.terminate()
-    
-    def stop(self):
-        """
-        The returned deferred fires when the task loop has ended and its
-        process terminated.
-        """
-        if not self.process.is_alive():
-            # Already stopped
-            return defer.succeed(None)
-        if hasattr(self, 'd') and not self.d.called:
-            # Running a task, wait for it to finish
-            d = defer.Deferred()
-            d.addCallback(lambda _: self.stop())
-            self.d.chainDeferred(d)
-        else:
-            # Running and awaiting a task, send it a null task to shut
-            # it down
-            d = self.run(None)
-        d.addCallback(self._killProcess)
-        return d
-
-    def crash(self):
-        self._killProcess(None)
         if self.task is not None and not self.task.d.called:
             result = [self.task]
         else:

@@ -207,11 +207,13 @@ class ChildWorker(workers.RemoteCallWorker):
 
 class JobManager(object):
     """
-    I keep jobs running on python interpreters that are attached as children,
-    maintaining a pipeline of no fewer than I{N} calls pending on each
-    interpreter worker to minimize the effects of network latency for the PB
-    connection to the interpreters and balance the load across the workers
-    while still permitting some priority queueing of jobs by niceness.
+    I keep jobs running on python interpreters that are attached as
+    children, maintaining a pipeline of no fewer than I{N} calls
+    pending on each interpreter worker to minimize the effects of
+    network latency for the connection to the interpreters and balance
+    the load across the workers while still permitting some priority
+    queueing of jobs by niceness. For local workers, use N=1 as there
+    is (essentially) no latency.
 
     You can supply an instance of L{base.TaskQueue} to the constructor. I will
     instantiate my own if not.
@@ -226,7 +228,6 @@ class JobManager(object):
     indicate that it needs not run the update task again.
 
     @ivar queue: The TaskQueue instance I'm using.
-    
     """
     maxRetries = 1
     
