@@ -18,101 +18,55 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
 
 """
-The worker interface and some implementors.
+Implementors of the worker interface.
 """
-import subprocess
 
-from zope.interface import implements, invariant, Interface, Attribute
+from zope.interface import implements
 from twisted.python import failure
 from twisted.internet import defer, reactor, endpoints
 from twisted.protocols import amp
 
 import errors
+from interfaces import IWorker
 
 
-class IWorker(Interface):
+class Deferator(object):
     """
-    Provided by worker objects that can have tasks assigned to them for
-    processing.
+    Use an instance of me in place of a task result that is an
+    iterable other than one of Python's built-in containers (list,
+    dict, etc.). I yield deferreds to the next iteration of the
+    result.
 
-    All worker objects are considered qualified to run tasks of the default
-    C{None} series. To indicate that subclasses or subclass instances are
-    qualified to run tasks of user-defined series in addition to the default,
-    the hashable object that identifies the additional series must be listed in
-    the C{cQualified} or C{iQualified} class or instance attributes,
-    respectively.
-        
+    When the deferred from my first L{next} call fires, with the first
+    iteration of the underlying (possibly remote) iterable, you can
+    call L{next} again to get a deferred to the next one, and so on,
+    until I raise L{StopIteration} just like a regular iterable.
+
+    You MUST wrap my iteration in a L{defer.inlineCallbacks} loop or
+    otherwise wait for each yielded deferred to fire before asking for
+    the next one.
+
+    Instantiate me with a function (and any args and kw) that returns
+    (1) a deferred to the next iteration of the task result, and (2) a
+    Bool indicating whether there are more iterations left.
+
     """
-    cQualified = Attribute(
-        """
-        A class-attribute list containing all series for which all instances of
-        the subclass are qualified to run tasks.
-        """)
-
-    iQualified = Attribute(
-        """
-        An instance-attribute list containing all series for which the subclass
-        instance is qualified to run tasks.
-        """)
-
-    def _check_qualifications(ob):
-        """
-        Qualification attributes must be present as lists.
-        """
-        for attrName in ('cQualified', 'iQualified'):
-            x = getattr(ob, attrName, None)
-            if not isinstance(x, list):
-                raise errors.InvariantError(ob)
-    invariant(_check_qualifications)
-
-    def setResignator(callableObject):
-        """
-        Registers the supplied I{callableObject} to be called if the
-        worker deems it necessary to resign, e.g., a remote connection
-        has been lost.
-        """
-
-    def run(task):
-        """
-        Adds the task represented by the specified I{task} object to the list
-        of tasks pending for this worker, to be run however and whenever the
-        worker sees fit.
-
-        Make sure that any callbacks you add to the task's internal deferred
-        object C{task.d} return the callback argument. Otherwise, the result of
-        your task will be lost in the callback chain.
+    def __init__(self, f, *args, **kw):
+        self.callTuple = f, args, kw 
+        self.moreLeft = True
         
-        @return: A deferred that fires when the worker is ready to be assigned
-          another task.
-
-        """
-
-    def stop():
-        """
-        Attempts to gracefully shut down the worker, returning a deferred that
-        fires when the worker is done with all assigned tasks and will not
-        cause any errors if the reactor is stopped or its object is deleted.
-
-        The deferred returned by your implementation of this method must not
-        fire until B{after} the results of all pending tasks have been
-        obtained. Thus the deferred must be chained to each C{task.d} somehow.
-
-        Make sure that any callbacks you add to the task's internal deferred
-        object C{task.d} return the callback argument. Otherwise, the result of
-        your task will be lost in the callback chain.
-        """
-
-    def crash():
-        """
-        Takes drastic action to shut down the worker, rudely and
-        synchronously.
-
-        @return: A list of I{task} objects, one for each task left
-          uncompleted. You shouldn't have to call this method if no
-          tasks are left pending; the L{stop} method should be enough
-          in that case.
-
-        """
+    def __iter__(self):
+        return self
+        
+    def next(self):
+        if self.moreLeft:
+            if hasattr(self, 'd') and not self.d.called:
+                raise NotReadyError(
+                    "You didn't wait for the last deferred to fire!")
+            f, args, kw = self.callTuple
+            self.d, self.moreLeft = f(*args, **kw)
+            return d
+        raise StopIteration
 
 
 class WorkerBase(object):
@@ -387,15 +341,14 @@ class ProcessWorker(WorkerBase):
 
     def setResignator(self, callableObject):
         self.resignator = callableObject
-
+    
     def run(self, task):
         """
-        Sends the task callable, args, kw to the process returns a
+        Sends the task callable, args, kw to the process and returns a
         deferred to the eventual result.
 
         You must make sure that the local worker is ready for the next
         task before running this with another one.
-
         """
         def connected(null):
             # Delete my reference to the wait-for-connect deferred so

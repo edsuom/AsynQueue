@@ -30,7 +30,7 @@ from twisted.internet import reactor, defer
 testPath = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, testPath)
 # The modules under test
-import base, tasks, workers, errors
+import base, tasks, interfaces, workers, errors
 
 
 VERBOSE = False
@@ -109,4 +109,5 @@ class MockWorker(object):
             return [self.task]
 
 
-__all__ = ['base', 'tasks', 'workers', 'errors', 'MockWorker', 'MockTask']
+__all__ = ['base', 'tasks', 'interfaces', 'workers', 'errors',
+           'MockWorker', 'MockTask']

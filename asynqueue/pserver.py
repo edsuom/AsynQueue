@@ -21,6 +21,7 @@
 This module is imported by a subordinate Python process to service
 a ProcessWorker.
 """
+
 import sys, traceback
 import cPickle as pickle
 
@@ -42,7 +43,22 @@ class RunTask(amp.Command):
     ]
     response = [
         ('result_pickled', amp.String()),
+        ('getMoreWith', amp.Integer()),
         ('failureInfo', amp.String())
+    ]
+
+
+class GetMore(amp.Command):
+    """
+    Get more more data from a task with such a big result thst it had
+    to be chunked.
+    """
+    arguments = [
+        ('id', amp.Integer())
+    ]
+    response = [
+        ('result_pickled', amp.String()),
+        ('getMoreWith', amp.Integer()),
     ]
 
 
