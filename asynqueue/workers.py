@@ -24,7 +24,7 @@ The worker interface and some implementors.
 from zope.interface import implements, invariant, Interface, Attribute
 from twisted.python import failure
 from twisted.internet import defer, reactor
-from twisted.spread import pb
+from twisted.protocols import amp
 
 import errors
 
@@ -114,17 +114,217 @@ class IWorker(Interface):
         """
 
 
-class LocalWorker(object):
+class WorkerBase(object):
     """
-    Subclasses of me implement an L{IWorker} that runs tasks locally.
+    Subclass me to get some worker goodness.
     """
     implements(IWorker)
     cQualified = []
 
+    def taskTraceback(self, e):
+        import traceback
+        lineList = [
+            "Exception '{}'".format(str(e)),
+            " running task '{}':".format(repr(self.task))]
+        lineList.append(
+            "-" * (max([len(x) for x in lineList]) + 1))
+        lineList.append("".join(traceback.format_tb(e[2])))
+        return "\n".join(lineList)
+
+    def checkReady(self):
+        """
+        Checks if I'm ready for another task and raises an exception if
+        not.
+        """
+        if hasattr(self, 'd') and not self.d.called:
+            raise errors.NotReadyError(
+                "You shouldn't have called yet. " +\
+                "Task Loop not ready to deal with a task now")
+
+    def deferToStop(self, stopper=None):
+        """
+        Returns a deferred that fires when any pending task is done and
+        any no-arg stopper function you supply has run.
+        """
+        def runStopper(*arg):
+            self.dStop = defer.maybeDeferred(stopper)
+            return self.dStop
+        
+        if hasattr(self, 'dStop'):
+            # A stop was already initiated...
+            if self.dStop.called:
+                # ..and it's done
+                d = defer.succeed(None)
+            else:
+                # ...no, it's still pending
+                d = defer.Deferred()
+                self.dStop.chainDeferred(d)
+            return d
+        if hasattr(self, 'd') and not self.d.called:
+            # No stop yet pending, but there's a task pending (a real
+            # one; we wouldn't get this far if it were just a null
+            # task for stopping a thread's loop)
+            d = defer.Deferred()
+            # Run the stopper when the task is done
+            if stopper:
+                d.addCallback(runStopper)
+            self.d.chainDeferred(d)
+            return d
+        # No task or stop pending, so run the stopper function now, if
+        # there is one
+        if stopper:
+            return runStopper()
+        return defer.succeed(None)
+
+
+class ThreadWorker(WorkerBase):
+    """
+    I implement an L{IWorker} that runs tasks in a dedicated worker
+    thread.
+
+    You can supply a series keyword containing a list of one or more
+    task series that I am qualified to handle.
+    """
+    def __init__(self, series=[]):
+        self.iQualified = series
+        import threading
+        self.event = threading.Event()
+        self.thread = threading.Thread(target=self._loop)
+        self.thread.start()
+
+    def _loop(self):
+        """
+        Runs a loop in a dedicated thread that waits for new tasks. The loop
+        exits when a C{None} object is supplied as a task.
+        """
+        while True:
+            # Wait here on the threading.Event object
+            self.event.wait()
+            task = self.task
+            if task is None:
+                break
+            # Ready for the task attribute to be set to another task object
+            self.event.clear()
+            reactor.callFromThread(self.d.callback, None)
+            f, args, kw = task.callTuple
+            try:
+                result = f(*args, **kw)
+                # If the task causes the thread to hang, the method
+                # call will not reach this point.
+            except Exception as e:
+                statusResult = (False, self.taskTraceback(e))
+            else:
+                statusResult = (True, result)
+            reactor.callFromThread(task.callback, statusResult)
+        # Broken out of loop, ready for the thread to end
+        reactor.callFromThread(self.d.callback, None)
+        # The thread now dies
+
     def setResignator(self, callableObject):
         """
-        There's nothing that would make a local worker resign on its own.
+        There's nothing that would make a thread worker resign on its own.
         """
+
+    def run(self, task):
+        self.checkReady()
+        # Thread workers are strictly one task at a time
+        self.task = task
+        self.event.set()
+        self.d = defer.Deferred()
+        return self.d
+    
+    def stop(self):
+        """
+        The returned deferred fires when the task loop has ended and its thread
+        terminated.
+        """
+        def stopper():
+            self.d = defer.Deferred()
+            # Kill the thread when it quits its loop and fires this deferred
+            self.d.addCallback(lambda _ : self.thread.join())
+            # Tell the thread to quit with a null task
+            self.task = None
+            self.event.set()
+            return self.d
+        return self.deferToStop(stopper)
+
+    def crash(self):
+        """
+        Unfortunately, a thread can only terminate itself, so calling
+        this method only forces firing of the deferred returned from a
+        previous call to L{stop} and returns the task that hung the
+        thread.
+        """
+        if self.task is not None and not self.task.d.called:
+            result = [self.task]
+        else:
+            # This shouldn't happen
+            result = []
+        if hasattr(self, 'd') and not self.d.called:
+            del self.task
+            self.d.callback(None)
+
+
+class AsyncWorker(WorkerBase):
+    """
+    I implement an L{IWorker} that runs tasks in the Twisted main
+    loop, one task at a time but in a well-behaved non-blocking
+    manner. If the task callable doesn't return a deferred, it better
+    get its work done fast.
+
+    You can supply a series keyword containing a list of one or more
+    task series that I am qualified to handle.
+    """
+    def __init__(self, series=[]):
+        self.iQualified = series
+
+    def setResignator(self, callableObject):
+        """
+        I run in the main loop, so there's nothing that would make me
+        resign on my own.
+        """
+
+    def _done(self, result):
+        return (True, result)
+
+    def _oops(self, failure):
+        return (False, self.taskTraceback(failure.value))
+
+    def run(self, task):
+        self.checkReady()
+        # Async workers are strictly one task at a time. What's the
+        # point of this whole package otherwise?
+        self.task = task
+        f, args, kw = self.task.callTuple
+        # This must not block!
+        # ---------------------------------------------------------------------
+        self.d = defer.maybeDeferred(f, *args, **kw)
+        # ---------------------------------------------------------------------
+        self.d.addCallbacks(self._done, self._oops)
+        self.d.addCallback(task.callback)
+        return self.d
+
+    def stop(self):
+        return self.deferToStop()
+
+    def crash(self):
+        """
+        There's no point to implementing this because the Twisted main
+        loop will block along with any task you give this worker.
+        """
+        
+
+class ProcessWorker(WorkerBase):
+    """
+    I implement an L{IWorker} that runs tasks in a subordinate Python
+    interpreter via Twisted's Asynchronous Messaging Protocol.
+
+    You can also supply a series keyword containing a list of one or
+    more task series that I am qualified to handle.
+    """
+    def __init__(self, series=[]):
+        self.iQualified = series
+
     
     def taskRan(self, result):
         status, result = result
@@ -316,111 +516,13 @@ class ProcessWorker(object):
 
             
     
-class ThreadWorker(LocalWorker):
-    """
-    I implement an L{IWorker} that runs tasks in a dedicated worker thread.
-
-    You can define one or more specialties that I am qualified to handle with
-    string arguments.
-    """
-    universe = ThreadUniverse
-    
-    def __init__(self, *specialties):
-        self.iQualified = list(specialties)
-        self.
-        import threading
-        self.event = threading.Event()
-        self.thread = threading.Thread(target=self._loop)
-        self.thread.start()
-
-    def _loop(self):
-        """
-        Runs a loop in a dedicated thread that waits for new tasks. The loop
-        exits when a C{None} object is supplied as a task.
-        """
-        while True:
-            # Wait here on the threading.Event object
-            self.event.wait()
-            task = self.task
-            if task is None:
-                break
-            # Ready for the task attribute to be set to another task object
-            self.event.clear()
-            reactor.callFromThread(self.d.callback, None)
-            f, args, kw = task.callTuple
-            try:
-                result = f(*args, **kw)
-                # If the task causes the thread to hang, the method
-                # call will not reach this point.
-            except Exception as e:
-                import traceback
-                lineList = [
-                    "Exception '{}'".format(str(e)),
-                    " running task '{}':".format(repr(self.task))]
-                lineList.append(
-                    "-" * (max([len(x) for x in lineList]) + 1))
-                lineList.append("".join(traceback.format_tb(e[2])))
-                statusResult = (False, "\n".join(lineList))
-            else:
-                statusResult = (True, result)
-            reactor.callFromThread(task.callback, statusResult)
-        # Broken out of loop, ready for the thread to end
-        reactor.callFromThread(self.d.callback, None)
-
-    def run(self, task):
-        if hasattr(self, 'd') and not self.d.called:
-            raise errors.ImplementationError(
-                "Task Loop not ready to deal with a task now")
-        self.d = defer.Deferred()
-        self.task = task
-        self.event.set()
-        return self.d
-    
-    def stop(self):
-        """
-        The returned deferred fires when the task loop has ended and its thread
-        terminated.
-        """
-        def joinIfPossible(null):
-            if hasattr(self, 'task'):
-                self.thread.join()
-
-        if hasattr(self, 'task') and self.task is None:
-            d = defer.succeed(None)
-        else:
-            d = defer.Deferred()
-            if hasattr(self, 'd') and not self.d.called:
-                d.addCallback(lambda _: self.stop())
-                self.d.chainDeferred(d)
-            else:
-                d.addCallback(joinIfPossible)
-                self.d = d
-                self.task = None
-                self.event.set()
-        return d
-
-    def crash(self):
-        """
-        Unfortunately, a thread can only terminate itself, so calling
-        this method only forces firing of the deferred returned from a
-        previous call to L{stop} and returns the task that hung the
-        thread.
-        """
-        if self.task is not None and not self.task.d.called:
-            result = [self.task]
-        else:
-            # This shouldn't happen
-            result = []
-        if hasattr(self, 'd') and not self.d.called:
-            del self.task
-            self.d.callback(None)
 
 
 class RemoteCallWorker(object):
     """
     Instances of me provide an L{IWorker} that dispatches
     C{callRemote} tasks, no more than I{N} at a time, to a particular
-    I{remoteReference} to a referenceable at a connected PB server.
+    I{remoteReference} 
 
     @ivar remoteCaller: The I{callRemote} method of the remoteReference.
     

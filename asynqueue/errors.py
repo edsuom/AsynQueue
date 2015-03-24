@@ -34,6 +34,11 @@ class ImplementationError(Exception):
     There was a problem implementing the required interface.
     """
 
+class NotReadyError(ImplementationError):
+    """
+    You shouldn't have called yet!
+    """
+        
 class InvariantError(Invalid):
     """
     An invariant of the IWorker provider did not meet requirements.

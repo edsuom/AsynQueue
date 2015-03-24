@@ -18,16 +18,16 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
 
 """
-Running jobs on python interpreters that are connected as children via
-Twisted's Perspective Broker.
+Running jobs via Workers given references to objects containing callables.
+
+Process workers (either local or remote) get pickled copies of the
+objects while Thread workers use the objects directly in their
+threads.
 """
 
 from zope.interface import implements, Interface
 from twisted.internet import defer, reactor
-from twisted.python import reflect
-from twisted.python.rebuild import rebuild
 from twisted.python.failure import Failure
-from twisted.spread import pb, flavors
 # Use C Deferreds if possible, for efficiency
 try:
     from twisted.internet import cdefer
@@ -44,26 +44,15 @@ def log(msgProto, *args):
         print msgProto % args
 
 
-class TrustError(Exception):
-    pass
-
-
-class ChildRoot(pb.Root):
+class WorkerUniverse(object):
     """
-    I am the root resource for one child worker interpreter.
+    I am the universe in which a worker operates.
 
-    @ivar trusted: Set C{True} when the 'parent' python interpreter is trusted
-      to provide code that I can run without concerns.
-    
+    TODO: Switch over from being a PB root to an AMP server protocol.
+
     """
-    def __getattr__(self, name):
-        if name == 'jobs':
-            result = self.jobs = {}
-        elif name == 'trusted':
-            result = self.trusted = False
-        else:
-            raise AttributeError("No such attribute '%s'" % name)
-        return result
+    def __init__(self):
+        self.jobs = {}
 
     def oops(self, *arg):
         """
@@ -77,33 +66,6 @@ class ChildRoot(pb.Root):
             failureObject = Failure(*arg)
         return False, failureObject.getTraceback()
 
-    def remote_registerClasses(self, *args):
-        """
-        Instructs my broker to register the classes specified by the
-        argument(s).
-
-        The classes will be registered for B{all} jobs, and are specified by
-        their string representations::
-        
-            <package(s).module.class>
-        
-        """
-        modules = []
-        for stringRep in args:
-            # Load the class for the string representation
-            cls = reflect.namedObject(stringRep)
-            # Register instances of the class, including its type and module
-            pb.setUnjellyableForClass(stringRep, cls)
-            if cls.__module__ not in modules:
-                modules.append(cls.__module__)
-        # Try to build the modules for the classes in case they've changed
-        # since the last run
-        for module in modules:
-            try:
-                rebuild(reflect.namedModule(module), doLog=False)
-            except:
-                pass
-    
     def remote_newJob(self, jobID, jobCode):
         """
         Registers the job identified by the specified integer I{jobID} and
@@ -322,12 +284,13 @@ class JobManager(object):
         """
         return self.queue.detachWorker(childID, reassign=True, crash=True)
 
-    def new(self, jobCode, niceness=0):
+    def new(self, jobObject, niceness=0):
         """
-        Registers a new job for execution on qualified child interpreters.
+        Registers a new object with one or more methods that can be be
+        called on qualified child interpreters.
         
-        @param jobCode: A string containing Python code that defines the job
-          and its namespace.
+        @param jobObject: A picklable Python object that defines the
+          namespace and one or more methods callable for the job.
 
         @keyword niceness: Scheduling niceness for all calls of the job.
 
@@ -335,11 +298,10 @@ class JobManager(object):
           having higher scheduling priority as in UNIX C{nice} and C{renice}.
         
         @return: A deferred that fires with a unique ID for the job.
-    
         """
         jobID = self._jobCounter = getattr(self, '_jobCounter', 0) + 1
         self.callsPending[jobID] = {}
-        self.jobs[jobID] = [jobCode, niceness]
+        self.jobs[jobID] = [jobObject, niceness]
         
         dList = []
         for worker in self.queue.workers():
