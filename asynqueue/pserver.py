@@ -21,8 +21,11 @@
 This module is imported by a subordinate Python process to service
 a ProcessWorker.
 """
-import traceback
+import sys, traceback
 import cPickle as pickle
+
+from twisted.internet import reactor
+from twisted.internet.protocol import Factory
 from twisted.protocols import amp
 
 
@@ -38,15 +41,38 @@ class RunTask(amp.Command):
         ('kw_pickled', amp.String()),
     ]
     response = [
-        ('result', amp.String()),
+        ('result_pickled', amp.String()),
         ('failureInfo', amp.String())
     ]
 
 
+class QuitRunning(amp.Command):
+    """
+    Shutdown the reactor (after I'm done responding) and exit.
+    """
+    arguments = []
+    response = []
+
+
 class TaskServer(amp.AMP):
     """
+    The AMP protocol for running tasks, entirely unsafely.
     """
-    def callInfo(self, func, *args, **kw):
+    shutdownDelay = 1.0
+
+    @classmethod
+    def started(cls):
+        """
+        Now that the reactor is running, sends the "OK" handshaking code
+        to the ProcessWorker in my spawning Python interpreter via
+        stdout.
+
+        Might do something with hashing an authentication code here
+        someday. Or not.
+        """
+        print "OK"
+
+    def _callInfo(self, func, *args, **kw):
         if func.__class__.__name__ == "function":
             text = func.__name__
         elif callable(func):
@@ -66,20 +92,21 @@ class TaskServer(amp.AMP):
         return text
     
     def tryTask(self, f, *args, **kw):
-        response = {}
+        response = {'failureInfo': ""}
         try:
             result = f(*args, **kw)
-            response['result'] = pickle.dumps(result)
+            response['result_pickled'] = pickle.dumps(
+                result, pickle.HIGHEST_PROTOCOL)
         except Exception as e:
             lineList = [
                 "Exception '{}'".format(str(e)),
-                " running task '{}':".format(self.callInfo(f, *args, **kw))]
+                " running task '{}':".format(self._callInfo(f, *args, **kw))]
             lineList.append(
                 "-" * (max([len(x) for x in lineList]) + 1))
             lineList.append("".join(traceback.format_tb(e[2])))
             response['failureInfo'] = "\n".join(lineList)
         return response
-
+    
     def runTask(self, f_pickled, args_pickled, kw_pickled):
         f = pickle.loads(f_pickled)
         args = pickle.loads(args_pickled) if args_pickled else []
@@ -87,6 +114,23 @@ class TaskServer(amp.AMP):
         return self.tryTask(f, *args, **kw)
     RunTask.responder(runTask)
 
+    def quitRunning(self):
+        reactor.callLater(self.shutdownDelay, reactor.stop)
+        return {}
+    QuitRunning.responder(quitRunning)
 
-def main():
+
+def start(address):
+    pf = Factory()
+    pf.protocol = TaskServer
+    # Currently the security of UNIX domain sockets is the only
+    # security we have!
+    reactor.listenUNIX(address, pf)
+    reactor.callWhenRunning(TaskServer.started)
+    reactor.run()
+
+
+if __name__ == '__main__':
+    address = sys.argv[-1]
+    start(address)
     

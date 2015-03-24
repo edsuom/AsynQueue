@@ -20,10 +20,11 @@
 """
 The worker interface and some implementors.
 """
+import subprocess
 
 from zope.interface import implements, invariant, Interface, Attribute
 from twisted.python import failure
-from twisted.internet import defer, reactor
+from twisted.internet import defer, reactor, endpoints
 from twisted.protocols import amp
 
 import errors
@@ -108,9 +109,9 @@ class IWorker(Interface):
 
         @return: A list of I{task} objects, one for each task left
           uncompleted. You shouldn't have to call this method if no
-          tasks are left pending; the L{shutdown} method should be
-          enough in that case.
-        
+          tasks are left pending; the L{stop} method should be enough
+          in that case.
+
         """
 
 
@@ -322,27 +323,71 @@ class ProcessWorker(WorkerBase):
     You can also supply a series keyword containing a list of one or
     more task series that I am qualified to handle.
     """
-    def __init__(self, series=[]):
-        self.iQualified = series
+    pLists = []
 
+    class ProcessProtocol(object):
+        def __init__(self, d, disconnectCallback):
+            self.d = d
+            self.disconnectCallback = disconnectCallback
+        def makeConnection(self, process):
+            pass
+        def childDataReceived(self, childFD, data):
+            if childFD == 1 and data == 'OK':
+                self.d.callback(None)
+        def childConnectionLost(self, childFD):
+            self.disconnectCallback()
+        def processExited(self, reason):
+            self.disconnectCallback()
+        def processEnded(self, reason):
+            self.disconnectCallback()
     
-    def taskRan(self, result):
-        status, result = result
-        if status:
-            self.d.callback(result)
-        elif result == 'Timeout':
-            # A timeout in a local worker is a show-stopper, at least
-            # until I come up with a sensible way to deal with that
-            # situation. Retrying with a hung thread sounds messy, for
-            # one thing.
-            self.d.errback(failure.Failure(errors.TimeoutError))
-        else:
-            # Running the task raised an exception for the worker, and
-            # it provided details as a string.
-            self.d.errback(
-                failure.Failure(
-                    errors.LocalWorkerError(result)))
+    def __init__(self, N=1, reconnect=False, series=[]):
+        # TODO: Allow N > 1
+        if N > 1:
+            raise NotImplementedError("Only one task at a time for now")
+        self.reconnect = reconnect
+        self.iQualified = series
+        # The process number
+        self.pNumber = len(self.pList)
+        # The process name, which is used for the UNIX socket address
+        self.pName = "worker-{:d}".format(self.pNumber)
+        # The UNIX socket address
+        self.address = os.path.join(
+            os.tempnam(), "{}.sock".format(self.pName))
+        # Start the server and make the connection
+        self.dConnected = self._spawnAndConnect()
+
+    @defer.inlineCallbacks
+    def _spawnAndConnect(self):
+        # Spawn the pserver and "wait" for it to indicate it's OK
+        args = [sys.executable, "-m", "asynqueue.pserver", self.address]
+        d = defer.Deferred()
+        pP = self.ProcessProtocol(d, self._disconnected)
+        pT = reactor.spawnProcess(pProtocol, sys.executable, args)
+        yield d
+        # Now connect to it via the UNIX socket
+        dest = endpoints.UNIXClientEndpoint(reactor, self.address)
+        aP = yield endpoints.connectProtocol(dest, amp.AMP())
+        self.pList = [pP, pT, aP]
+        self.pLists.append(self.pList)
+
+    def _ditchClass(self):
+        self.pLists.remove(self.pList)
+
+    def _disconnected(self):
+        if getattr(self, '_ignoreDisconnection', False):
+            return
+        self._ditchClass()
+        possibleResignator = getattr(self, 'resignator', None)
+        if callable(possibleResignator):
+            possibleResignator()
     
+    # Implementation methods
+    # -------------------------------------------------------------------------
+
+    def setResignator(self, callableObject):
+        self.resignator = callableObject
+
     def run(self, task):
         """
         Sends the task callable, args, kw to the process returns a
@@ -352,354 +397,51 @@ class ProcessWorker(WorkerBase):
         task before running this with another one.
 
         """
-        def pollForResult():
-            if self.cMain.poll():
-                result = self.cMain.recv()
-                if isinstance(result, failure.Failure):
-                    self.task.errback(result)
-                else:
-                    self.task.callback(result)
-                # One way or the other, we have a result, so fire the
-                # deferred that is returned from the run method call
-                self.d.callback(None)
-            else:
-                reactor.callLater(self.pollInterval, pollForResult)
+        def connected(null):
+            # Delete my reference to the wait-for-connect deferred so
+            # the one-at-a-time check passes
+            del self.d
+            # Now really run the first task
+            return self.run(task)
 
-        # A local worker is strictly one task at a time
-        if hasattr(self, 'd') and not self.d.called:
-            raise errors.ImplementationError(
-                "Task Loop not ready to deal with a task now")
+        def gotResponse(response):
+            failureInfo = response['failureInfo']
+            if failureInfo:
+                task.callback((False, failureInfo))
+            else:
+                result = pickle.loads(response['result_pickled'])
+                task.callback((True, result))
+        
+        # Even a process worker is strictly one task at a time, for now
+        self.checkReady()
+        # Can't do anything until we are connected
+        if not self.dConnected.called:
+            d = self.d = defer.Deferred()
+            d.addCallback(connected)
+            self.dConnected.chainDeferred(d)
+            return d
         self.task = task
-        self.d = defer.Deferred()
-        if task is None:
-            # A termination task
-            self.send(None)
-            # Blocking wait (probably just a very short amount of
-            # time) for the local worker's task's loop to exit
-            self.process.join()
-            self.d.callback(None)
-        else:
-            self.send(task.callTuple)
-            # The first and possibly only poll for a result
-            pollForResult()
-        # The returned deferred fires when the result is finally
-        # obtained (it may already have fired in the case of a
-        # termination task)
+        # Everything is sent to the pserver as pickled keywords
+        kw = {'f_pickled': pickle.dumps(task.f, pickle.HIGHEST_PROTOCOL)}
+        kw['args_pickled'] = pickle.dumps(
+            task.args, pickle.HIGHEST_PROTOCOL) if task.args else ""
+        kw['kw_pickled'] = pickle.dumps(
+            task.kw, pickle.HIGHEST_PROTOCOL) if task.kw else ""
+        # Remotely run the task
+        self.d = self.pList[2].callRemote(RunTask, **kw)
+        self.d.addCallback(gotResponse)
         return self.d
 
-            
-
-class WorkerUniverse(object):
-    """
-    Each local worker lives in one of these
-    """
-    def __init__(self, *args):
-        self.args = list(args)
-    
-    def set(self, name, f):
-        """
-        Sets a named callable object
-        """
-        setattr(self, name, f)
-        return "OK"
-
-    def get(self, name):
-        """
-        Gets a named callable object
-        """
-        return getattr(self, name)
-
-    def waitForTask(self):
-        return connection.recv()
-
-    def sendResult(self, statusResult):
-        connection.send(result)        
-    
-    def loop(self, *args):
-        """
-        Runs a loop in a dedicated thread that waits for new tasks. The
-        loop exits when a C{None} object is supplied as the task.
-        """
-        self.args.extend(list(args))
-        while True:
-            # Wait here for the next task
-            task = self.waitForTask()
-            if task is None:
-                # Termination task, no reply expected; just exit the
-                # loop
-                break
-            f, args, kw = task.callTuple
-            try:
-                result = f(*args, **kw)
-                # If the task causes the thread to hang, the method
-                # call will not reach this point.
-            except Exception as e:
-                import traceback
-                lineList = [
-                    "Exception '{}'".format(str(e)),
-                    " running task '{}':".format(repr(self.task))]
-                lineList.append(
-                    "-" * (max([len(x) for x in lineList]) + 1))
-                lineList.append("".join(traceback.format_tb(e[2])))
-                statusResult = (False, "\n".join(lineList))
-            else:
-                statusResult = (True, result)
-            self.sendResult(statusResult)
-
-        # Broken out of loop, ready for the process to end
-        connection.close()
-
-            
-class ProcessWorker(object):
-    """
-    I implement an L{IWorker} that runs tasks in a dedicated worker
-    process.
-
-    You can define one or more specialties that I am qualified to handle with
-    string arguments.
-
-    Define process-local versions of objects with keywords. Then you
-    can access the objects by name in tasks.
-
-    """
-    pollInterval = 0.01
-    
-    implements(IWorker)
-    cQualified = []
-    
-            
-    def send(self, stuff):
-        self.cMain.send(stuff)
-        
-
-    def _killProcess(self, null):
-        self.cMain.send(None)
-        self.process.terminate()
-    
-    def stop(self):
-        """
-        The returned deferred fires when the task loop has ended and its
-        process terminated.
-        """
-        if not self.process.is_alive():
-            # Already stopped
-            return defer.succeed(None)
-        if hasattr(self, 'd') and not self.d.called:
-            # Running a task, wait for it to finish
-            d = defer.Deferred()
-            d.addCallback(lambda _: self.stop())
-            self.d.chainDeferred(d)
-        else:
-            # Running and awaiting a task, send it a null task to shut
-            # it down
-            d = self.run(None)
-        d.addCallback(self._killProcess)
-        return d
-
-    def crash(self):
-        self._killProcess(None)
-        if self.task is not None and not self.task.d.called:
-            result = [self.task]
-        else:
-            # This shouldn't happen
-            result = []
-        if hasattr(self, 'd') and not self.d.called:
-            del self.task
-            self.d.callback(None)
-
-    def waitForTask(self):
-        return connection.recv()
-
-    def sendResult(self, statusResult):
-        connection.send(result)        
-
-
-            
-    
-
-
-class RemoteCallWorker(object):
-    """
-    Instances of me provide an L{IWorker} that dispatches
-    C{callRemote} tasks, no more than I{N} at a time, to a particular
-    I{remoteReference} 
-
-    @ivar remoteCaller: The I{callRemote} method of the remoteReference.
-    
-    """
-    implements(IWorker)
-    cQualified = []
-
-    def __init__(self, remoteReference, N=3, noTypeCheck=False):
-        self.N = N
-        self.iQualified = []
-        self.remoteCaller = remoteReference.callRemote
-        # Check supplied remote reference object
-        if not noTypeCheck:
-            # Disabling type checking is mostly for unit testing, where a mock
-            # RemoteReference may be used.
-            if not isinstance(remoteReference, pb.RemoteReference):
-                raise TypeError(
-                    "You must construct me with a PB RemoteReference")
-        self.startup(remoteReference)
-
-    def startup(self, remoteReference):
-        """
-        Starts things up with the remote reference in hand. Useful to have this
-        as a separate method when you're subclassing and doing difference
-        constructor stuff.
-        """
-        # Setup resignation-upon-disconnect
-        self.resignators = []
-        self.disconnectErrors = (pb.DeadReferenceError, pb.PBConnectionLost)
-        remoteReference.notifyOnDisconnect(self.resign)
-        # Prepare the run request queue
-        self.jobs = []
-        self.runRequestQueue = defer.DeferredQueue()
-        for k in xrange(self.N):
-            self.runRequestQueue.put(None)
-
-    def runNow(self, null, task):
-        suffix, args, kw = task.callTuple
-        d = self.remoteCaller(suffix, *args, **kw)
-        job = (task, d)
-        self.jobs.append(job)
-        d.addBoth(self.doneTrying, job)
-        # The task's deferred is NOT returned!
-
-    def doneTrying(self, result, job):
-        if hasattr(result, 'getTraceback'):
-            print "OOPS", result.getTraceback()
-            if result.check(*self.disconnectErrors):
-                # This was a disconnect error, so bail out now; don't remove
-                # the job or signal the run request queue that the job is done.
-                return
-        self.jobs.remove(job)
-        self.runRequestQueue.put(None)
-        task = job[0]
-        task.callback(result)
-    
-    def resign(self, *null):
-        while self.resignators:
-            callableObject = self.resignators.pop()
-            callableObject()
-    
-    def setResignator(self, callableObject):
-        """
-        I will resign upon having one of my tasks turn up a connection
-        fault.
-        """
-        self.resignators.append(callableObject)
-    
-    def run(self, task):
-        """
-        Runs the specified task, which must be a string specifying the suffix
-        portion of a method of the referenceable, e.g., I{'foo'} for
-        C{remote_foo} or C{perspective_foo}.
-
-        Returns a deferred that fires when one of the pending tasks is done
-        running and I can accept another one.
-        """
-        #if getattr(self, 'isShuttingDown', False):
-        #    raise errors.QueueRunError
-        return self.runRequestQueue.get().addCallback(self.runNow, task)
-    
-    def stop(self):
-        """
-        The returned deferred fires when all pending tasks are done.
-        """
-        self.isShuttingDown = True
-        return defer.DeferredList([job[1] for job in self.jobs])
-
-    def crash(self):
-        """
-        Return all tasks not completed by the (disconnected) PB server.
-        """
-        return [job[0] for job in self.jobs]
-
-
-class RemoteInterfaceWorker(RemoteCallWorker):
-    """
-    Construct an instance of me with a I{remoteReference} and one or more
-    interfaces it provides, as arguments.
-    """
-    def __init__(self, remoteReference, *interfaces, **kw):
-        # Keywords
-        subseries = kw.get('subseries', None)
-        N = kw.get('N', 3)
-        # The base class constructor
-        RemoteCallWorker.__init__(self, remoteReference, N)
-        # Define the interface(s)
-        self.interfaces = interfaces
-        for interface in interfaces:
-            qualification = interface.__name__
-            if subseries:
-                qualification += ":%s" % subseries
-            self.iQualified.append(qualification)
-        # Caching suffixes of approved remote calls makes for faster error
-        # checking as those calls are repeated
-        self.suffixCache = []
-
-    def names(self, items):
-        nameListing = [x.__name__ for x in items]
-        nameListing[-1] = "or " + nameListing[-1]
-        joinString = (" ", ", ")[len(nameListing) > 2]
-        return joinString.join(nameListing)
-
-    def checkSuffix(self, suffix):
-        for interface in self.interfaces:
-            for attrName in interface:
-                if attrName.endswith('_'+suffix):
-                    self.suffixCache.append(suffix)
-                    return
-        names = self.names(self.interfaces)
-        raise AttributeError(
-            "No remote method *_%s provided by interface %s" % (suffix, names))
-
-    def runNow(self, null, task):
-        suffix, args, kw = task.callTuple
-        if suffix not in self.suffixCache:
-            self.checkSuffix(suffix)
-        d = self.remoteCaller(suffix, *args, **kw)
-        job = (task, d)
-        self.jobs.append(job)
-        d.addBoth(self.doneTrying, job)
-        # The task's deferred is NOT returned!
-
-
-class BogusWorker(object):
-    implements(IWorker)
-    cQualified = []
-
-    def __init__(self, **kw):
-        self.iQualified = []
-        self._namedCallables = {}
-        # Set named callables, just like a real ProcessWorker
-        for name, f in kw.iteritems():
-            self._namedCallables[name] = f
-
-    def setResignator(self, callableObject):
-        """
-        There's nothing that would make me resign.
-        """
-
-    def run(self, task):
-        func, args, kw = task.callTuple
-        if isinstance(func, str):
-            func = self._namedCallables[func]
-        print "\nTask: ", func, args, kw
-        try:
-            result = func(*args, **kw)
-            task.callback(result)
-            d = defer.succeed(result)
-        except:
-            result = failure.Failure()
-            task.errback(result)
-            d = defer.fail(result)
-        return d
+    def _stopper(self):
+        self.pList[2].callRemote(QuitRunning)
 
     def stop(self):
-        return defer.succeed(None)
+        self._ignoreDisconnection = True
+        return self.deferToStop(self._stopper)
 
     def crash(self):
+        if hasattr(self, 'd'):
+            self._stopper()
+            if not self.d.called:
+                return [self.task]
         return []
