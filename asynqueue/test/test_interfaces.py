@@ -27,7 +27,7 @@ import zope.interface
 from twisted.internet import defer
 from twisted.trial.unittest import TestCase
 
-from util import interfaces, errors
+from testbase import interfaces, errors
 
 
 VERBOSE = True

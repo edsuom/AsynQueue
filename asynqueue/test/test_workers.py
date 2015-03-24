@@ -27,61 +27,10 @@ import zope.interface
 from twisted.internet import defer
 from twisted.trial.unittest import TestCase
 
-from util import base, workers, errors
+from testbase import base, workers, errors
 
 
 VERBOSE = True
-
-
-class NoCAttr(object):
-    zope.interface.implements(workers.IWorker)
-    def __init__(self):
-        self.iQualified = []
-
-class NoIAttr(object):
-    zope.interface.implements(workers.IWorker)
-    cQualified = []
-
-class AttrBogus(object):
-    zope.interface.implements(workers.IWorker)
-    cQualified = 'foo'
-    def __init__(self):
-        iQualified = 'bar'
-
-class AttrOK(object):
-    zope.interface.implements(workers.IWorker)
-    cQualified = ['foo']
-    def __init__(self):
-        self.iQualified = ['bar']
-
-
-class TestIWorker(TestCase):
-    def testInvariantCheckClassAttribute(self):
-        worker = AttrOK()
-        try:
-            workers.IWorker.validateInvariants(worker)
-        except:
-            self.fail(
-                "Acceptable class attribute shouldn't raise an exception")
-        for worker in [x() for x in (NoCAttr, NoIAttr, AttrBogus)]:
-            self.failUnlessRaises(
-                errors.InvariantError,
-                workers.IWorker.validateInvariants, worker)
-    
-    def testInvariantCheckInstanceAttribute(self):
-        worker = AttrOK()
-        for attr in (None, []):
-            if attr is not None:
-                worker.iQualified = attr
-            try:
-                workers.IWorker.validateInvariants(worker)
-            except:
-                self.fail(
-                    "Acceptable instance attribute shouldn't raise exception")
-        worker.iQualified = 'foo'
-        self.failUnlessRaises(
-            errors.InvariantError,
-            workers.IWorker.validateInvariants, worker)
 
 
 class TestThreadWorker(TestCase):

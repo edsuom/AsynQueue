@@ -25,8 +25,8 @@ import time, random, threading
 from twisted.internet import defer
 from twisted.trial.unittest import TestCase
 
-from util import base
-from util import MockWorker
+from testbase import base
+from testbase import MockWorker
 
 
 VERBOSE = False

@@ -26,8 +26,8 @@ import zope.interface
 from twisted.internet import defer, reactor
 from twisted.trial.unittest import TestCase
 
-from util import tasks, errors, workers
-from util import MockTask, MockWorker
+from testbase import tasks, errors, workers
+from testbase import MockTask, MockWorker
 
 
 VERBOSE = False
