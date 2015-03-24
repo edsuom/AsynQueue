@@ -23,42 +23,59 @@ a ProcessWorker.
 """
 
 import sys, traceback
-import cPickle as pickle
 
 from twisted.internet import reactor
 from twisted.internet.protocol import Factory
 from twisted.protocols import amp
 
+from util import callTraceback, o2p, p2o, Deferator
+
 
 class RunTask(amp.Command):
     """
-    Runs a task and returns the result. The callable, args, and kw are
-    all pickled strings. The args and kw can be empty strings,
-    indicating no args or kw.
+    Runs a task and returns the status and result. The callable, args,
+    and kw are all pickled strings. The args and kw can be empty
+    strings, indicating no args or kw.
+
+    The response has the following status/result structure:
+
+    'e': An exception was raised; the result is a pretty-printed
+         traceback string.
+
+    'r': Ran fine, the result is the pickled return value of the call.
+
+    'i': Ran fine, but the result is an iterable other than a standard
+         Python one. The result is an ID string to use for your
+         calls to C{GetMore}.
+
     """
     arguments = [
-        ('f_pickled', amp.String()),
-        ('args_pickled', amp.String()),
-        ('kw_pickled', amp.String()),
+        ('f', amp.String()),
+        ('args', amp.String()),
+        ('kw', amp.String()),
     ]
     response = [
-        ('result_pickled', amp.String()),
-        ('getMoreWith', amp.Integer()),
-        ('failureInfo', amp.String())
+        ('status', amp.String()),
+        ('result', amp.String()),
     ]
 
 
 class GetMore(amp.Command):
     """
-    Get more more data from a task with such a big result thst it had
-    to be chunked.
+    With a unique ID, get the next iteration of data from an iterator
+    or a task result so big that it had to be chunked.
+
+    The response has a 'value' string with the pickled iteration value
+    or a chunk of the too-big task result, and a 'moreLeft' Bool
+    indicating if you should call me again with this ID for another
+    iteration or chunk.
     """
     arguments = [
-        ('id', amp.Integer())
+        ('id', amp.String())
     ]
     response = [
-        ('result_pickled', amp.String()),
-        ('getMoreWith', amp.Integer()),
+        ('value', amp.String()),
+        ('moreLeft', amp.Boolean()),
     ]
 
 
@@ -87,46 +104,29 @@ class TaskServer(amp.AMP):
         someday. Or not.
         """
         print "OK"
-
-    def _callInfo(self, func, *args, **kw):
-        if func.__class__.__name__ == "function":
-            text = func.__name__
-        elif callable(func):
-            text = "{}.{}".format(func.__class__.__name__, func.__name__)
-        else:
-            try:
-                func = str(func)
-            except:
-                func = repr(func)
-            text = "{}[Not Callable!]".format(func)
-        text += "("
-        if args:
-            text += ", ".join(args)
-        for name, value in kw.iteritems():
-            text += ", {}={}".format(name, value)
-        text += ")"
-        return text
+    
+    def _idForTask(self, idBase):
+        self._idCounter = getattr(self, '_idCounter', 0) + 1
+        return "{}-{:d}".format(idBase, self._idCounter)
     
     def tryTask(self, f, *args, **kw):
-        response = {'failureInfo': ""}
+        response = {}
         try:
             result = f(*args, **kw)
-            response['result_pickled'] = pickle.dumps(
-                result, pickle.HIGHEST_PROTOCOL)
         except Exception as e:
-            lineList = [
-                "Exception '{}'".format(str(e)),
-                " running task '{}':".format(self._callInfo(f, *args, **kw))]
-            lineList.append(
-                "-" * (max([len(x) for x in lineList]) + 1))
-            lineList.append("".join(traceback.format_tb(e[2])))
-            response['failureInfo'] = "\n".join(lineList)
+            response['status'] = 'e'
+            response['result'] = callTraceback(e, f, *args, **kw)
+        else:
+            if Deferator.isIterator(result):
+                # An iterator
+                response['status'] = 'i'
+                
         return response
     
-    def runTask(self, f_pickled, args_pickled, kw_pickled):
-        f = pickle.loads(f_pickled)
-        args = pickle.loads(args_pickled) if args_pickled else []
-        kw = pickle.loads(kw_pickled) if kw_pickled else {}
+    def runTask(self, f, args, kw):
+        f = p2o(f)
+        args = p2o(args, [])
+        kw = p2o(kw, {})
         return self.tryTask(f, *args, **kw)
     RunTask.responder(runTask)
 

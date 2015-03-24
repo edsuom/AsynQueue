@@ -26,47 +26,8 @@ from twisted.python import failure
 from twisted.internet import defer, reactor, endpoints
 from twisted.protocols import amp
 
-import errors
+import errors, util
 from interfaces import IWorker
-
-
-class Deferator(object):
-    """
-    Use an instance of me in place of a task result that is an
-    iterable other than one of Python's built-in containers (list,
-    dict, etc.). I yield deferreds to the next iteration of the
-    result.
-
-    When the deferred from my first L{next} call fires, with the first
-    iteration of the underlying (possibly remote) iterable, you can
-    call L{next} again to get a deferred to the next one, and so on,
-    until I raise L{StopIteration} just like a regular iterable.
-
-    You MUST wrap my iteration in a L{defer.inlineCallbacks} loop or
-    otherwise wait for each yielded deferred to fire before asking for
-    the next one.
-
-    Instantiate me with a function (and any args and kw) that returns
-    (1) a deferred to the next iteration of the task result, and (2) a
-    Bool indicating whether there are more iterations left.
-
-    """
-    def __init__(self, f, *args, **kw):
-        self.callTuple = f, args, kw 
-        self.moreLeft = True
-        
-    def __iter__(self):
-        return self
-        
-    def next(self):
-        if self.moreLeft:
-            if hasattr(self, 'd') and not self.d.called:
-                raise NotReadyError(
-                    "You didn't wait for the last deferred to fire!")
-            f, args, kw = self.callTuple
-            self.d, self.moreLeft = f(*args, **kw)
-            return d
-        raise StopIteration
 
 
 class WorkerBase(object):
@@ -362,7 +323,7 @@ class ProcessWorker(WorkerBase):
             if failureInfo:
                 task.callback((False, failureInfo))
             else:
-                result = pickle.loads(response['result_pickled'])
+                result = p2o(response['result'])
                 task.callback((True, result))
         
         # Even a process worker is strictly one task at a time, for now
@@ -374,13 +335,11 @@ class ProcessWorker(WorkerBase):
             self.dConnected.chainDeferred(d)
             return d
         self.task = task
+        # Run the task on the subordinate Python interpreter
+        # -----------------------------------------------------------
         # Everything is sent to the pserver as pickled keywords
-        kw = {'f_pickled': pickle.dumps(task.f, pickle.HIGHEST_PROTOCOL)}
-        kw['args_pickled'] = pickle.dumps(
-            task.args, pickle.HIGHEST_PROTOCOL) if task.args else ""
-        kw['kw_pickled'] = pickle.dumps(
-            task.kw, pickle.HIGHEST_PROTOCOL) if task.kw else ""
-        # Remotely run the task
+        kw = {'f': o2p(task.f), 'args': o2p(task.args), 'kw': o2p(task.kw)}
+        # The remote call
         self.d = self.pList[2].callRemote(RunTask, **kw)
         self.d.addCallback(gotResponse)
         return self.d
