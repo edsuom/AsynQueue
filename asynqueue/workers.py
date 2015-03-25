@@ -47,14 +47,11 @@ class ThreadWorker(object):
         self.t = util.ThreadLooper()
 
     def setResignator(self, callableObject):
-        """
-        There's nothing that would make a thread worker resign on its own.
-        """
+        self.t.lock.addStopper(callableObject)
 
     def run(self, task):
         f, args, kw = task.callTuple
-        return self.t.deferToThread(
-            f, *args, **kw).addCallback(task.d.callback)
+        return self.t.call(f, *args, **kw).addCallback(task.d.callback)
     
     def stop(self):
         """
@@ -93,35 +90,32 @@ class AsyncWorker(object):
     """
     def __init__(self, series=[]):
         self.iQualified = series
+        self.info = util.Info()
+        self.lock = util.DeferredLock()
 
     def setResignator(self, callableObject):
-        """
-        I run in the main loop, so there's nothing that would make me
-        resign on my own.
-        """
-
-    def _done(self, result):
-        return (True, result)
-
-    def _oops(self, failure):
-        return (False, self.taskTraceback(failure.value))
+        self.lock.addStopper(callableObject)
 
     def run(self, task):
-        self.checkReady()
-        # Async workers are strictly one task at a time. What's the
-        # point of this whole package otherwise?
-        self.task = task
-        f, args, kw = self.task.callTuple
-        # This must not block!
-        # ---------------------------------------------------------------------
-        self.d = defer.maybeDeferred(f, *args, **kw)
-        # ---------------------------------------------------------------------
-        self.d.addCallbacks(self._done, self._oops)
-        self.d.addCallback(task.callback)
-        return self.d
+        def ready(lock):
+            lock.release()
+            # This must not block!
+            return defer.maybeDeferred(
+                f, *args, **kw).addCallbacks(done, oops)
 
+        def done(result):
+            task.callback((True, result))
+
+        def oops(failureObj):
+            text = self.info.setCall(
+                f, *args, **kw).aboutFailure(failureObj)
+            task.callback((False, text))
+
+        f, args, kw = task.callTuple
+        return self.lock.acquire().addCallback(ready)
+    
     def stop(self):
-        return self.deferToStop()
+        return self.lock.stop()
 
     def crash(self):
         """
@@ -141,9 +135,11 @@ class ProcessWorker(object):
     pList = []
 
     class ProcessProtocol(object):
-        def __init__(self, d, disconnectCallback):
+        def __init__(self, disconnectCallback):
             self.d = d
             self.disconnectCallback = disconnectCallback
+        def waitUntilReady(self):
+            return self.d
         def makeConnection(self, process):
             pass
         def childDataReceived(self, childFD, data):
@@ -157,6 +153,8 @@ class ProcessWorker(object):
             self.disconnectCallback()
     
     def __init__(self, N=1, reconnect=False, series=[]):
+        self.lock = util.DeferredLock()
+        self.lock.acquire()
         # TODO: Allow N > 1
         if N > 1:
             raise NotImplementedError("Only one task at a time for now")
@@ -169,22 +167,31 @@ class ProcessWorker(object):
         # The UNIX socket address
         self.address = os.path.join(
             os.tempnam(), "{}.sock".format(self.pName))
-        # Start the server and make the connection
-        self.dConnected = self._spawnAndConnect()
+        # Start the server and make the connection, releasing the lock
+        # when ready to accept tasks
+        self._spawnAndConnect().addCallback(self._releaseLock)
 
-    @defer.inlineCallbacks
     def _spawnAndConnect(self):
+        def ready(null):
+            # Now connect to the pserver via the UNIX socket
+            dest = endpoints.UNIXClientEndpoint(reactor, self.address)
+            return endpoints.connectProtocol(
+                dest, amp.AMP()).addCallback(connected)
+
+        def connected(aP):
+            self.aP = aP
+            self.tasks = []
+            self.pList.append(self.aP)
+
         # Spawn the pserver and "wait" for it to indicate it's OK
         args = [sys.executable, "-m", "asynqueue.pserver", self.address]
-        d = defer.Deferred()
         pP = self.ProcessProtocol(d, self._disconnected)
-        pT = reactor.spawnProcess(pProtocol, sys.executable, args)
-        yield d
-        # Now connect to it via the UNIX socket
-        dest = endpoints.UNIXClientEndpoint(reactor, self.address)
-        self.aP = yield endpoints.connectProtocol(dest, amp.AMP())
-        self.pList.append(self.aP)
+        reactor.spawnProcess(pP, sys.executable, args)
+        return pP.waitUntilReady().addCallback(ready)
 
+    def _releaseLock(self, *args):
+        self.lock.release()
+        
     def _ditchClass(self):
         self.pList.remove(self.aP)
 
@@ -198,14 +205,20 @@ class ProcessWorker(object):
     
     @defer.inlineCallbacks
     def _assembleChunkedResult(self, ID):
-        pickleString = ""
         moreLeft = True
+        pickleString = ""
         while moreLeft:
-            chunk, isValid, moreLeft = yield self.aP.callRemote(GetMore, ID=ID)
+            stuff = yield self.aP.callRemote(GetMore, ID=ID)
+            chunk, isValid, moreLeft = stuff
             if not isValid:
-                raise ValueError("Invalid result chunk with ID={}".format(ID))
+                raise ValueError(
+                    "Invalid result chunk with ID={}".format(ID))
             pickleString += chunk
         defer.returnValue(p2o(pickleString))
+
+    def _stopper(self):
+        self._ditchClass()
+        return self.aP.callRemote(QuitRunning)
 
     # Implementation methods
     # -------------------------------------------------------------------------
@@ -213,6 +226,7 @@ class ProcessWorker(object):
     def setResignator(self, callableObject):
         self.resignator = callableObject
     
+    @defer.inlineCallbacks
     def run(self, task):
         """
         Sends the task callable, args, kw to the process and returns a
@@ -221,59 +235,52 @@ class ProcessWorker(object):
         You must make sure that the local worker is ready for the next
         task before running this with another one.
         """
-        def connected(null):
-            # Delete my reference to the wait-for-connect deferred so
-            # the one-at-a-time check passes
-            del self.d
-            # Now really run the first task
-            return self.run(task)
+        def ready(null):
 
         def gotResponse(response):
-            status = response['status']
-            if status == 'i':
-                # An iteratable
-                ID = response['result']
-                deferator = util.Deferator(
-                    "Remote iterator ID={}".format(ID),
-                    self.aP.callRemote, GetMore, ID=ID)
-                task.callback(('i', deferator))
-            elif status == 'c':
-                # Chunked result
-                dResult = self._assembleChunkedResult(response['result'])
-                task.callback(('c', dResult))
-            elif status in "re":
-                task.callback((status, response['result']))
-            else:
-                raise ValueError("Unknown status {}".format(status))
         
-        # Even a process worker is strictly one task at a time, for now
-        self.checkReady()
-        # Can't do anything until we are connected
-        if not self.dConnected.called:
-            d = self.d = defer.Deferred()
-            d.addCallback(connected)
-            self.dConnected.chainDeferred(d)
-            return d
-        self.task = task
+        self.tasks.append(task)
+        yield self.lock.acquire()
         # Run the task on the subordinate Python interpreter
-        # -----------------------------------------------------------
+        #-----------------------------------------------------------
         # Everything is sent to the pserver as pickled keywords
-        kw = {'f': o2p(task.f), 'args': o2p(task.args), 'kw': o2p(task.kw)}
-        # The remote call
-        self.d = self.aP.callRemote(RunTask, **kw)
-        self.d.addCallback(gotResponse)
-        return self.d
-
-    def _stopper(self):
-        self.aP.callRemote(QuitRunning)
+        kw = {'f': o2p(task.f),
+              'args': o2p(task.args),
+              'kw': o2p(task.kw)
+          }
+        # The heart of the matter
+        response = yield self.aP.callRemote(RunTask, **kw)
+        #-----------------------------------------------------------
+        # At this point, we can permit another remote call to get
+        # going for a separate task.
+        self._releaseLock()
+        # Process the response. No lock problems even if that
+        # involves further remote calls, i.e., GetMore
+        status = response['status']
+        if status == 'i':
+            # An iteratable
+            ID = response['result']
+            deferator = util.Deferator(
+                "Remote iterator ID={}".format(ID),
+                self.aP.callRemote, GetMore, ID=ID)
+            task.callback(('i', deferator))
+        elif status == 'c':
+            # Chunked result, which will take a while
+            dResult = yield self._assembleChunkedResult(response['result'])
+            task.callback(('c', dResult))
+        elif status in "re":
+            task.callback((status, response['result']))
+        else:
+            raise ValueError("Unknown status {}".format(status))
+        # Task is now done, one way or another
+        self.tasks.remove(task)
 
     def stop(self):
         self._ignoreDisconnection = True
-        return self.deferToStop(self._stopper)
+        self.lock.addStopper(self._stopper)
+        return self.lock.stop()
 
     def crash(self):
-        if hasattr(self, 'd'):
+        if self.aP in self.pList:
             self._stopper()
-            if not self.d.called:
-                return [self.task]
-        return []
+        return self.tasks

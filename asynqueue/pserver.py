@@ -128,12 +128,13 @@ class TaskUniverse(object):
     def __init__(self):
         self.pfs = {}
         self.info = util.Info()
+        self.dt = util.DeferredTracker()
 
-    def oops(self, failureObj):
+    def _oops(self, failureObj):
         self.response['status'] = 'e'
         self.response['result'] = self.info(failureObj)
 
-    def pf(self, ID=None):
+    def _pf(self, ID=None):
         """
         Returns the Prefetcherator of record for a particular ID if one is
         specified. Otherwise returns a unique Prefetcherator instance
@@ -146,7 +147,7 @@ class TaskUniverse(object):
                 self.pfs[ID] = util.Prefetcherator(ID)
         return self.pfs[ID]
     
-    def iteratorResult(self, result):
+    def _iteratorResult(self, result):
         """
         Handles a result that is an iterator.
 
@@ -154,7 +155,7 @@ class TaskUniverse(object):
         for each f-args-kw combo resulting in calls to this method.
         """
         # Try the iterator on for size
-        if self.pf().setIterator(result):
+        if self._pf().setIterator(result):
             self.response['status'] = 'i'
             self.response['result'] = ID
             return
@@ -169,14 +170,14 @@ class TaskUniverse(object):
         else:
             self.pickledResult(pickledResult)
 
-    def pickledResult(self, pickledResult):
+    def _pickledResult(self, pickledResult):
         """
         Handles a regular result that's been pickled for transmission.
         """
         if len(pickledResult) > ChunkyResult.chunkSize:
             # Too big to send as a single pickled result
             self.response['status'] = 'c'
-            pf = self.pf()
+            pf = self._pf()
             pf.setIterator(ChunkyResult(pickledResult))
             self.response['result'] = pf.ID
         else:
@@ -184,17 +185,19 @@ class TaskUniverse(object):
             self.response['status'] = 'r'
             self.response['result'] = pickledResult
 
-    def run(self, f, *args, **kw):
+    def call(self, f, *args, **kw):
         def ran(result):
             if isinstance(result, util.Deferator):
-                # Result is a Deferator
-                # TODO
+                # Result is a Deferator, just tell my prefetcherator
+                # to use its getNext function.
+                df, dargs, dkw = result.callTuple
+                self._pf().setNextCallable(df, *dargs, **dkw)
             elif util.Deferator.isIterator(result):
                 # It's a Deferator-able iterator
-                self.iteratorResult(result)
+                self._iteratorResult(result)
             else:
                 # It's a regular result
-                self.pickledResult(o2p(result))
+                self._pickledResult(o2p(result))
             return self.response
                     
         self.response = {}
@@ -205,8 +208,15 @@ class TaskUniverse(object):
             d = self.t.deferToThread(f, *args, **kw)
         else:
             d = defer.maybeDeferred(f, *args, **kw)
-        d.addCallbacks(ran, self.oops)
+        self.dt.put(d)
+        d.addCallbacks(ran, self._oops)
         return d
+
+    def shutdown(self):
+        if hasattr(self, 't'):
+            d = self.t.stop()
+            self.dt.put(d)
+        return self.dt.deferToAll()
 
 
 class TaskServer(amp.AMP):
@@ -221,25 +231,54 @@ class TaskServer(amp.AMP):
         self.multiverse[id(transport)] = self.u
         return super(TaskServer, self).makeConnection(transport)
     
+    def connectionLost(self, reason):
+        super(TaskServer, self).connectionLost(reason)
+        return self.quitRunning()
+
     def runTask(self, f, args, kw):
+        """
+        Responder for L{RunTask}
+        """
         f = p2o(f)
         args = p2o(args, [])
         kw = p2o(kw, {})
-        return self.u.run(f, *args, **kw)
+        return self.u.call(f, *args, **kw)
+    #------------------------------------------------------------------
     RunTask.responder(runTask)
 
     def getMore(self, ID):
-        # TODO, need dfs, dict of Deferators
-        if ID in self.u.dfs:
-            # TODO
-        value, isValid, moreLeft = self.pfs[ID].getNext()
-        return {'value': value, 'isValid': isValid, 'moreLeft': moreLeft}
+        """
+        Responder for L{GetMore}
+        """
+        def done(result):
+            for k, value in enumerate(result):
+                name = GetMore.response[k][0]
+                response[name] = value
+
+        def oops(failureObj):
+            response['value'] = None
+            response['isValid'] = False
+            response['moreLeft'] = False
+
+        response = {}
+        return defer.maybeDeferred(
+            self.pfs[ID].getNext).addCallbacks(done, oops)
+    #------------------------------------------------------------------
     GetMore.responder(getMore)
     
     def quitRunning(self):
-        reactor.callLater(self.shutdownDelay, reactor.stop)
-        return {}
+        """
+        Responder for L{QuitRunning}
+        """
+        def stopped(null):
+            reactor.callLater(self.shutdownDelay, reactor.stop)
+            return {}
+        return defer.DeferredList([
+            u.shutdown()
+            for u in self.multiverse.itervalues()]).addBoth(stopped)
+    #------------------------------------------------------------------
     QuitRunning.responder(quitRunning)
+
 
 
 class TaskFactory(Factory):
