@@ -19,21 +19,29 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
 
 """
-Mock objects for twisted_goodies.taskqueue unit tests
+Intelligent import, Mock objects, and an improved TestCase for AsynQueue
 """
 
-import sys, os.path
+import re, sys, os.path
 from zope.interface import implements
 from twisted.internet import reactor, defer
+
+from twisted.trial import unittest
 
 # Intelligent import of the modules under test
 testPath = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, testPath)
 # The modules under test
-import base, tasks, interfaces, workers, errors
+import util, base, tasks, interfaces, workers, errors
 
 
 VERBOSE = False
+
+
+def deferToDelay(delay):
+    d = defer.Deferred()
+    reactor.callLater(delay, d.callback, None)
+    return d
 
 
 class MockTask(object):
@@ -109,5 +117,67 @@ class MockWorker(object):
             return [self.task]
 
 
-__all__ = ['base', 'tasks', 'interfaces', 'workers', 'errors',
-           'MockWorker', 'MockTask']
+class TestCase(unittest.TestCase):
+    def msg(self, proto, *args):
+        if hasattr(self, 'verbose'):
+            verbose = self.verbose
+        elif 'VERBOSE' in globals():
+            verbose = VERBOSE
+        else:
+            verbose = False
+        if verbose:
+            proto = "\n" + proto
+            print proto.format(*args)
+    
+    def checkOccurrences(self, pattern, text, number):
+        occurrences = len(re.findall(pattern, text))
+        if occurrences != number:
+            info = \
+                u"Expected {:d} occurrences, not {:d}, " +\
+                u"of '{}' in\n-----\n{}\n-----\n"
+            info = info.format(number, occurrences, pattern, text)
+            self.assertEqual(occurrences, number, info)
+    
+    def checkBegins(self, pattern, text):
+        pattern = r"^\s*%s" % (pattern,)
+        self.assertTrue(bool(re.match(pattern, text)))
+
+    def checkProducesFile(self, fileName, executable, *args, **kw):
+        producedFile = fileInModuleDir(fileName)
+        if os.path.exists(producedFile):
+            os.remove(producedFile)
+        result = executable(*args, **kw)
+        self.assertTrue(
+            os.path.exists(producedFile),
+            "No file '{}' was produced.".format(
+                producedFile))
+        os.remove(producedFile)
+        return result
+
+    def runerator(self, executable, *args, **kw):
+        return Runerator(self, executable, *args, **kw)
+
+    def assertPattern(self, pattern, text):
+        proto = "Pattern '{}' not in '{}'"
+        if '\n' not in pattern:
+            text = re.sub(r'\s*\n\s*', '', text)
+        if isinstance(text, unicode):
+            # What a pain unicode is...
+            proto = unicode(proto)
+        self.assertTrue(
+            bool(re.search(pattern, text)),
+            proto.format(pattern, text))
+
+    def assertStringsEqual(self, a, b, msg=""):
+        N_seg = 20
+        def segment(x):
+            k0 = max([0, k-N_seg])
+            k1 = min([k+N_seg, len(x)])
+            return "{}-!{}!-{}".format(x[k0:k], x[k], x[k+1:k1])
+        
+        for k, char in enumerate(a):
+            if char != b[k]:
+                s1 = segment(a)
+                s2 = segment(b)
+                msg += "\nFrom #1: '{}'\nFrom #2: '{}'".format(s1, s2)
+                self.fail(msg)

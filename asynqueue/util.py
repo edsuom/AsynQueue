@@ -21,9 +21,10 @@
 Miscellaneous useful stuff.
 """
 
-import traceback
-
+import sys, traceback
 import cPickle as pickle
+
+from twisted.internet import defer, reactor
 
 import errors
 
@@ -44,24 +45,26 @@ def callInfo(func, *args, **kw):
         text = "{}[Not Callable!]".format(func)
     text += "("
     if args:
-        text += ", ".join(args)
+        text += ", ".join([str(x) for x in args])
     for name, value in kw.iteritems():
         text += ", {}={}".format(name, value)
     text += ")"
     return text
 
 
-def callTraceback(e, func, *args, **kw):
+def callTraceback(func, *args, **kw):
     """
     Returns an informative string describing an exception raised from
     a function call.
     """
+    stuff = sys.exc_info()
     lineList = [
-        "Exception '{}'".format(str(e)),
+        "Exception '{}'".format(stuff[1]),
         " doing call '{}':".format(callInfo(func, *args, **kw))]
     lineList.append(
         "-" * (max([len(x) for x in lineList]) + 1))
-    lineList.append("".join(traceback.format_tb(e[2])))
+    lineList.append("".join(traceback.format_tb(stuff[2])))
+    del stuff
     return "\n".join(lineList)
 
 

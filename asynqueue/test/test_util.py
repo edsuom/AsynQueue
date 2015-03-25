@@ -24,9 +24,61 @@ Unit tests for asynqueue.util
 import time, random, threading
 from twisted.internet import defer
 
-from twisted.trial.unittest import TestCase
-
-from testbase import util, errors
+from testbase import TestCase, util, errors
 
 
-VERBOSE = True
+class Picklable(object):
+    classValue = 1.2
+
+    def __init__(self):
+        self.x = 0
+
+    def foo(self, y):
+        self.x += y
+
+    def __eq__(self, other):
+        return (
+            self.classValue == other.classValue
+            and
+            self.x == other.x
+        )
+
+
+def stufferator(x):
+    for y in xrange(10):
+        yield x*y
+
+
+class TestFunctions(TestCase):
+    verbose = False
+
+    def foo(self, x):
+        return 2/x
+
+    def test_callInfo(self):
+        self.assertPattern('[cC]allable!', util.callInfo(None))
+        self.assertPattern('\.foo\(1\)', util.callInfo(self.foo, 1))
+
+    def test_callTraceback(self):
+        try:
+            self.foo(0)
+        except Exception as e:
+            text = util.callTraceback(self.foo)
+        self.msg(text)
+        self.assertPattern('\.foo\(\)', text)
+        self.assertPattern('\.foo\(0\)', text)
+        self.assertPattern('[dD]ivi.+by zero', text)
+
+    def test_pickling(self):
+        pObj = Picklable()
+        pObj.foo(3.2)
+        pObj.foo(1.2)
+        objectList = [
+            None, "Some text!", 37311, -1.37,
+            Exception, pObj]
+        for obj in objectList:
+            pickleString = util.o2p(obj)
+            self.assertIsInstance(pickleString, str)
+            roundTrip = util.p2o(pickleString)
+            self.assertEqual(obj, roundTrip)
+        self.assertEqual(roundTrip.x, 4.4)

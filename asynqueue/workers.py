@@ -205,7 +205,7 @@ class ProcessWorker(object):
             if not isValid:
                 raise ValueError("Invalid result chunk with ID={}".format(ID))
             pickleString += chunk
-        return p2o(pickleString)
+        defer.returnValue(p2o(pickleString))
 
     # Implementation methods
     # -------------------------------------------------------------------------

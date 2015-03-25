@@ -145,7 +145,7 @@ class TaskServer(amp.AMP):
             result = f(*args, **kw)
         except Exception as e:
             response['status'] = 'e'
-            response['result'] = callTraceback(e, f, *args, **kw)
+            response['result'] = util.callTraceback(e, f, *args, **kw)
         else:
             if util.Deferator.isIterator(result):
                 # An iterator
@@ -158,17 +158,23 @@ class TaskServer(amp.AMP):
                     response['status'] = 'i'
                     response['result'] = ID
                 else:
-                    # Aw, can't do the iteration
-                    response['status'] = 'e'
-                    result = "Failed to iterate for task {}".format(
-                        util.callInfo(f, *args, **kw))
+                    # Aw, can't do the iteration, try an
+                    # iterator-as-list fallback
+                    try:
+                        pickledResult = list(result)
+                    except:
+                        response['status'] = 'e'
+                        response['result'] = \
+                            "Failed to iterate for task {}".format(
+                                util.callInfo(f, *args, **kw))
             else:
-                # A regular result...
+                # Just a regular result...
                 pickledResult = o2p(result)
+            if 'pickledResult' in locals():
                 if len(pickledResult) > self.maxChunkSize:
                     # ...too big to send as a single pickled result
                     response['status'] = 'c'
-                    ID = self._getID(f)
+                    ID = self._getID(f, args)
                     self.pfTable[ID].setIterator(
                         ChunkyResult(pickledResult, self.maxChunkSize))
                     response['result'] = ID
