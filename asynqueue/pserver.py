@@ -28,7 +28,8 @@ from twisted.internet import reactor
 from twisted.internet.protocol import Factory
 from twisted.protocols import amp
 
-from util import callTraceback, o2p, p2o, Deferator
+import util
+from util import o2p, p2o
 
 
 class RunTask(amp.Command):
@@ -48,6 +49,9 @@ class RunTask(amp.Command):
          Python one. The result is an ID string to use for your
          calls to C{GetMore}.
 
+    'c': Ran fine, but the result is too big for a single return
+         value. So you get an ID string for calls to C{GetMore}.
+
     """
     arguments = [
         ('f', amp.String()),
@@ -66,15 +70,17 @@ class GetMore(amp.Command):
     or a task result so big that it had to be chunked.
 
     The response has a 'value' string with the pickled iteration value
-    or a chunk of the too-big task result, and a 'moreLeft' Bool
-    indicating if you should call me again with this ID for another
-    iteration or chunk.
+    or a chunk of the too-big task result, an 'isValid' bool (which
+    should be True for all cases except an iterable that's empty from
+    the start), and a 'moreLeft' Bool indicating if you should call me
+    again with this ID for another iteration or chunk.
     """
     arguments = [
-        ('id', amp.String())
+        ('ID', amp.String())
     ]
     response = [
         ('value', amp.String()),
+        ('isValid', amp.Boolean()),
         ('moreLeft', amp.Boolean()),
     ]
 
@@ -87,11 +93,33 @@ class QuitRunning(amp.Command):
     response = []
 
 
+class ChunkyResult(object):
+    def __init__(self, bigString, chunkSize):
+        self.bigString = bigString
+        self.chunkSize = chunkSize
+        self.done = False
+    
+    def __iter__(self):
+        return self
+
+    def next(self):
+        if self.done:
+            raise StopIteration
+        thisChunk = self.bigString[:self.chunkSize]
+        if self.chunkSize < len(self.bigString):
+            self.bigString = self.bigString[self.chunkSize:]
+        else:
+            self.done = True
+        return thisChunk
+        
+
 class TaskServer(amp.AMP):
     """
     The AMP protocol for running tasks, entirely unsafely.
     """
+    pfTable = {}
     shutdownDelay = 1.0
+    maxChunkSize = 2**16 - 1
 
     @classmethod
     def started(cls):
@@ -105,11 +133,13 @@ class TaskServer(amp.AMP):
         """
         print "OK"
     
-    def _idForTask(self, idBase):
-        self._idCounter = getattr(self, '_idCounter', 0) + 1
-        return "{}-{:d}".format(idBase, self._idCounter)
+    def _getID(self, *args):
+        ID = hash(args)
+        if ID not in self.pfTable:
+            self.pfTable[ID] = util.Prefetcherator()
+        return ID
     
-    def tryTask(self, f, *args, **kw):
+    def _tryTask(self, f, *args, **kw):
         response = {}
         try:
             result = f(*args, **kw)
@@ -117,19 +147,49 @@ class TaskServer(amp.AMP):
             response['status'] = 'e'
             response['result'] = callTraceback(e, f, *args, **kw)
         else:
-            if Deferator.isIterator(result):
+            if util.Deferator.isIterator(result):
                 # An iterator
-                response['status'] = 'i'
-                
+                # ------------------------------
+                # Prefetcherators don't use much memory, keep one
+                # around for each function-args combo
+                ID = self._getID(f, args)
+                # Try the iterator on for size
+                if self.pfTable[ID].setIterator(result):
+                    response['status'] = 'i'
+                    response['result'] = ID
+                else:
+                    # Aw, can't do the iteration
+                    response['status'] = 'e'
+                    result = "Failed to iterate for task {}".format(
+                        util.callInfo(f, *args, **kw))
+            else:
+                # A regular result...
+                pickledResult = o2p(result)
+                if len(pickledResult) > self.maxChunkSize:
+                    # ...too big to send as a single pickled result
+                    response['status'] = 'c'
+                    ID = self._getID(f)
+                    self.pfTable[ID].setIterator(
+                        ChunkyResult(pickledResult, self.maxChunkSize))
+                    response['result'] = ID
+                else:
+                    # ...small enough to just send
+                    response['status'] = 'r'
+                    response['result'] = pickledResult
         return response
     
     def runTask(self, f, args, kw):
         f = p2o(f)
         args = p2o(args, [])
         kw = p2o(kw, {})
-        return self.tryTask(f, *args, **kw)
+        return self._tryTask(f, *args, **kw)
     RunTask.responder(runTask)
 
+    def getMore(self, ID):
+        value, isValid, moreLeft = self.pfTable[ID].getNext()
+        return {'value': value, 'isValid': isValid, 'moreLeft': moreLeft}
+    GetMore.responder(getMore)
+    
     def quitRunning(self):
         reactor.callLater(self.shutdownDelay, reactor.stop)
         return {}

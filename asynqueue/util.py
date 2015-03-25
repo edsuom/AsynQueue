@@ -113,12 +113,14 @@ class Deferator(object):
 
     Instantiate me with the string representation of the underlying
     iterable and a function (along with any args and kw) that returns
-    a deferred to (1) the next value yielded from the task result,
-    and (2) a Bool indicating whether there are more iterations left.
+    a deferred to a 3-tuple containing (1) the next value yielded from
+    the task result, (2) a Bool indicating if this value is valid or a
+    bogus first one from an empty iterator, and (3) a Bool indicating
+    whether there are more iterations left.
 
     This requires your get-more function to be one step ahead somehow,
     returning C{False} as its status indicator when the *next* call
-    would raise L{StopIteration}.
+    would raise L{StopIteration}. Use L{Prefetcherator}.
 
     """
     builtIns = (
@@ -136,8 +138,10 @@ class Deferator(object):
         try:
             iter(obj)
         except:
-            return True
-        return False
+            result = False
+        else:
+            result = True
+        return result
 
     def __init__(self, representation, f, *args, **kw):
         self.representation = representation.strip('<>')
@@ -164,6 +168,62 @@ class Deferator(object):
             return f(*args, **kw).addCallback(gotNext)
         raise StopIteration
 
+
+class Prefetcherator(object):
+    """
+    """
+    def isBusy(self):
+        return hasattr(self, 'iterator')
+
+    def setIterator(self, iterator):
+        """
+        Give me a new iterator and a fresh start with an optimistic first
+        prefetch. If all goes well, returns C{True}, or C{False}
+        otherwise.
+        """
+        if self.isBusy():
+            return False
+        self.iterator = iterator
+        self.lastFetch = self._tryNext()
+        return self.lastFetch[1]
+    
+    def _tryNext(self):
+        """
+        Returns the next value from the iterator along with a Bool
+        indicating if it's a valid one. Deletes the iterator when it
+        runs empty.
+        """
+        if not hasattr(self, 'iterator'):
+            return None, False
+        try:
+            value = self.iterator.next()
+        except:
+            del self.iterator
+            value = None
+            isValid = False
+        else:
+            isValid = True
+        return value, isValid
+
+    def getNext(self):
+        """
+        Gets the next value from my current iterator, returning it along
+        with a Bool indicating if this is a valid value and another
+        one indicating if more values are left.
+        """
+        value, isValid = self.lastFetch
+        if not isValid:
+            # The last prefetch returned a bogus value, and obviously
+            # no more are left now. You probably shouldn't have made
+            # this call, though it can't be helped for iterators that
+            # are empty from the start.
+            return None, False, False
+        # The prefetch of this call's value was valid, so try a
+        # prefetch for a possible next call after this one.
+        nextValue, isValid = self.lastFetch = self._tryNext()
+        # If the prefetch wasn't valid, another call shouldn't be made.
+        return value, True, isValid
+        
 
 class DeferredLock(defer.DeferredLock):
     """
@@ -203,7 +263,9 @@ class DeferredLock(defer.DeferredLock):
         """
         Add a callable (along with any args and kw) to be run when
         shutting things down. The callable may return a deferred, and
-        more than one can be added.
+        more than one can be added. They will be called, and their
+        result awaited, in the order received.
+
         """
         if not hasattr(self, stoppers):
             self.stoppers = []
@@ -248,52 +310,11 @@ class ThreadLooper(object):
     """
     def __init__(self):
         import threading
+        self.pf = Prefetcherator()
         self.lock = DeferredLock()
         self.event = threading.Event()
         self.thread = threading.Thread(target=self.loop)
         self.thread.start()
-
-    def getNext(self):
-        """
-        Gets the next value from my current iterator, returning it along
-        with a Bool indicating if more values are left.
-        """
-        if not hasatttr(self, 'iterator'):
-            # The iterator has been deleted, so what we've already got
-            # is all we're going to get.
-            return getattr(self, 'nextValue', None), False
-        # We still have an iterator,
-        try:
-             # ...let's see if it has another value left
-            value = self.iterator.next()
-        except:
-            # Nope, it's empty. Delete the iterator and use the
-            # previous "next" value, if any. Note that, unfortunately,
-            # this will guarantee a single None value is yielded from
-            # iterators that were empty to begin with.
-            del self.iterator
-            moreLeft = False
-        else:
-            # Yes! Now let's try prefetching the next value to see if
-            # this call can be made again.
-            try:
-                # Is there one left beyond the current one?
-                nextValue = self.iterator.next()
-            except:
-                # Nope, what we have is all we are going to get.
-                del self.iterator
-                del self.nextValue
-                moreLeft = False
-            else:
-                # Yes! We will need to save this next value for the
-                # next call.
-                moreLeft = True
-                self.nextValue = nextValue
-        # If we have a "next" value from a previous call to this
-        # method, that is our current value and our current one
-        if hasattr(self, 'nextValue'):
-            value = self.nextValue
-        return value, moreLeft
 
     def loop(self):
         """
@@ -319,21 +340,34 @@ class ThreadLooper(object):
             else:
                 if Deferator.isIterator(result):
                     # An iterator
-                    if hasattr(self, 'iterator'):
-                        raise error.NotReadyError(
-                            "We already have an iterator in progress")
-                    self.iterator = iter(result)
-                    status = 'i'
-                    result = Deferator(
-                        repr(result), self.deferToThread, self.getNext)
+                    if self.pf.isBusy():
+                        status = 'e'
+                        result = "Already iterating during call {}".format(
+                            callInfo(f, *args, **kw))
+                    elif self.pf.setIterator(result):
+                        # OK, we can iterate this
+                        status = 'i'
+                        result = Deferator(
+                            repr(result), self.deferToThread, self.pf.getNext)
+                    else:
+                        status = 'e'
+                        result = "Failed to iterate for call {}".format(
+                            callInfo(f, *args, **kw))
                 else:
+                    # Not an iterator; we already have our result
                     status = 'r'
             reactor.callFromThread(self.d.callback, (status, result))
-        # Broken out of loop, ready for the thread to end
-        reactor.callFromThread(self.lock.release)
-        # The thread now dies
+        # Broken out of loop, the thread now dies
 
     def deferToThread(self, f, *args, **kw):
+        """
+        Runs the supplied callable function with any args and keywords in
+        a dedicated thread, returning a deferred that fires with a
+        status/result tuple.
+
+        Calls are done in the order received, unless you set doNext=True.
+        
+        """
         def threadReady(null):
             self.callTuple = f, args, kw
             self.event.set()
@@ -344,24 +378,21 @@ class ThreadLooper(object):
             self.lock.release()
             return result
 
-        return self.lock.aquire().addCallback(threadReady)
+        if kw.pop('doNext', False):
+            d = self.lock.acquireNext()
+        else:
+            d = self.lock.acquire()
+        return d.addCallback(threadReady)
     
     def stop(self):
         """
         The returned deferred fires when the task loop has ended and its
         thread terminated.
         """
-        def stopper():
-            self.quit = True
-        
-
-        def stopper():
-            self.d = defer.Deferred()
-            # Kill the thread when it quits its loop and fires this deferred
-            self.d.addCallback(lambda _ : self.thread.join())
-            # Tell the thread to quit with a null task
-            self.task = None
-            self.event.set()
-            return self.d
-        return self.deferToStop(stopper)
+        # Tell the thread to quit with a null task
+        self.callTuple = None
+        self.event.set()
+        # Now stop the lock
+        self.lock.addStopper(self.thread.join)
+        return self.lock.stop()
 

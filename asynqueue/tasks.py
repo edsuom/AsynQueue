@@ -84,7 +84,7 @@ class Task(object):
 
     def timedout(self):
         if not self.d.called:
-            self.d.callback((False, "Timeout"))
+            self.d.callback(('t', None))
         self.callID = None
     
     def __repr__(self):

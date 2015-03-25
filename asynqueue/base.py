@@ -366,8 +366,9 @@ class TaskQueue(QueueBase):
           a task assignment for the call, after which the call will be retried.
 
         """
-        def oneLessPending(result):
+        def taskDone(result):
             self.loadInfoProducer.oneLess()
+            # TODO: Need to parse and deal with the status/result stuff
             return result
         
         if not self.isRunning():
@@ -395,7 +396,7 @@ class TaskQueue(QueueBase):
         elif kw.pop('doLast', False):
             task.priority = 1000000
         self.heap.put(task)
-        task.d.addBoth(oneLessPending)
+        task.d.addBoth(taskDone)
         return task.d
 
     def callAll(self, func, *args, **kw):

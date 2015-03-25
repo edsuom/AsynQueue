@@ -28,72 +28,10 @@ from twisted.protocols import amp
 
 import errors, util
 from interfaces import IWorker
+from pserver import RunTask, GetMore, QuitRunning
 
 
-class WorkerBase(object):
-    """
-    Subclass me to get some worker goodness.
-    """
-    implements(IWorker)
-    cQualified = []
-
-    def taskTraceback(self, e):
-        import traceback
-        lineList = [
-            "Exception '{}'".format(str(e)),
-            " running task '{}':".format(repr(self.task))]
-        lineList.append(
-            "-" * (max([len(x) for x in lineList]) + 1))
-        lineList.append("".join(traceback.format_tb(e[2])))
-        return "\n".join(lineList)
-
-    def checkReady(self):
-        """
-        Checks if I'm ready for another task and raises an exception if
-        not.
-        """
-        if hasattr(self, 'd') and not self.d.called:
-            raise errors.NotReadyError(
-                "You shouldn't have called yet. " +\
-                "Task Loop not ready to deal with a task now")
-
-    def deferToStop(self, stopper=None):
-        """
-        Returns a deferred that fires when any pending task is done and
-        any no-arg stopper function you supply has run.
-        """
-        def runStopper(*arg):
-            self.dStop = defer.maybeDeferred(stopper)
-            return self.dStop
-        
-        if hasattr(self, 'dStop'):
-            # A stop was already initiated...
-            if self.dStop.called:
-                # ..and it's done
-                d = defer.succeed(None)
-            else:
-                # ...no, it's still pending
-                d = defer.Deferred()
-                self.dStop.chainDeferred(d)
-            return d
-        if hasattr(self, 'd') and not self.d.called:
-            # No stop yet pending, but there's a task pending (a real
-            # one; we wouldn't get this far if it were just a null
-            # task for stopping a thread's loop)
-            d = defer.Deferred()
-            # Run the stopper when the task is done
-            if stopper:
-                d.addCallback(runStopper)
-            self.d.chainDeferred(d)
-            return d
-        # No task or stop pending, so run the stopper function now, if
-        # there is one
-        if stopper:
-            return runStopper()
-        return defer.succeed(None)
-
-
-class ThreadWorker(WorkerBase):
+class ThreadWorker(object):
     """
     I implement an L{IWorker} that runs tasks in a dedicated worker
     thread.
@@ -101,40 +39,12 @@ class ThreadWorker(WorkerBase):
     You can supply a series keyword containing a list of one or more
     task series that I am qualified to handle.
     """
+    implements(IWorker)
+    cQualified = []
+
     def __init__(self, series=[]):
         self.iQualified = series
-        import threading
-        self.event = threading.Event()
-        self.thread = threading.Thread(target=self._loop)
-        self.thread.start()
-
-    def _loop(self):
-        """
-        Runs a loop in a dedicated thread that waits for new tasks. The loop
-        exits when a C{None} object is supplied as a task.
-        """
-        while True:
-            # Wait here on the threading.Event object
-            self.event.wait()
-            task = self.task
-            if task is None:
-                break
-            # Ready for the task attribute to be set to another task object
-            self.event.clear()
-            reactor.callFromThread(self.d.callback, None)
-            f, args, kw = task.callTuple
-            try:
-                result = f(*args, **kw)
-                # If the task causes the thread to hang, the method
-                # call will not reach this point.
-            except Exception as e:
-                statusResult = (False, self.taskTraceback(e))
-            else:
-                statusResult = (True, result)
-            reactor.callFromThread(task.callback, statusResult)
-        # Broken out of loop, ready for the thread to end
-        reactor.callFromThread(self.d.callback, None)
-        # The thread now dies
+        self.t = util.ThreadLooper()
 
     def setResignator(self, callableObject):
         """
@@ -142,27 +52,16 @@ class ThreadWorker(WorkerBase):
         """
 
     def run(self, task):
-        self.checkReady()
-        # Thread workers are strictly one task at a time
-        self.task = task
-        self.event.set()
-        self.d = defer.Deferred()
-        return self.d
+        f, args, kw = task.callTuple
+        return self.t.deferToThread(
+            f, *args, **kw).addCallback(task.d.callback)
     
     def stop(self):
         """
         The returned deferred fires when the task loop has ended and its thread
         terminated.
         """
-        def stopper():
-            self.d = defer.Deferred()
-            # Kill the thread when it quits its loop and fires this deferred
-            self.d.addCallback(lambda _ : self.thread.join())
-            # Tell the thread to quit with a null task
-            self.task = None
-            self.event.set()
-            return self.d
-        return self.deferToStop(stopper)
+        return self.t.stop()
 
     def crash(self):
         """
@@ -176,12 +75,13 @@ class ThreadWorker(WorkerBase):
         else:
             # This shouldn't happen
             result = []
-        if hasattr(self, 'd') and not self.d.called:
+        if hasattr(self.t, 'd') and not self.t.d.called:
             del self.task
-            self.d.callback(None)
+            self.t.d.callback(None)
+        self.t.stop()
 
 
-class AsyncWorker(WorkerBase):
+class AsyncWorker(object):
     """
     I implement an L{IWorker} that runs tasks in the Twisted main
     loop, one task at a time but in a well-behaved non-blocking
@@ -230,7 +130,7 @@ class AsyncWorker(WorkerBase):
         """
         
 
-class ProcessWorker(WorkerBase):
+class ProcessWorker(object):
     """
     I implement an L{IWorker} that runs tasks in a subordinate Python
     interpreter via Twisted's Asynchronous Messaging Protocol.
@@ -238,7 +138,7 @@ class ProcessWorker(WorkerBase):
     You can also supply a series keyword containing a list of one or
     more task series that I am qualified to handle.
     """
-    pLists = []
+    pList = []
 
     class ProcessProtocol(object):
         def __init__(self, d, disconnectCallback):
@@ -282,12 +182,11 @@ class ProcessWorker(WorkerBase):
         yield d
         # Now connect to it via the UNIX socket
         dest = endpoints.UNIXClientEndpoint(reactor, self.address)
-        aP = yield endpoints.connectProtocol(dest, amp.AMP())
-        self.pList = [pP, pT, aP]
-        self.pLists.append(self.pList)
+        self.aP = yield endpoints.connectProtocol(dest, amp.AMP())
+        self.pList.append(self.aP)
 
     def _ditchClass(self):
-        self.pLists.remove(self.pList)
+        self.pList.remove(self.aP)
 
     def _disconnected(self):
         if getattr(self, '_ignoreDisconnection', False):
@@ -297,6 +196,17 @@ class ProcessWorker(WorkerBase):
         if callable(possibleResignator):
             possibleResignator()
     
+    @defer.inlineCallbacks
+    def _assembleChunkedResult(self, ID):
+        pickleString = ""
+        moreLeft = True
+        while moreLeft:
+            chunk, isValid, moreLeft = yield self.aP.callRemote(GetMore, ID=ID)
+            if not isValid:
+                raise ValueError("Invalid result chunk with ID={}".format(ID))
+            pickleString += chunk
+        return p2o(pickleString)
+
     # Implementation methods
     # -------------------------------------------------------------------------
 
@@ -319,12 +229,22 @@ class ProcessWorker(WorkerBase):
             return self.run(task)
 
         def gotResponse(response):
-            failureInfo = response['failureInfo']
-            if failureInfo:
-                task.callback((False, failureInfo))
+            status = response['status']
+            if status == 'i':
+                # An iteratable
+                ID = response['result']
+                deferator = util.Deferator(
+                    "Remote iterator ID={}".format(ID),
+                    self.aP.callRemote, GetMore, ID=ID)
+                task.callback(('i', deferator))
+            elif status == 'c':
+                # Chunked result
+                dResult = self._assembleChunkedResult(response['result'])
+                task.callback(('c', dResult))
+            elif status in "re":
+                task.callback((status, response['result']))
             else:
-                result = p2o(response['result'])
-                task.callback((True, result))
+                raise ValueError("Unknown status {}".format(status))
         
         # Even a process worker is strictly one task at a time, for now
         self.checkReady()
@@ -340,12 +260,12 @@ class ProcessWorker(WorkerBase):
         # Everything is sent to the pserver as pickled keywords
         kw = {'f': o2p(task.f), 'args': o2p(task.args), 'kw': o2p(task.kw)}
         # The remote call
-        self.d = self.pList[2].callRemote(RunTask, **kw)
+        self.d = self.aP.callRemote(RunTask, **kw)
         self.d.addCallback(gotResponse)
         return self.d
 
     def _stopper(self):
-        self.pList[2].callRemote(QuitRunning)
+        self.aP.callRemote(QuitRunning)
 
     def stop(self):
         self._ignoreDisconnection = True
