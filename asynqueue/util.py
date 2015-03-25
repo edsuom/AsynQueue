@@ -291,8 +291,8 @@ class DeferredLock(defer.DeferredLock):
 
 class ThreadLooper(object):
     """
-    I run function calls in a dedicated worker thread, returning a
-    deferred to the eventual result.
+    I run function calls in a dedicated thread, returning a deferred
+    to each eventual result.
 
     If the result is an iterable other than one of Python's built-in
     ones, the deferred fires with an instance of L{Deferator}
@@ -309,7 +309,6 @@ class ThreadLooper(object):
 
     'i': Ran fine, but the result is an iterable other than a standard
       Python one. The result is an instance of L{Deferator}.
-
     """
     def __init__(self):
         import threading

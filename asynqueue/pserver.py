@@ -139,10 +139,16 @@ class TaskServer(amp.AMP):
             self.pfTable[ID] = util.Prefetcherator()
         return ID
     
+    @defer.inlineCallbacks
     def _tryTask(self, f, *args, **kw):
         response = {}
         try:
-            result = f(*args, **kw)
+            # TODO: Need to incorporate this with Twisted. The runTask
+            # overall response can be a deferred, but not this
+            # individual item. Also, running in thread option.
+
+            # addErrback...endless PITA
+            result = yield defer.maybeDeferred(f, *args, **kw)
         except Exception as e:
             response['status'] = 'e'
             response['result'] = util.callTraceback(e, f, *args, **kw)
