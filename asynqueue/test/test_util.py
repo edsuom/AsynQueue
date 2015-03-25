@@ -27,6 +27,11 @@ from twisted.internet import defer
 from testbase import TestCase, util, errors
 
 
+def stufferator(x):
+    for y in xrange(10):
+        yield x*y
+
+
 class Picklable(object):
     classValue = 1.2
 
@@ -44,9 +49,17 @@ class Picklable(object):
         )
 
 
-def stufferator(x):
-    for y in xrange(10):
-        yield x*y
+class IteratorGetter(object):
+    def __init__(self, x):
+        self.x = x
+
+    def getNext(self):
+        if self.x:
+            x = self.x.pop()
+            d = deferToDelay(5*random.random())
+            d.addCallback(lambda _ : x)
+            return d
+        raise StopIteration
 
 
 class TestFunctions(TestCase):
