@@ -93,112 +93,146 @@ class QuitRunning(amp.Command):
     response = []
 
 
-class ChunkyResult(object):
-    def __init__(self, bigString, chunkSize):
+class ChunkyString(object):
+    """
+    I iterate chunks of a big string, deleting my internal reference
+    to it when done so it can be garbage collected even if I'm not.
+    """
+    chunkSize = 2**16 - 1
+
+    def __init__(self, bigString):
+        self.k0 = 0
+        self.N = len(bigString)
         self.bigString = bigString
-        self.chunkSize = chunkSize
-        self.done = False
     
     def __iter__(self):
         return self
 
     def next(self):
-        if self.done:
+        if not hasattr(self, 'bigString'):
             raise StopIteration
-        thisChunk = self.bigString[:self.chunkSize]
-        if self.chunkSize < len(self.bigString):
-            self.bigString = self.bigString[self.chunkSize:]
+        k1 = min([self.k0 + self.chunkSize, self.N])
+        thisChunk = self.bigString[self.k0:k1]
+        if k1 == self.N:
+            del self.bigString
         else:
-            self.done = True
+            self.k0 = k1
         return thisChunk
-        
+
+
+class TaskUniverse(object):
+    """
+    I am the universe for all tasks running with a particular
+    connection to my L{TaskServer}.
+    """
+    def __init__(self):
+        self.pfs = {}
+        self.info = util.Info()
+
+    def oops(self, failureObj):
+        self.response['status'] = 'e'
+        self.response['result'] = self.info(failureObj)
+
+    def pf(self, ID=None):
+        """
+        Returns the Prefetcherator of record for a particular ID if one is
+        specified. Otherwise returns a unique Prefetcherator instance
+        for the current f-args-kw combo, constructing a new one if
+        necessary.
+        """
+        if ID is None:
+            ID = self.info.getID()
+            if ID not in self.pfs:
+                self.pfs[ID] = util.Prefetcherator(ID)
+        return self.pfs[ID]
+    
+    def iteratorResult(self, result):
+        """
+        Handles a result that is an iterator.
+
+        Prefetcherators use hardly any memory, so we keep one around
+        for each f-args-kw combo resulting in calls to this method.
+        """
+        # Try the iterator on for size
+        if self.pf().setIterator(result):
+            self.response['status'] = 'i'
+            self.response['result'] = ID
+            return
+        # Aw, can't do the iteration, try an iterator-as-list fallback
+        try:
+            pickledResult = list(result)
+        except:
+            self.response['status'] = 'e'
+            text = "Failed to iterate for task {}".format(
+                self.info.aboutCall())
+            self.response['result'] = text
+        else:
+            self.pickledResult(pickledResult)
+
+    def pickledResult(self, pickledResult):
+        """
+        Handles a regular result that's been pickled for transmission.
+        """
+        if len(pickledResult) > ChunkyResult.chunkSize:
+            # Too big to send as a single pickled result
+            self.response['status'] = 'c'
+            pf = self.pf()
+            pf.setIterator(ChunkyResult(pickledResult))
+            self.response['result'] = pf.ID
+        else:
+            # Small enough to just send
+            self.response['status'] = 'r'
+            self.response['result'] = pickledResult
+
+    def run(self, f, *args, **kw):
+        def ran(result):
+            if isinstance(result, util.Deferator):
+                # Result is a Deferator
+                # TODO
+            elif util.Deferator.isIterator(result):
+                # It's a Deferator-able iterator
+                self.iteratorResult(result)
+            else:
+                # It's a regular result
+                self.pickledResult(o2p(result))
+            return self.response
+                    
+        self.response = {}
+        self.info.setCall(f, *args, **kw)
+        if kw.pop('thread', False):
+            if not hasattr(self, 't'):
+                self.t = util.ThreadLooper()
+            d = self.t.deferToThread(f, *args, **kw)
+        else:
+            d = defer.maybeDeferred(f, *args, **kw)
+        d.addCallbacks(ran, self.oops)
+        return d
+
 
 class TaskServer(amp.AMP):
     """
-    The AMP protocol for running tasks, entirely unsafely.
+    The AMP server protocol for running tasks, entirely unsafely.
     """
-    pfTable = {}
+    multiverse = {}
     shutdownDelay = 1.0
-    maxChunkSize = 2**16 - 1
 
-    @classmethod
-    def started(cls):
-        """
-        Now that the reactor is running, sends the "OK" handshaking code
-        to the ProcessWorker in my spawning Python interpreter via
-        stdout.
-
-        Might do something with hashing an authentication code here
-        someday. Or not.
-        """
-        print "OK"
-    
-    def _getID(self, *args):
-        ID = hash(args)
-        if ID not in self.pfTable:
-            self.pfTable[ID] = util.Prefetcherator()
-        return ID
-    
-    @defer.inlineCallbacks
-    def _tryTask(self, f, *args, **kw):
-        response = {}
-        try:
-            # TODO: Need to incorporate this with Twisted. The runTask
-            # overall response can be a deferred, but not this
-            # individual item. Also, running in thread option.
-
-            # addErrback...endless PITA
-            result = yield defer.maybeDeferred(f, *args, **kw)
-        except Exception as e:
-            response['status'] = 'e'
-            response['result'] = util.callTraceback(e, f, *args, **kw)
-        else:
-            if util.Deferator.isIterator(result):
-                # An iterator
-                # ------------------------------
-                # Prefetcherators don't use much memory, keep one
-                # around for each function-args combo
-                ID = self._getID(f, args)
-                # Try the iterator on for size
-                if self.pfTable[ID].setIterator(result):
-                    response['status'] = 'i'
-                    response['result'] = ID
-                else:
-                    # Aw, can't do the iteration, try an
-                    # iterator-as-list fallback
-                    try:
-                        pickledResult = list(result)
-                    except:
-                        response['status'] = 'e'
-                        response['result'] = \
-                            "Failed to iterate for task {}".format(
-                                util.callInfo(f, *args, **kw))
-            else:
-                # Just a regular result...
-                pickledResult = o2p(result)
-            if 'pickledResult' in locals():
-                if len(pickledResult) > self.maxChunkSize:
-                    # ...too big to send as a single pickled result
-                    response['status'] = 'c'
-                    ID = self._getID(f, args)
-                    self.pfTable[ID].setIterator(
-                        ChunkyResult(pickledResult, self.maxChunkSize))
-                    response['result'] = ID
-                else:
-                    # ...small enough to just send
-                    response['status'] = 'r'
-                    response['result'] = pickledResult
-        return response
+    def makeConnection(self, transport):
+        self.u = TaskUniverse()
+        self.multiverse[id(transport)] = self.u
+        return super(TaskServer, self).makeConnection(transport)
     
     def runTask(self, f, args, kw):
         f = p2o(f)
         args = p2o(args, [])
         kw = p2o(kw, {})
-        return self._tryTask(f, *args, **kw)
+        return self.u.run(f, *args, **kw)
     RunTask.responder(runTask)
 
     def getMore(self, ID):
-        value, isValid, moreLeft = self.pfTable[ID].getNext()
+        # TODO, need dfs, dict of Deferators
+        if ID in self.u.dfs:
+            # TODO
+        value, isValid, moreLeft = self.pfs[ID].getNext()
         return {'value': value, 'isValid': isValid, 'moreLeft': moreLeft}
     GetMore.responder(getMore)
     
@@ -208,13 +242,26 @@ class TaskServer(amp.AMP):
     QuitRunning.responder(quitRunning)
 
 
+class TaskFactory(Factory):
+    protocol = TaskServer
+                 
+    def startFactory(self):
+        """
+        Now that I'm ready to accept connections, sends the "OK"
+        handshaking code to the ProcessWorker in my spawning Python
+        interpreter via stdout.
+
+        Might do something with hashing an authentication code here
+        someday. Or not.
+        """
+        print "OK"
+                 
+
 def start(address):
-    pf = Factory()
-    pf.protocol = TaskServer
+    pf = TaskFactory()
     # Currently the security of UNIX domain sockets is the only
     # security we have!
     reactor.listenUNIX(address, pf)
-    reactor.callWhenRunning(TaskServer.started)
     reactor.run()
 
 

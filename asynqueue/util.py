@@ -25,47 +25,9 @@ import sys, traceback
 import cPickle as pickle
 
 from twisted.internet import defer, reactor
+from twisted.python.failure import Failure
 
 import errors
-
-
-def callInfo(func, *args, **kw):
-    """
-    Returns an informative string describing a function call.
-    """
-    if func.__class__.__name__ == "function":
-        text = func.__name__
-    elif callable(func):
-        text = "{}.{}".format(func.__class__.__name__, func.__name__)
-    else:
-        try:
-            func = str(func)
-        except:
-            func = repr(func)
-        text = "{}[Not Callable!]".format(func)
-    text += "("
-    if args:
-        text += ", ".join([str(x) for x in args])
-    for name, value in kw.iteritems():
-        text += ", {}={}".format(name, value)
-    text += ")"
-    return text
-
-
-def callTraceback(func, *args, **kw):
-    """
-    Returns an informative string describing an exception raised from
-    a function call.
-    """
-    stuff = sys.exc_info()
-    lineList = [
-        "Exception '{}'".format(stuff[1]),
-        " doing call '{}':".format(callInfo(func, *args, **kw))]
-    lineList.append(
-        "-" * (max([len(x) for x in lineList]) + 1))
-    lineList.append("".join(traceback.format_tb(stuff[2])))
-    del stuff
-    return "\n".join(lineList)
 
 
 def o2p(obj):
@@ -76,7 +38,6 @@ def o2p(obj):
     if not obj:
         return ""
     return pickle.dumps(obj, pickle.HIGHEST_PROTOCOL)
-
 
 def p2o(pickledString, defaultObj=None):
     """
@@ -90,6 +51,98 @@ def p2o(pickledString, defaultObj=None):
     if not pickledString:
         return defaultObj
     return pickle.loads(pickledString)
+
+
+class Info(object):
+    """
+    I provide text info about a call. Construct me with a function
+    object and any args and keywords if you want the info to include
+    that particular function call, or you can set it (and change it)
+    later with L{setCall}.
+    """
+    __slots__ = ['callTuple']
+
+    def __init__(self, *args, **kw):
+        if args:
+            self.callTuple = (args[0], args[1:], kw)
+
+    def setCall(func, *args, **kw):
+        self.callTuple = func, args, kw
+        return self
+    
+    def getID(self, *args, **kw):
+        """
+        Returns a unique ID for my current callable or a func-args-kw
+        combination you specify.
+        """
+        if args:
+            return hash((args[0], args[1:], kw))
+        return hash(self.callTuple)
+
+    def _divider(self, lineList):
+        lineList.append(
+            "-" * (max([len(x) for x in lineList]) + 1))
+        
+    def aboutCall(self):
+        """
+        Returns an informative string describing my function call.
+        """
+        callTuple = getattr(self, 'callTuple', None)
+        if callTuple is None:
+            return ""
+        func, args, kw = callTuple
+        if func.__class__.__name__ == "function":
+            text = func.__name__
+        elif callable(func):
+            text = "{}.{}".format(func.__class__.__name__, func.__name__)
+        else:
+            try:
+                func = str(func)
+            except:
+                func = repr(func)
+            text = "{}[Not Callable!]".format(func)
+        text += "("
+        if args:
+            text += ", ".join([str(x) for x in args])
+        for name, value in kw.iteritems():
+            text += ", {}={}".format(name, value)
+        text += ")"
+        return text
+
+    def aboutException(self):
+        """
+        Returns an informative string describing an exception raised from
+        my function call.
+        """
+        stuff = sys.exc_info()
+        lineList = ["Exception '{}'".format(stuff[1])]
+        callInfo = self.aboutCall()
+        if callInfo:
+            lineList.append(
+                " doing call '{}':".format(callInfo))
+        self._divider(lineList)
+        lineList.append("".join(traceback.format_tb(stuff[2])))
+        del stuff
+        return "\n".join(lineList)
+
+    def aboutFailure(self, failureObj):
+        """
+        Returns an informative string describing a Twisted failure raised
+        from my function call. You can use this as an errback.
+        """
+        lineList = ["Failure '{}'".format(failureObj.getErrorMessage())]
+        callInfo = self.aboutCall()
+        if callInfo:
+            lineList.append(
+                " doing call '{}':".format(callInfo))
+        self._divider(lineList)
+        lineList.append(failureObj.getTraceback(detail='verbose'))
+        return "\n".join(lineList)
+
+    def __call__(self, *args):
+        if args and isinstance(args[0], Failure):
+            return self.aboutFailure(args[0])
+        return self.aboutException()
 
 
 class Deferator(object):
@@ -168,28 +221,22 @@ class Deferator(object):
                 raise errors.NotReadyError(
                     "You didn't wait for the last deferred to fire!")
             f, args, kw = self.callTuple
-            return f(*args, **kw).addCallback(gotNext)
+            self.d = f(*args, **kw).addCallback(gotNext)
+            return self.d
         raise StopIteration
 
 
 class Prefetcherator(object):
     """
     """
+    __slots__ = ['ID', 'iterator', 'lastFetch']
+
+    def __init__(self, ID):
+        self.ID = ID
+
     def isBusy(self):
         return hasattr(self, 'iterator')
 
-    def setIterator(self, iterator):
-        """
-        Give me a new iterator and a fresh start with an optimistic first
-        prefetch. If all goes well, returns C{True}, or C{False}
-        otherwise.
-        """
-        if self.isBusy():
-            return False
-        self.iterator = iterator
-        self.lastFetch = self._tryNext()
-        return self.lastFetch[1]
-    
     def _tryNext(self):
         """
         Returns the next value from the iterator along with a Bool
@@ -208,6 +255,18 @@ class Prefetcherator(object):
             isValid = True
         return value, isValid
 
+    def setIterator(self, iterator):
+        """
+        Give me a new iterator and a fresh start with an optimistic first
+        prefetch. If all goes well, returns C{True}, or C{False}
+        otherwise.
+        """
+        if self.isBusy():
+            return False
+        self.iterator = iterator
+        self.lastFetch = self._tryNext()
+        return self.lastFetch[1]
+    
     def getNext(self):
         """
         Gets the next value from my current iterator, returning it along
@@ -309,6 +368,7 @@ class ThreadLooper(object):
 
     'i': Ran fine, but the result is an iterable other than a standard
       Python one. The result is an instance of L{Deferator}.
+
     """
     def __init__(self):
         import threading
@@ -338,7 +398,7 @@ class ThreadLooper(object):
                 # call will not reach this point.
             except Exception as e:
                 status = 'e'
-                result = callTraceback(e, f, *args, **kw)
+                result = Info(f, *args, **kw)
             else:
                 if Deferator.isIterator(result):
                     # An iterator
@@ -361,7 +421,7 @@ class ThreadLooper(object):
             reactor.callFromThread(self.d.callback, (status, result))
         # Broken out of loop, the thread now dies
 
-    def deferToThread(self, f, *args, **kw):
+    def call(self, f, *args, **kw):
         """
         Runs the supplied callable function with any args and keywords in
         a dedicated thread, returning a deferred that fires with a
@@ -376,9 +436,9 @@ class ThreadLooper(object):
             self.d = defer.Deferred().addCallback(threadDone)
             return self.d
 
-        def threadDone(result):
+        def threadDone(statusResult):
             self.lock.release()
-            return result
+            return statusResult
 
         if kw.pop('doNext', False):
             d = self.lock.acquireNext()
@@ -386,6 +446,16 @@ class ThreadLooper(object):
             d = self.lock.acquire()
         return d.addCallback(threadReady)
     
+    def deferToThread(self, f, *args, **kw):
+        """
+        My single-threaded, queued, doNext-able, Deferator-able answer to
+        Twisted's deferToThread.
+        """
+        def done(statusResult):
+            
+            
+        return self.call(f, *args, **kw).addCallback(done)
+
     def stop(self):
         """
         The returned deferred fires when the task loop has ended and its
