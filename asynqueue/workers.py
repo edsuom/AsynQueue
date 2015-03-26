@@ -107,8 +107,7 @@ class AsyncWorker(object):
             task.callback((True, result))
 
         def oops(failureObj):
-            text = self.info.setCall(
-                f, *args, **kw).aboutFailure(failureObj)
+            text = self.info.setCall(f, args, kw).aboutFailure(failureObj)
             task.callback((False, text))
 
         f, args, kw = task.callTuple

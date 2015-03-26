@@ -261,13 +261,13 @@ class IterationProducer(object):
         if not IConsumer.providedBy(consumer):
             raise errors.ImplementationError(
                 "Object {} isn't a consumer".format(repr(consumer)))
-            try:
-                consumer.registerProducer(self, True)
-            except:
-                # Ignore any exception raised from a consumer already
-                # registering me.
-                pass
-            self.consumer = consumer
+        try:
+            consumer.registerProducer(self, True)
+        except:
+            # Ignore any exception raised from a consumer already
+            # having registered me.
+            pass
+        self.consumer = consumer
     
     @defer.inlineCallbacks
     def run(self):

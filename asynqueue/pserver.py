@@ -201,7 +201,7 @@ class TaskUniverse(object):
             return self.response
                     
         self.response = {}
-        self.info.setCall(f, *args, **kw)
+        self.info.setCall(f, args, kw)
         if kw.pop('thread', False):
             if not hasattr(self, 't'):
                 self.t = util.ThreadLooper()

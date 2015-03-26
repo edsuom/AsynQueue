@@ -22,7 +22,9 @@ Unit tests for asynqueue.util
 """
 
 import time, random, threading
+from zope.interface import implements
 from twisted.internet import defer
+from twisted.internet.interfaces import IConsumer
 
 from testbase import TestCase, util, errors, deferToDelay
 
@@ -64,30 +66,80 @@ class TestInfo(TestCase):
     verbose = False
 
     def setUp(self):
+        self.p = Picklable()
         self.info = util.Info()
-    
+
+    def _divide(self, x, y):
+        return x/y
+        
     def test_aboutCall(self):
         for pattern, f, args, kw in (
-            ('[cC]allable!', None, (), {}),
-            ('\.foo\(1\)', self.foo, (1,), {}),
-        ):
-            self.info.setCall(f, *args, **kw)
+                ('[cC]allable!', None, (), {}),
+                ('\.foo\(1\)', self.p.foo, (1,), {})):
+            self.info.setCall(f, args, kw)
             self.assertPattern(pattern, self.info.aboutCall())
 
-    def test_callTraceback(self):
+    def test_aboutException(self):
         try:
-            self.foo(0)
+            self._divide(1, 0)
         except Exception as e:
             text = self.info.aboutException()
         self.msg(text)
         self.assertPattern('Exception ', text)
         self.assertPattern('[dD]ivi.+by zero', text)
 
+    def test_aboutFailure(self):
+        self.fail("TODO")
+
+
+class ToyConsumer(object):
+    implements(IConsumer)
+
+    def __init__(self, verbose):
+        self.verbose = verbose
+    
+    def registerProducer(self, *args):
+        self.x = []
+        self.registered = args
+        if self.verbose:
+            print "Registered:", args
+
+    def unregisterProducer(self):
+        self.registered = None
+
+    def write(self, data):
+        if self.verbose:
+            print "Wrote:", data
+        self.x.append(data)
+
+
+class Stuff(object):
+    def divide(self, x, y, delay=0.5):
+        time.sleep(delay)
+        return x/y
+
+    def iterate(self, N, maxDelay=0.5):
+        for k in xrange(N):
+            time.sleep(maxDelay*random.random())
+            yield k
+
+    def fiveSeconderator(self):
+        def oneSecond():
+            t0 = time.time()
+            while time.time() - t0 < 1.0:
+                time.sleep(0.05)
+            return time.time() - t0
+        for k in xrange(5):
+            time.sleep(0.1)
+            yield oneSecond()
+
 
 class TestThreadLooper(TestCase):
     verbose = True
 
     def setUp(self):
+        self.stuff = Stuff()
+        self.resultList = []
         self.t = util.ThreadLooper()
 
     def tearDown(self):
@@ -99,17 +151,108 @@ class TestThreadLooper(TestCase):
         self.t.event.set()
         return deferToDelay(0.2).addCallback(
             lambda _: self.assertFalse(self.t.threadRunning))
-
-    def _divide(self, x, y, delay=0.5):
-        import time
-        time.sleep(delay)
-        return x/y
-
+            
     @defer.inlineCallbacks
-    def test_call_OK(self):
-        status, result = yield self.t.call(self._divide, 10, 2, delay=1.0)
+    def test_call_OK_once(self):
+        status, result = yield self.t.call(self.stuff.divide, 10, 2, delay=1.0)
         self.assertEqual(status, 'r')
         self.assertEqual(result, 5)
+
+    def _gotOne(self, sr):
+        self.assertEqual(sr[0], 'r')
+        self.resultList.append(sr[1])
+
+    def _checkResult(self, null, expected):
+        self.assertEqual(self.resultList, expected)
         
+    def test_call_multi_OK(self):
+        dList = []
+        for x in (2, 4, 8, 10):
+            d = self.t.call(self.stuff.divide, x, 2, delay=random.random())
+            d.addCallback(self._gotOne)
+            dList.append(d)
+        return defer.DeferredList(dList).addCallback(
+            self._checkResult, [1, 2, 4, 5])
+
+    def test_call_doNext(self):
+        dList = []
+        for num, delay, doNext in (
+                (3, 0.5, False), (6, 0.1, False), (12, 0.1, True)):
+            d = self.t.call(
+                self.stuff.divide, num, 3, delay=delay, doNext=doNext)
+            d.addCallback(self._gotOne)
+            dList.append(d)
+        return defer.DeferredList(dList).addCallback(
+            self._checkResult, [1, 4, 2])
+
+    @defer.inlineCallbacks
+    def test_call_error_once(self):
+        status, result = yield self.t.call(self.stuff.divide, 1, 0)
+        self.assertEqual(status, 'e')
+        self.msg("Expected error message:", '-')
+        self.msg(result)
+        self.assertPattern(r'\.divide', result)
+        self.assertPattern(r'[dD]ivi.+zero', result)
+
+    @defer.inlineCallbacks
+    def test_iterator_fast(self):
+        status, result = yield self.t.call(self.stuff.iterate, 10)
+        self.assertEqual(status, 'i')
+        dRegular = self.t.call(self.stuff.divide, 3.0, 2.0)
+        resultList = []
+        for d in result:
+            item = yield d
+            resultList.append(item)
+        self.assertEqual(resultList, range(10))
+        status, result = yield dRegular
+        self.assertEqual(status, 'r')
+        self.assertEqual(result, 1.5)
+
+    @defer.inlineCallbacks
+    def test_iterator_slow(self):
+        status, result = yield self.t.call(self.stuff.fiveSeconderator)
+        self.assertEqual(status, 'i')
+        dRegular = self.t.call(self.stuff.divide, 3.0, 2.0)
+        resultList = []
+        for d in result:
+            item = yield d
+            resultList.append(item)
+        self.assertEqual(len(resultList), 5)
+        self.assertApproximates(sum(resultList), 5.0, 0.2)
+        status, result = yield dRegular
+        self.assertEqual(status, 'r')
+        self.assertEqual(result, 1.5)
         
+    def test_deferToThread_OK(self):
+        def done(result):
+            self.assertEqual(result, 5)
+        def oops(failureObj):
+            self.fail("Shouldn't have gotten here!")
+        return self.t.deferToThread(
+            self.stuff.divide, 10, 2).addCallbacks(done, oops)
+        
+    def test_deferToThread_error(self):
+        def done(result):
+            self.fail("Shouldn't have gotten here!")
+        def oops(failureObj):
+            self.assertPattern(r'[dD]ivi', failureObj.getErrorMessage())
+        return self.t.deferToThread(
+            self.stuff.divide, 1, 0).addCallbacks(done, oops)
+    
+    def test_deferToThread_iterator(self):
+        # SAW THIS HANG WHEN RUNNING FULL MODULE TEST!
+        # Four lines of "Wrote: ..." and no fifth line or anything else
+        @defer.inlineCallbacks
+        def done(p):
+            self.msg("Call to iterator returned: {}", repr(p))
+            c = ToyConsumer(self.verbose)
+            p.registerConsumer(c)
+            self.assertEqual(c.registered, (p, True))
+            yield p.run()
+            self.assertEqual(len(c.x), 5)
+            self.assertApproximates(sum(c.x), 5.0, 0.2)
+            self.assertEqual(c.registered, None)
+
+        return self.t.deferToThread(
+            self.stuff.fiveSeconderator).addCallback(done)
         

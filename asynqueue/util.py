@@ -28,7 +28,7 @@ from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 
 import errors
-from iteration import Deferator, Prefetcherator
+from iteration import Deferator, Prefetcherator, IterationProducer
 
 
 
@@ -68,8 +68,8 @@ class Info(object):
         if args:
             self.callTuple = (args[0], args[1:], kw)
 
-    def setCall(func, *args, **kw):
-        self.callTuple = func, args, kw
+    def setCall(self, f, args, kw):
+        self.callTuple = f, args, kw
         return self
     
     def getID(self, *args, **kw):
@@ -317,12 +317,12 @@ class ThreadLooper(object):
                 # call will not reach this point.
             except Exception as e:
                 status = 'e'
-                result = Info(f, *args, **kw)
+                result = Info(f, *args, **kw).aboutException()
             else:
                 if Deferator.isIterator(result):
                     # An iterator
                     pf = Prefetcherator()
-                    if pf.setIterator(result):
+                    if pf.setup(result):
                         # OK, we can iterate this
                         status = 'i'
                         result = Deferator(
@@ -383,7 +383,7 @@ class ThreadLooper(object):
             if status == 'e':
                 return Failure(errors.WorkerError(result))
             if status == 'i':
-                ip = iteration.IterationProducer(result)
+                ip = IterationProducer(result)
                 if consumer:
                     ip.registerConsumer(consumer)
                     return ip.run()
