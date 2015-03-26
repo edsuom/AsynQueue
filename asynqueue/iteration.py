@@ -117,7 +117,8 @@ class Deferator(object):
     def next(self):
         def gotNext(result):
             value, isValid, self.moreLeft = result
-            # TODO: Show some kind of warning if isValid is False?
+            # Might be nice to raise some kind of warning if isValid
+            # is False
             return value
         
         if self.moreLeft:
@@ -232,9 +233,9 @@ class Prefetcherator(object):
         value, isValid = self.lastFetch
         if not isValid:
             # The last prefetch returned a bogus value, and obviously
-            # no more are left now. You probably shouldn't have made
-            # this call, though it can't be helped for iterators that
-            # are empty from the start.
+            # no more are left now. Set value to C{None} to avoid
+            # possibly retaining big values.
+            self.lastFetch = None, False
             return None, False, False
         # The prefetch of this call's value was valid, so try a
         # prefetch for a possible next call after this one.
@@ -259,9 +260,9 @@ class Prefetcherator(object):
         value, isValid = self.lastFetch
         if not isValid:
             # The last prefetch returned a bogus value, and obviously
-            # no more are left now. You probably shouldn't have made
-            # this call, though it can't be helped for iterators that
-            # are empty from the start.
+            # no more are left now. Set value to C{None} to avoid
+            # possibly retaining big values.
+            self.lastFetch = None, False
             return defer.succeed((None, False, False))
         # The prefetch of this call's value was valid, so try a
         # prefetch for a possible next call after this one.
@@ -274,9 +275,12 @@ class Prefetcherator(object):
         indicating if this is a valid value and another one indicating
         if more values are left.
 
+        Once a prefetch returns a bogus value, the result of this call
+        will remain (None, False, False), until a new iterator or
+        nextCallable is set.
+
         Use this method as the callable (second constructor argument)
         of L{Deferator}.
-        
         """
         if hasattr(self, 'iterator'):
             if hasattr(self, 'nextCallTuple'):
@@ -285,6 +289,8 @@ class Prefetcherator(object):
             return self._getNext_withIterator()
         if hasattr(self, 'nextCallTuple'):
             return self._getNext_withCallable()
+        if hasattr(self, 'lastFetch'):
+            return None, False, False
         raise Exception("Neither an iterator nor a nextCallTuple is defined")
 
 

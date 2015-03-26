@@ -118,6 +118,14 @@ class MockWorker(object):
 
 
 class TestCase(unittest.TestCase):
+    """
+    Slightly improved TestCase
+    """
+    def doCleanups(self):
+        if hasattr(self, 'msgAlready'):
+            del self.msgAlready
+        return super(TestCase, self).doCleanups()
+
     def msg(self, proto, *args):
         if hasattr(self, 'verbose'):
             verbose = self.verbose
@@ -126,7 +134,12 @@ class TestCase(unittest.TestCase):
         else:
             verbose = False
         if verbose:
-            proto = "\n" + proto
+            if not hasattr(self, 'msgAlready'):
+                proto = "\n" + proto
+                self.msgAlready = True
+            if args and args[-1] == "-":
+                args = args[:-1]
+                proto += "\n{}".format("-"*40)
             print proto.format(*args)
     
     def checkOccurrences(self, pattern, text, number):

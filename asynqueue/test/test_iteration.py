@@ -22,6 +22,8 @@ Unit tests for asynqueue.util
 """
 
 import random
+from copy import copy
+
 from twisted.internet import defer
 
 from testbase import TestCase, iteration, errors
@@ -29,8 +31,8 @@ from testbase import TestCase, iteration, errors
 
 generator = (2*x for x in range(10))
 
-def generatorFunction(x):
-    for y in xrange(3,7):
+def generatorFunction(x, N=7):
+    for y in xrange(N):
         yield x*y
 
 
@@ -40,7 +42,7 @@ class DeferredIterable(object):
 
     def next(self):
         d = iteration.deferToDelay(2*random.random())
-        d.addCallback(lambda _: self.x.pop())
+        d.addCallback(lambda _: self.x.pop(0))
         return d
         
 
@@ -97,7 +99,7 @@ class TestPrefetcherator(TestCase):
         for unSuitable in (None, "xyz", (1,2), [3,4], {1:'a', 2:'b'}):
             self.assertFalse(pf.setIterator(unSuitable))
         self.assertTrue(pf.setIterator(generatorFunction(4)))
-        self.assertEqual(pf.lastFetch, (12, True))
+        self.assertEqual(pf.lastFetch, (0, True))
 
     @defer.inlineCallbacks
     def test_setNextCallable(self):
@@ -106,3 +108,55 @@ class TestPrefetcherator(TestCase):
         ok = yield pf.setNextCallable(di.next)
         self.assertTrue(ok)
         self.assertEqual(pf.lastFetch, (21, True))
+
+    def test_getNext_withIterator(self):
+        iterator = generatorFunction(6, N=5)
+        pf = iteration.Prefetcherator("gf")
+        self.assertTrue(pf.setIterator(iterator))
+        k = 0
+        self.msg(" k val\tisValid\tmoreLeft", "-")
+        while True:
+            value, isValid, moreLeft = pf.getNext()
+            self.msg(
+                "{:2d}:  {}\t{}\t{}", k, value,
+                "+" if isValid else "0",
+                "+" if moreLeft else "0")
+            self.assertEqual(value, k*6)
+            self.assertTrue(isValid)
+            if k < 4:
+                self.assertTrue(moreLeft)
+            else:
+                self.assertFalse(moreLeft)
+                break
+            k += 1
+        value, isValid, moreLeft = pf.getNext()
+        self.assertFalse(isValid)
+        self.assertFalse(moreLeft)
+
+    @defer.inlineCallbacks
+    def test_getNext_withNextCallable(self):
+        listOfStuff = ["57", None, "1.3", "whatever"]
+        di = DeferredIterable(copy(listOfStuff))
+        pf = iteration.Prefetcherator()
+        status = yield pf.setNextCallable(di.next)
+        self.assertTrue(status)
+        k = 0
+        self.msg(" k{}\tisValid\tmoreLeft", " "*10, "-")
+        while True:
+            value, isValid, moreLeft = yield pf.getNext()
+            self.msg(
+                "{:2d}:{:>10s}\t{}\t{}", k, value,
+                "+" if isValid else "0",
+                "+" if moreLeft else "0")
+            self.assertEqual(value, listOfStuff[k])
+            self.assertTrue(isValid)
+            if k < len(listOfStuff)-1:
+                self.assertTrue(moreLeft)
+            else:
+                self.assertFalse(moreLeft)
+                break
+            k += 1
+        value, isValid, moreLeft = yield pf.getNext()
+        self.assertFalse(isValid)
+        self.assertFalse(moreLeft)
+        
