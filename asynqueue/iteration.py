@@ -64,8 +64,10 @@ class Deferator(object):
 
     This requires your get-more function to be one step ahead somehow,
     returning C{False} as its status indicator when the *next* call
-    would raise L{StopIteration}. Use L{Prefetcherator}.
-
+    would raise L{StopIteration}. Use L{Prefetcherator.getNext} after
+    setting the prefetcherator up with a suitable iterator or
+    next-item callable.
+    
     """
     builtIns = (
         str, unicode,
@@ -121,7 +123,7 @@ class Prefetcherator(object):
     """
     __slots__ = ['ID', 'iterator', 'nextCallTuple', 'lastFetch']
 
-    def __init__(self, ID):
+    def __init__(self, ID=None):
         self.ID = ID
 
     def isBusy(self):
@@ -241,6 +243,10 @@ class Prefetcherator(object):
         from my current nextCallTuple, returning it along with a Bool
         indicating if this is a valid value and another one indicating
         if more values are left.
+
+        Use this method as the callable (second constructor argument)
+        of L{Deferator}.
+        
         """
         if hasattr(self, 'iterator'):
             if hasattr(self, 'nextCallTuple'):
@@ -250,7 +256,6 @@ class Prefetcherator(object):
         if hasattr(self, 'nextCallTuple'):
             return self._getNext_withCallable()
         raise Exception("Neither an iterator nor a nextCallTuple is defined")
-
 
 
 class IterationProducer(object):
@@ -264,18 +269,36 @@ class IterationProducer(object):
 
     checkInterval = 0.1
 
-    def __init__(self, dr, consumer):
+    def __init__(self, dr, consumer=None):
         if not isinstance(dr, Deferator):
             raise TypeError("Object {} is not a Deferator".format(repr(dr)))
         self.dr = dr
+        if consumer is not None:
+            self.setConsumer(consumer)
+
+    def registerConsumer(self, consumer):
+        """
+        How could we push to a consumer without knowing what it is?
+        """
         if not IConsumer.providedBy(consumer):
             raise errors.ImplementationError(
                 "Object {} isn't a consumer".format(repr(consumer)))
-        self.consumer = consumer
-        consumer.registerProducer(self, True)
+            try:
+                consumer.registerProducer(self, True)
+            except:
+                # Ignore any exception raised from a consumer already
+                # registering me.
+                pass
+            self.consumer = consumer
     
     @defer.inlineCallbacks
     def run(self):
+        """
+        Produces the iterations, returning a deferred that fires when the
+        iterations are done.
+        """
+        if not hasattr(self, 'consumer'):
+            raise AttributeError("Can't run without a consumer registered")
         self.paused = False
         self.running = True
         for d in self.dr:
@@ -292,6 +315,9 @@ class IterationProducer(object):
                 yield deferToDelay(self.checkInterval)
             # Write the item and do the next iteration
             self.consumer.write(item)
+        # Done with the iteration, and with producer/consumer
+        # interaction
+        self.consumer.unregisterProducer()
             
     def pauseProducing(self):
         self.paused = True
@@ -301,3 +327,36 @@ class IterationProducer(object):
 
     def stopProducing(self):
         self.running = False
+
+
+def iteratorToProducer(iterator, consumer=None):
+    """
+    Converts a possibly slow-running iterator into a Twisted-friendly
+    producer.
+
+    If a consumer is not supplied, whatever consumer gets this must
+    register with the returned producer by calling its non-interface
+    method L{IterationProducer.registerConsumer}.
+
+    In any case, the iterations/production starts with a call to its
+    L{IterationProducer.run} method.
+    
+    """
+    pf = Prefetcherator()
+    rIterator = repr(iterator)
+    if not pf.setIterator(iterator):
+        raise ValueError(
+            "Object {} is not a suitable iterator".format(rIterator))
+    dr = Deferator(rIterator, pf.getNext)
+    return IterationProducer(dr, consumer)
+
+
+def consumeIterations(iterator, consumer):
+    """
+    Has the supplied iterator write its items into the supplied
+    consumer. Returns a deferred that fires when the iterations are
+    done.
+    """
+    producer = iteratorToProducer(iterator, consumer)
+    return producer.run()
+    
