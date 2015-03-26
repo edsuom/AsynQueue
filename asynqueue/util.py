@@ -213,6 +213,7 @@ class DeferredLock(defer.DeferredLock):
     """
     def __init__(self):
         self.running = True
+        super(DeferredLock, self).__init__()
 
     def acquireNext(self):
         """
@@ -244,7 +245,7 @@ class DeferredLock(defer.DeferredLock):
         result awaited, in the order received.
 
         """
-        if not hasattr(self, stoppers):
+        if not hasattr(self, 'stoppers'):
             self.stoppers = []
         self.stoppers.append([f, args, kw])
     
@@ -287,6 +288,9 @@ class ThreadLooper(object):
     """
     def __init__(self):
         import threading
+        # Just a simple attribute to indicate if the thread loop is
+        # running, mostly for unit testing
+        self.threadRunning = True
         self.lock = DeferredLock()
         self.event = threading.Event()
         self.thread = threading.Thread(target=self.loop)
@@ -297,6 +301,7 @@ class ThreadLooper(object):
         Runs a loop in a dedicated thread that waits for new tasks. The loop
         exits when a C{None} object is supplied as a task.
         """
+        self.threadRunning = True
         while True:
             # Wait here on the threading.Event object
             self.event.wait()
@@ -332,6 +337,7 @@ class ThreadLooper(object):
                     status = 'r'
             reactor.callFromThread(self.d.callback, (status, result))
         # Broken out of loop, the thread now dies
+        self.threadRunning = False
 
     def call(self, f, *args, **kw):
         """

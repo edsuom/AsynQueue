@@ -141,7 +141,7 @@ class Prefetcherator(object):
     the L{getNext} return value is False.
     """
     __slots__ = [
-        'ID', 'iterator', 'nextCallTuple', 'lastFetch', 'callWhenDone']
+        'ID', 'nextCallTuple', 'lastFetch', 'callWhenDone']
 
     def __init__(self, ID=None, callWhenDone=None):
         self.ID = ID
@@ -149,31 +149,35 @@ class Prefetcherator(object):
             self.callWhenDone = callWhenDone
 
     def isBusy(self):
-        return hasattr(self, 'iterator') or hasattr(self, 'nextCallTuple')
+        return hasattr(self, 'nextCallTuple')
 
-    def _nextCall(self):
-        f, args, kw = self.nextCallTuple
-        return f(*args, **kw)
-    
+    def setup(self, *args, **kw):
+        """
+        Set me up with a new iterator, or the callable for an
+        iterator-like-object, along with any args or keywords. Does a
+        first prefetch, returning a deferred that fires with C{True}
+        if all goes well or C{False} otherwise.
+        """
+        def parseArgs():
+            if not args:
+                return False
+            if Deferator.isIterator(args[0]):
+                self.nextCallTuple = (args[0].next, [], {})
+                return True
+            if callable(args[0]):
+                self.nextCallTuple = (args[0], args[1:], kw)
+                return True
+            return False
+
+        def done(result):
+            self.lastFetch = result
+            return result[1]
+        
+        if self.isBusy() or not parseArgs():
+            return defer.succeed(False)
+        return self._tryNext().addCallback(done)
+        
     def _tryNext(self):
-        """
-        Returns the next value from the iterator along with a Bool
-        indicating if it's a valid one. Deletes the iterator when it
-        runs empty.
-        """
-        if not hasattr(self, 'iterator'):
-            return None, False
-        try:
-            value = self.iterator.next()
-        except:
-            del self.iterator
-            value = None
-            isValid = False
-        else:
-            isValid = True
-        return value, isValid
-
-    def _tryNextCall(self):
         """
         Returns a deferred that fires with the value from my
         I{nextCallTuple} along with a Bool indicating if it's a valid
@@ -187,87 +191,14 @@ class Prefetcherator(object):
             return None, False
         if not hasattr(self, 'nextCallTuple'):
             return defer.succeed((None, False))
-        return self._nextCall().addCallbacks(done, oops)
-
-    def setIterator(self, iterator):
-        """
-        Give me a new iterator and a fresh start with an optimistic first
-        prefetch. If all goes well, returns C{True}, or C{False}
-        otherwise.
-        """
-        if self.isBusy() or not Deferator.isIterator(iterator):
-            return False
-        self.iterator = iterator
-        self.lastFetch = self._tryNext()
-        return self.lastFetch[1]
-
-    def setNextCallable(self, f, *args, **kw):
-        """
-        Instead of an iterator, set a callable (along with any args/kw)
-        that will return a deferred to the next iteration or a failure
-        for L{StopIteration}. Start things off with a first
-        prefetch. Returns a deferred that fires with C{True} if all
-        goes well, or C{False} otherwise.
-        """
-        def done(value):
-            self.lastFetch = value, True
-            return True
-        def oops(failureObj):
-            del self.nextCallTuple
-            self.lastFetch = None, False
-            return False
-        if self.isBusy():
-            return defer.succeed(False)
-        self.nextCallTuple = (f, args, kw)
-        return self._nextCall().addCallbacks(done, oops)
-
+        f, args, kw = self.nextCallTuple
+        return defer.maybeDeferred(f, *args, **kw).addCallbacks(done, oops)
+    
     def _callCallWhenDone(self):
         if hasattr(self, 'callWhenDone'):
-            callWhenDone()
+            self.callWhenDone()
             del self.callWhenDone
-        
-    def _getNext_withIterator(self):
-        """
-        The iterator/immediate version of getNext
-        """
-        value, isValid = self.lastFetch
-        if not isValid:
-            # The last prefetch returned a bogus value, and obviously
-            # no more are left now. Set value to C{None} to avoid
-            # possibly retaining big values.
-            self.lastFetch = None, False
-            return None, False, False
-        # The prefetch of this call's value was valid, so try a
-        # prefetch for a possible next call after this one.
-        nextValue, isValid = self.lastFetch = self._tryNext()
-        # If the prefetch wasn't valid, another call shouldn't be made.
-        if not isValid:
-            self._callCallWhenDone()
-        return value, True, isValid
 
-    def _getNext_withCallable(self):
-        """
-        The callable/deferred version of getNext
-        """
-        def done(result):
-            self.lastFetch = result
-            nextValue, isValid = result
-            if not isValid:
-                self._callCallWhenDone()
-            # If the prefetch wasn't valid, another call shouldn't be made.
-            return (value, True, isValid)
-
-        value, isValid = self.lastFetch
-        if not isValid:
-            # The last prefetch returned a bogus value, and obviously
-            # no more are left now. Set value to C{None} to avoid
-            # possibly retaining big values.
-            self.lastFetch = None, False
-            return defer.succeed((None, False, False))
-        # The prefetch of this call's value was valid, so try a
-        # prefetch for a possible next call after this one.
-        return self._tryNextCall().addCallback(done)
-        
     def getNext(self):
         """
         Gets the next value from my current iterator, or a deferred value
@@ -282,16 +213,27 @@ class Prefetcherator(object):
         Use this method as the callable (second constructor argument)
         of L{Deferator}.
         """
-        if hasattr(self, 'iterator'):
-            if hasattr(self, 'nextCallTuple'):
-                raise Exception(
-                    "You can't define both an iterator and a nextCallTuple")
-            return self._getNext_withIterator()
-        if hasattr(self, 'nextCallTuple'):
-            return self._getNext_withCallable()
-        if hasattr(self, 'lastFetch'):
-            return None, False, False
-        raise Exception("Neither an iterator nor a nextCallTuple is defined")
+        def done(thisFetch):
+            nextIsValid = thisFetch[1]
+            if not nextIsValid:
+                if hasattr(self, 'lastFetch'):
+                    del self.lastFetch
+                self._callCallWhenDone()
+                # This call's value is valid, but there's no more
+                return value, True, False
+            # This call's value is valid and there is more to come
+            result = value, True, True
+            self.lastFetch = thisFetch
+            return result
+
+        value, isValid = getattr(self, 'lastFetch', (None, False))
+        if not isValid:
+            # The last prefetch returned a bogus value, and obviously
+            # no more are left now.
+            return defer.succeed((None, False, False))
+        # The prefetch of this call's value was valid, so try a
+        # prefetch for a possible next call after this one.
+        return self._tryNext().addCallback(done)
 
 
 class IterationProducer(object):

@@ -24,12 +24,7 @@ Unit tests for asynqueue.util
 import time, random, threading
 from twisted.internet import defer
 
-from testbase import TestCase, util, errors
-
-
-def stufferator(x):
-    for y in xrange(10):
-        yield x*y
+from testbase import TestCase, util, errors, deferToDelay
 
 
 class Picklable(object):
@@ -89,14 +84,32 @@ class TestInfo(TestCase):
         self.assertPattern('[dD]ivi.+by zero', text)
 
 
-class IteratorGetter(object):
-    def __init__(self, x):
-        self.x = x
+class TestThreadLooper(TestCase):
+    verbose = True
 
-    def getNext(self):
-        if self.x:
-            x = self.x.pop()
-            d = deferToDelay(5*random.random())
-            d.addCallback(lambda _ : x)
-            return d
-        raise StopIteration
+    def setUp(self):
+        self.t = util.ThreadLooper()
+
+    def tearDown(self):
+        return self.t.stop()
+        
+    def test_loop(self):
+        self.assertTrue(self.t.threadRunning)
+        self.t.callTuple = None
+        self.t.event.set()
+        return deferToDelay(0.2).addCallback(
+            lambda _: self.assertFalse(self.t.threadRunning))
+
+    def _divide(self, x, y, delay=0.5):
+        import time
+        time.sleep(delay)
+        return x/y
+
+    @defer.inlineCallbacks
+    def test_call_OK(self):
+        status, result = yield self.t.call(self._divide, 10, 2, delay=1.0)
+        self.assertEqual(status, 'r')
+        self.assertEqual(result, 5)
+        
+        
+        

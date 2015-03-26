@@ -93,30 +93,34 @@ class TestDeferator(TestCase):
 
 class TestPrefetcherator(TestCase):
     verbose = True
-    
+
+    @defer.inlineCallbacks
     def test_setIterator(self):
         pf = iteration.Prefetcherator()
         for unSuitable in (None, "xyz", (1,2), [3,4], {1:'a', 2:'b'}):
-            self.assertFalse(pf.setIterator(unSuitable))
-        self.assertTrue(pf.setIterator(generatorFunction(4)))
+            status = yield pf.setup(unSuitable)
+            self.assertFalse(status)
+        status = yield pf.setup(generatorFunction(4))
+        self.assertTrue(status)
         self.assertEqual(pf.lastFetch, (0, True))
 
     @defer.inlineCallbacks
     def test_setNextCallable(self):
         di = DeferredIterable([7, 13, 21])
         pf = iteration.Prefetcherator()
-        ok = yield pf.setNextCallable(di.next)
-        self.assertTrue(ok)
-        self.assertEqual(pf.lastFetch, (21, True))
+        status = yield pf.setup(di.next)
+        self.assertTrue(status)
+        self.assertEqual(pf.lastFetch, (7, True))
 
+    @defer.inlineCallbacks
     def test_getNext_withIterator(self):
         iterator = generatorFunction(6, N=5)
         pf = iteration.Prefetcherator("gf")
-        self.assertTrue(pf.setIterator(iterator))
+        yield pf.setup(iterator)
         k = 0
         self.msg(" k val\tisValid\tmoreLeft", "-")
         while True:
-            value, isValid, moreLeft = pf.getNext()
+            value, isValid, moreLeft = yield pf.getNext()
             self.msg(
                 "{:2d}:  {}\t{}\t{}", k, value,
                 "+" if isValid else "0",
@@ -129,7 +133,7 @@ class TestPrefetcherator(TestCase):
                 self.assertFalse(moreLeft)
                 break
             k += 1
-        value, isValid, moreLeft = pf.getNext()
+        value, isValid, moreLeft = yield pf.getNext()
         self.assertFalse(isValid)
         self.assertFalse(moreLeft)
 
@@ -138,7 +142,7 @@ class TestPrefetcherator(TestCase):
         listOfStuff = ["57", None, "1.3", "whatever"]
         di = DeferredIterable(copy(listOfStuff))
         pf = iteration.Prefetcherator()
-        status = yield pf.setNextCallable(di.next)
+        status = yield pf.setup(di.next)
         self.assertTrue(status)
         k = 0
         self.msg(" k{}\tisValid\tmoreLeft", " "*10, "-")
@@ -159,4 +163,23 @@ class TestPrefetcherator(TestCase):
         value, isValid, moreLeft = yield pf.getNext()
         self.assertFalse(isValid)
         self.assertFalse(moreLeft)
+
+    @defer.inlineCallbacks
+    def test_withDeferator(self):
+        N = 5
+        expected = range(0, 3*N, 3)
+        iterator = generatorFunction(3, N=N)
+        pf = iteration.Prefetcherator()
+        status = yield pf.setup(iterator)
+        self.assertTrue(status)
+        dr = iteration.Deferator(None, pf.getNext)
+        self.msg(
+            "expected: {}",
+            ", ".join((str(x) for x in expected)))
+        self.msg(" k  value", "-")
+        for k, d in enumerate(dr):
+            value = yield d
+            self.msg("{:2d}  {:2d}", k, value)
+            self.assertEqual(value, expected[k])
+        
         
