@@ -286,12 +286,18 @@ class ThreadLooper(object):
       Python one. The result is an instance of L{Deferator}.
 
     """
+    # My default wait timeout is one minute: This is just how long the
+    # thread loop waits before checking for a pending deferred and
+    # firing it with a timeout error. Otherwise, it simply waits
+    # another minute, and it can do that forever with no problem.
+    timeout = 60
+    
     def __init__(self):
         import threading
         # Just a simple attribute to indicate if the thread loop is
         # running, mostly for unit testing
         self.threadRunning = True
-        self.lock = DeferredLock()
+        self.dLock = DeferredLock()
         self.event = threading.Event()
         self.thread = threading.Thread(target=self.loop)
         self.thread.start()
@@ -301,16 +307,27 @@ class ThreadLooper(object):
         Runs a loop in a dedicated thread that waits for new tasks. The loop
         exits when a C{None} object is supplied as a task.
         """
+        def callback(status, result):
+            reactor.callFromThread(self.d.callback, (status, result))
+        
         self.threadRunning = True
         while True:
-            # Wait here on the threading.Event object
-            self.event.wait()
+            # Wait here for my main-thread caller to release me for
+            # another call
+            self.event.wait(self.timeout)
+            # For Python 2.7 and above, we could have just done
+            # if not self.event.wait(...):
+            if not self.event.isSet():
+                # Timed out waiting for the next call. If there indeed
+                # was one, we need to let the caller know. That
+                # shouldn't ever happen, though.
+                if hasattr(self, 'd') and not self.d.called:
+                    callback('e', "Thread timed out waiting for this call!")
+                continue
             if self.callTuple is None:
                 # Shutdown was requested
                 break
             f, args, kw = self.callTuple
-            # Ready for another calltuple to be set
-            self.event.clear()
             try:
                 result = f(*args, **kw)
                 # If the task causes the thread to hang, the method
@@ -335,7 +352,13 @@ class ThreadLooper(object):
                 else:
                     # Not an iterator; we already have our result
                     status = 'r'
-            reactor.callFromThread(self.d.callback, (status, result))
+            # We are about to call back the shared deferred, so clear
+            # the event to force me to wait for the next call at the
+            # top of the loop. The main thread will not set the event
+            # again until the callback is done, so this is safe.
+            self.event.clear()
+            # OK, now call the shared deferred
+            callback(status, result)
         # Broken out of loop, the thread now dies
         self.threadRunning = False
 
@@ -350,18 +373,26 @@ class ThreadLooper(object):
         """
         def threadReady(null):
             self.callTuple = f, args, kw
-            self.event.set()
             self.d = defer.Deferred().addCallback(threadDone)
+            # The callTuple is set for this call along with the
+            # deferred to be called back with its result, so release
+            # the thread to work on it.
+            self.event.set()
             return self.d
 
         def threadDone(statusResult):
-            self.lock.release()
+            # The deferred lock is released after the call is done so
+            # that another call can proceed. This is NOT the same as
+            # the event used as a threading lock. It keeps the main
+            # thread from setting that event before the thread loop is
+            # read for that.
+            self.dLock.release()
             return statusResult
 
         if kw.pop('doNext', False):
-            d = self.lock.acquireNext()
+            d = self.dLock.acquireNext()
         else:
-            d = self.lock.acquire()
+            d = self.dLock.acquire()
         return d.addCallback(threadReady)
     
     def deferToThread(self, f, *args, **kw):
@@ -402,6 +433,6 @@ class ThreadLooper(object):
         self.callTuple = None
         self.event.set()
         # Now stop the lock
-        self.lock.addStopper(self.thread.join)
-        return self.lock.stop()
+        self.dLock.addStopper(self.thread.join)
+        return self.dLock.stop()
 

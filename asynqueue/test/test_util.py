@@ -88,8 +88,8 @@ class TestInfo(TestCase):
         self.assertPattern('Exception ', text)
         self.assertPattern('[dD]ivi.+by zero', text)
 
-    def test_aboutFailure(self):
-        self.fail("TODO")
+    #def test_aboutFailure(self):
+    #    self.fail("TODO")
 
 
 class ToyConsumer(object):
@@ -120,7 +120,8 @@ class Stuff(object):
 
     def iterate(self, N, maxDelay=0.5):
         for k in xrange(N):
-            time.sleep(maxDelay*random.random())
+            if maxDelay > 0:
+                time.sleep(maxDelay*random.random())
             yield k
 
     def fiveSeconderator(self):
@@ -195,6 +196,19 @@ class TestThreadLooper(TestCase):
         self.assertPattern(r'[dD]ivi.+zero', result)
 
     @defer.inlineCallbacks
+    def test_iterator_basic(self):
+        for k in xrange(100):
+            N = random.randrange(5, 20)
+            self.msg("Repeat #{:d}, iterating {:d} times...", k+1, N)
+            status, result = yield self.t.call(self.stuff.iterate, N, 0)
+            self.assertEqual(status, 'i')
+            resultList = []
+            for d in result:
+                item = yield d
+                resultList.append(item)
+            self.assertEqual(resultList, range(N))
+    
+    @defer.inlineCallbacks
     def test_iterator_fast(self):
         status, result = yield self.t.call(self.stuff.iterate, 10)
         self.assertEqual(status, 'i')
@@ -210,6 +224,7 @@ class TestThreadLooper(TestCase):
 
     @defer.inlineCallbacks
     def test_iterator_slow(self):
+        # This FAILED with a timeout ERROR
         status, result = yield self.t.call(self.stuff.fiveSeconderator)
         self.assertEqual(status, 'i')
         dRegular = self.t.call(self.stuff.divide, 3.0, 2.0)
