@@ -21,6 +21,9 @@
 Iteration, Twisted style
 """
 
+import inspect
+
+from zope.interface import implements
 from twisted.internet import defer, reactor
 from twisted.internet.interfaces import IPushProducer, IConsumer
 
@@ -55,19 +58,24 @@ class Deferator(object):
             listItem = yield d
             print listItem
 
-    Instantiate me with the string representation of the underlying
-    iterable and a function (along with any args and kw) that returns
-    a deferred to a 3-tuple containing (1) the next value yielded from
-    the task result, (2) a Bool indicating if this value is valid or a
-    bogus first one from an empty iterator, and (3) a Bool indicating
-    whether there are more iterations left.
+    Instantiate me with a string representation of the underlying
+    iterable (or the object itself, if it's handy) and a function
+    (along with any args and kw) that returns a deferred to a 3-tuple
+    containing (1) the next value yielded from the task result, (2) a
+    Bool indicating if this value is valid or a bogus first one from
+    an empty iterator, and (3) a Bool indicating whether there are
+    more iterations left.
 
     This requires your get-more function to be one step ahead somehow,
     returning C{False} as its status indicator when the *next* call
     would raise L{StopIteration}. Use L{Prefetcherator.getNext} after
     setting the prefetcherator up with a suitable iterator or
     next-item callable.
-    
+
+    The object (or string representation) isn't strictly needed; it's
+    for informative purposes in case an error gets propagated back
+    somewhere. You can cheat and just use C{None} for the first
+    constructor argument.
     """
     builtIns = (
         str, unicode,
@@ -81,6 +89,8 @@ class Deferator(object):
         """
         if isinstance(obj, cls.builtIns):
             return False
+        if inspect.isgenerator(obj) or inspect.isgeneratorfunction(obj):
+            return True
         try:
             iter(obj)
         except:
@@ -89,21 +99,25 @@ class Deferator(object):
             result = True
         return result
 
-    def __init__(self, representation, f, *args, **kw):
-        self.representation = representation.strip('<>')
+    def __init__(self, objOrRep, f, *args, **kw):
+        if isinstance(objOrRep, (str, unicode)):
+            self.representation = objOrRep.strip('<>')
+        else:
+            self.representation = repr(objOrRep)
         self.callTuple = f, args, kw 
         self.moreLeft = True
 
     def __repr__(self):
-        return "<Deferator wrapping of <{}>, at {}>".format(
-            self.representation, id(self))
+        return "<Deferator wrapping of\n  <{}>,\nat 0x{}>".format(
+            self.representation, format(id(self), '012x'))
 
     def __iter__(self):
         return self
         
     def next(self):
         def gotNext(result):
-            value, self.moreLeft = result
+            value, isValid, self.moreLeft = result
+            # TODO: Show some kind of warning if isValid is False?
             return value
         
         if self.moreLeft:
@@ -120,11 +134,18 @@ class Prefetcherator(object):
     """
     I prefetch iterations from an iterator, providing a L{getNext}
     method suitable for L{Deferator}.
-    """
-    __slots__ = ['ID', 'iterator', 'nextCallTuple', 'lastFetch']
 
-    def __init__(self, ID=None):
+    You can supply an ID for me and a callWhenDone function that will
+    be called when iterations are done, i.e., when the third item in
+    the L{getNext} return value is False.
+    """
+    __slots__ = [
+        'ID', 'iterator', 'nextCallTuple', 'lastFetch', 'callWhenDone']
+
+    def __init__(self, ID=None, callWhenDone=None):
         self.ID = ID
+        if callWhenDone is not None:
+            self.callWhenDone = callWhenDone
 
     def isBusy(self):
         return hasattr(self, 'iterator') or hasattr(self, 'nextCallTuple')
@@ -173,7 +194,7 @@ class Prefetcherator(object):
         prefetch. If all goes well, returns C{True}, or C{False}
         otherwise.
         """
-        if self.isBusy():
+        if self.isBusy() or not Deferator.isIterator(iterator):
             return False
         self.iterator = iterator
         self.lastFetch = self._tryNext()
@@ -199,6 +220,11 @@ class Prefetcherator(object):
         self.nextCallTuple = (f, args, kw)
         return self._nextCall().addCallbacks(done, oops)
 
+    def _callCallWhenDone(self):
+        if hasattr(self, 'callWhenDone'):
+            callWhenDone()
+            del self.callWhenDone
+        
     def _getNext_withIterator(self):
         """
         The iterator/immediate version of getNext
@@ -214,6 +240,8 @@ class Prefetcherator(object):
         # prefetch for a possible next call after this one.
         nextValue, isValid = self.lastFetch = self._tryNext()
         # If the prefetch wasn't valid, another call shouldn't be made.
+        if not isValid:
+            self._callCallWhenDone()
         return value, True, isValid
 
     def _getNext_withCallable(self):
@@ -223,6 +251,8 @@ class Prefetcherator(object):
         def done(result):
             self.lastFetch = result
             nextValue, isValid = result
+            if not isValid:
+                self._callCallWhenDone()
             # If the prefetch wasn't valid, another call shouldn't be made.
             return (value, True, isValid)
 

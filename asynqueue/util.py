@@ -287,7 +287,6 @@ class ThreadLooper(object):
     """
     def __init__(self):
         import threading
-        self.pf = Prefetcherator()
         self.lock = DeferredLock()
         self.event = threading.Event()
         self.thread = threading.Thread(target=self.loop)
@@ -317,15 +316,13 @@ class ThreadLooper(object):
             else:
                 if Deferator.isIterator(result):
                     # An iterator
-                    if self.pf.isBusy():
-                        status = 'e'
-                        result = "Already iterating during call {}".format(
-                            callInfo(f, *args, **kw))
-                    elif self.pf.setIterator(result):
+                    pf = Prefetcherator()
+                    if pf.setIterator(result):
                         # OK, we can iterate this
                         status = 'i'
                         result = Deferator(
-                            repr(result), self.deferToThread, self.pf.getNext)
+                            repr(result),
+                            self.deferToThread, pf.getNext, doNext=True)
                     else:
                         status = 'e'
                         result = "Failed to iterate for call {}".format(
@@ -367,16 +364,27 @@ class ThreadLooper(object):
         Twisted's deferToThread.
 
         If you expect a deferred iterator as your result (an instance
-        of L{Deferator}), supply a callable IConsumer implementor via the
-        consumer keyword. Each iteration will be written to it, 
+        of L{Deferator}), supply an IConsumer implementor via the
+        consumer keyword. Each iteration will be written to it, and
+        the deferred will fire when the iterations are
+        done. Otherwise, the deferred will fire with an
+        L{iteration.IterationProducer} and you will have to register
+        with and run it yourself.
+        
         """
         def done(statusResult):
             status, result = statusResult
             if status == 'e':
                 return Failure(errors.WorkerError(result))
             if status == 'i':
-                
-            
+                ip = iteration.IterationProducer(result)
+                if consumer:
+                    ip.registerConsumer(consumer)
+                    return ip.run()
+                return ip
+            return result
+        
+        consumer = kw.pop('consumer', None)
         return self.call(f, *args, **kw).addCallback(done)
 
     def stop(self):
