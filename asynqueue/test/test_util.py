@@ -49,6 +49,46 @@ class Picklable(object):
         )
 
 
+class TestFunctions(TestCase):
+    verbose = False
+
+    def test_pickling(self):
+        pObj = Picklable()
+        pObj.foo(3.2)
+        pObj.foo(1.2)
+        objectList = [None, "Some text!", 37311, -1.37, Exception, pObj]
+        for obj in objectList:
+            pickleString = util.o2p(obj)
+            self.assertIsInstance(pickleString, str)
+            roundTrip = util.p2o(pickleString)
+            self.assertEqual(obj, roundTrip)
+        self.assertEqual(roundTrip.x, 4.4)
+
+
+class TestInfo(TestCase):
+    verbose = False
+
+    def setUp(self):
+        self.info = util.Info()
+    
+    def test_aboutCall(self):
+        for pattern, f, args, kw in (
+            ('[cC]allable!', None, (), {}),
+            ('\.foo\(1\)', self.foo, (1,), {}),
+        ):
+            self.info.setCall(f, *args, **kw)
+            self.assertPattern(pattern, self.info.aboutCall())
+
+    def test_callTraceback(self):
+        try:
+            self.foo(0)
+        except Exception as e:
+            text = self.info.aboutException()
+        self.msg(text)
+        self.assertPattern('Exception ', text)
+        self.assertPattern('[dD]ivi.+by zero', text)
+
+
 class IteratorGetter(object):
     def __init__(self, x):
         self.x = x
@@ -60,38 +100,3 @@ class IteratorGetter(object):
             d.addCallback(lambda _ : x)
             return d
         raise StopIteration
-
-
-class TestFunctions(TestCase):
-    verbose = False
-
-    def foo(self, x):
-        return 2/x
-
-    def test_callInfo(self):
-        self.assertPattern('[cC]allable!', util.callInfo(None))
-        self.assertPattern('\.foo\(1\)', util.callInfo(self.foo, 1))
-
-    def test_callTraceback(self):
-        try:
-            self.foo(0)
-        except Exception as e:
-            text = util.callTraceback(self.foo)
-        self.msg(text)
-        self.assertPattern('\.foo\(\)', text)
-        self.assertPattern('\.foo\(0\)', text)
-        self.assertPattern('[dD]ivi.+by zero', text)
-
-    def test_pickling(self):
-        pObj = Picklable()
-        pObj.foo(3.2)
-        pObj.foo(1.2)
-        objectList = [
-            None, "Some text!", 37311, -1.37,
-            Exception, pObj]
-        for obj in objectList:
-            pickleString = util.o2p(obj)
-            self.assertIsInstance(pickleString, str)
-            roundTrip = util.p2o(pickleString)
-            self.assertEqual(obj, roundTrip)
-        self.assertEqual(roundTrip.x, 4.4)

@@ -51,9 +51,7 @@ class TimeoutError(Exception):
     A local worker took too long to provide a result.
     """
 
-class LocalWorkerError(Exception):
+class WorkerError(Exception):
     """
-    A local worker ran into an exception trying to run a task.
+    A worker ran into an exception trying to run a task.
     """
-    def __init__(self, details):
-        self.details = details

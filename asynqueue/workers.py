@@ -235,10 +235,6 @@ class ProcessWorker(object):
         You must make sure that the local worker is ready for the next
         task before running this with another one.
         """
-        def ready(null):
-
-        def gotResponse(response):
-        
         self.tasks.append(task)
         yield self.lock.acquire()
         # Run the task on the subordinate Python interpreter
