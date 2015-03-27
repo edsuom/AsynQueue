@@ -24,7 +24,7 @@ The task queue and its immediate support staff.
 # Imports
 import heapq
 from zope.interface import implements
-from twisted.python import failure
+from twisted.python.failure import Failure
 from twisted.internet import reactor, interfaces, defer
 # Use C Deferreds if possible, for efficiency
 try:
@@ -34,8 +34,9 @@ except:
 else:
     defer.Deferred = cdefer.Deferred
 
-import tasks
-from errors import QueueRunError, ImplementationError
+from util import Info
+import tasks, iteration
+from errors import QueueRunError, ImplementationError, WorkerError
 
 
 class Priority(object):
@@ -53,7 +54,7 @@ class Priority(object):
         """
         if self.pendingGetCalls:
             msg = "No more items forthcoming"
-            theFailure = failure.Failure(QueueRunError(msg))
+            theFailure = Failure(QueueRunError(msg))
             for d in self.pendingGetCalls:
                 d.errback(theFailure)
     
@@ -112,7 +113,7 @@ class LoadInfoProducer(object):
 
     def registerConsumer(self, consumer):
         """
-        Call this with a provider of I{interfaces.IConsumer} and I'll
+        Call this with a provider of L{interfaces.IConsumer} and I'll
         produce for it in addition to any others already registered
         with me.
         """
@@ -260,7 +261,9 @@ class TaskQueue(QueueBase):
 
     """
     def __init__(self, *args, **kw):
-        self._taskFactory = tasks.TaskFactory()
+        self.info = Info()
+        self.tasksBeingRetried = []
+        self.taskFactory = tasks.TaskFactory()
         self.mgr = tasks.WorkerManager()
         self.heap = Priority()
         self.loadInfoProducer = LoadInfoProducer()
@@ -328,7 +331,61 @@ class TaskQueue(QueueBase):
         if ID is None:
             return self.mgr.workers.values()
         return self.mgr.workers.get(ID, None)
-    
+
+    def _taskDone(self, statusResult, task, consumer=None):
+        """
+        Processes the status/result tuple from a worker running a task:
+
+        'e': An exception was raised; the result is a pretty-printed
+             traceback string.
+
+        'r': Ran fine, the result is the return value of the call.
+
+        'i': Ran fine, but the result is an iterable other than a
+             standard Python one. The result is an instance of
+             L{util.Deferator}, which I make into an
+             L{iteration.IterationProducer}. If a *consumer* is
+             specified, I will register it with the producer and
+             return a deferred that fires when the iteration is
+             done. Otherwise I will return the producer for you to
+             deal with.
+
+        'c': Ran fine (on an AMP server), but the result was too big
+             for a single return value. So the result is a deferred
+             that will eventually fire with the result after all the
+             chunks of the return value have arrived and been
+             magically pieced together and unpickled.
+        
+        't': The task timed out. I'll try to re-run it, once.
+        
+        """
+        status, result = statusResult
+        if status == 'e':
+            # Error
+            return Failure(errors.WorkerError(result))
+        if status in "rc":
+            # A plain result, or a deferred to a chunked one.
+            return result
+        if status == 'i':
+            # Iterator
+            ip = iteration.IterationProducer(result)
+            if consumer:
+                ip.registerConsumer(consumer)
+                return ip.run()
+            return ip
+        if status == 't':
+            # Timedout. Try again, once.
+            if task in self.tasksBeingRetried:
+                self.tasksBeingRetried.remove(task)
+                return Failure(
+                    errors.QueueRunError("Timed out after two tries, gave up"))
+            self.tasksBeingRetried.append(task)
+            task.rush()
+            self.heap.put(task)
+            return task.reset().addCallback(self._taskDone)
+        return Failure(
+            errors.QueueRunError("Unknown status '{}'".format(status)))
+        
     def call(self, func, *args, **kw):
         """
         Puts a call to I{func} with any supplied arguments and keywords into
@@ -365,38 +422,32 @@ class TaskQueue(QueueBase):
         @keyword timeout: A timeout interval in seconds from when a worker gets
           a task assignment for the call, after which the call will be retried.
 
-        """
-        def taskDone(result):
-            self.loadInfoProducer.oneLess()
-            # TODO: Need to parse and deal with the status/result stuff
-            return result
+        @keyword consumer: An implementor of L{interfaces.IConsumer}
+          that will receive iterations if the result of the call is an
+          interator.
         
+        """
         if not self.isRunning():
+            text = self.info.setCall(func, args, kw).aboutCall()
+            text = "Queue shut down, ignoring call\n{}\n".format(text)
             if self.warnOnly:
-                argString = ", ".join([str(x) for x in args])
-                kwString = ", ".join(
-                    ["%s=%s" % (str(name), str(value))
-                     for name, value in kw.iteritems()])
-                if args and kw:
-                    sepString = ", "
-                else:
-                    sepString = ""
-                print "Queue shut down, ignoring call\n  %s(%s%s%s)\n" \
-                      % (str(func), argString, sepString, kwString)
+                print text
             else:
-                raise QueueRunError(
-                    "Cannot call after the queue has been shut down")
+                raise QueueRunError(text)
         self.loadInfoProducer.oneMore()
-        niceness = kw.pop('niceness', 0)
-        series = kw.pop('series', None)
-        timeout = kw.pop('timeout', None)
-        task = self._taskFactory.new(func, args, kw, niceness, series, timeout)
-        if kw.pop('doNext', False):
-            task.priority = -1000000
-        elif kw.pop('doLast', False):
-            task.priority = 1000000
+        # Some parameters just for me, not for the task
+        niceness = kw.pop('niceness', 0     )
+        series   = kw.pop('series',   None  )
+        timeout  = kw.pop('timeout',  None  )
+        doLast   = kw.pop('doLast',   False )
+        task = self.taskFactory.new(func, args, kw, niceness, series, timeout)
+        # Workers have to honor the doNext keyword, too
+        if kw.get('doNext', False):
+            task.rush()
+        elif doLast:
+            task.relax()
         self.heap.put(task)
-        task.d.addBoth(taskDone)
+        task.d.addCallback(self._taskDone)
         return task.d
 
     def callAll(self, func, *args, **kw):
@@ -410,4 +461,3 @@ class TaskQueue(QueueBase):
         """
         raise NotImplementedError(
             "Broadcast assignments not yet implemented")
-        

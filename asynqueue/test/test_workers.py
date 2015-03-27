@@ -25,15 +25,13 @@ import time, random, threading
 import multiprocessing as mp
 import zope.interface
 from twisted.internet import defer
-from twisted.trial.unittest import TestCase
 
-from testbase import base, workers, errors
-
-
-VERBOSE = True
+from testbase import TestCase, base, workers, errors
 
 
 class TestThreadWorker(TestCase):
+    verbose = True
+    
     def setUp(self):
         self.worker = workers.ThreadWorker()
         self.queue = base.TaskQueue()
@@ -44,15 +42,15 @@ class TestThreadWorker(TestCase):
 
     def _blockingTask(self, x):
         delay = random.uniform(0.1, 1.0)
-        if VERBOSE:
-            print "Running %f sec. task in thread %s" % \
-                  (delay, threading.currentThread().getName())
+        self.msg(
+            "Running {:f} sec. task in thread {}",
+            delay, threading.currentThread().getName())
         time.sleep(delay)
         return 2*x
 
     def testShutdown(self):
         def checkStopped(null):
-            self.failIf(self.worker.thread.isAlive())
+            self.assertFalse(self.worker.t.threadRunning)
 
         d = self.queue.call(self._blockingTask, 0)
         d.addCallback(lambda _: self.queue.shutdown())
@@ -61,7 +59,7 @@ class TestThreadWorker(TestCase):
 
     def testShutdownWithoutRunning(self):
         def checkStopped(null):
-            self.failIf(self.worker.thread.isAlive())
+            self.assertFalse(self.worker.t.threadRunning)
 
         d = self.queue.shutdown()
         d.addCallback(checkStopped)
@@ -69,7 +67,7 @@ class TestThreadWorker(TestCase):
 
     def testStop(self):
         def checkStopped(null):
-            self.failIf(self.worker.thread.isAlive())
+            self.assertFalse(self.worker.t.threadRunning)
 
         d = self.queue.call(self._blockingTask, 0)
         d.addCallback(lambda _: self.worker.stop())
@@ -78,7 +76,7 @@ class TestThreadWorker(TestCase):
 
     def testOneTask(self):
         d = self.queue.call(self._blockingTask, 15)
-        d.addCallback(self.failUnlessEqual, 30)
+        d.addCallback(self.assertEqual, 30)
         return d
 
     def testMultipleWorkers(self):
@@ -86,13 +84,12 @@ class TestThreadWorker(TestCase):
         mutable = []
 
         def gotResult(result):
-            if VERBOSE:
-                print "Task result: %s" % result
+            self.msg("Task result: {}", result)
             mutable.append(result)
 
         def checkResults(null):
-            self.failUnlessEqual(len(mutable), N)
-            self.failUnlessEqual(
+            self.assertEqual(len(mutable), N)
+            self.assertEqual(
                 sum(mutable),
                 sum([2*x for x in xrange(N)]))
 
@@ -130,7 +127,7 @@ class TestProcessWorker_namedCallable(TestCase):
 
     def testNamedCallable(self):
         d = self.queue.call('bt', 10)
-        d.addCallback(self.failUnlessEqual, 20)
+        d.addCallback(self.assertEqual, 20)
         return d
 
 
@@ -144,7 +141,7 @@ class TestProcessWorker(TestCase):
         return self.queue.shutdown()
 
     def checkStopped(self, null):
-        self.failIf(self.worker.process.is_alive())
+        self.assertFalse(self.worker.process.is_alive())
             
     def testShutdown(self):
         d = self.queue.call(blockingTask, 0)
@@ -165,7 +162,7 @@ class TestProcessWorker(TestCase):
 
     def testOneTask(self):
         d = self.queue.call(blockingTask, 15)
-        d.addCallback(self.failUnlessEqual, 30)
+        d.addCallback(self.assertEqual, 30)
         return d
 
     def testMultipleWorkers(self):
@@ -178,8 +175,8 @@ class TestProcessWorker(TestCase):
             mutable.append(result)
 
         def checkResults(null):
-            self.failUnlessEqual(len(mutable), N)
-            self.failUnlessEqual(
+            self.assertEqual(len(mutable), N)
+            self.assertEqual(
                 sum(mutable),
                 sum([2*x for x in xrange(N)]))
 

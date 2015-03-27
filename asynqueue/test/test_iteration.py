@@ -41,7 +41,7 @@ class DeferredIterable(object):
         self.x = x
 
     def next(self):
-        d = iteration.deferToDelay(2*random.random())
+        d = iteration.deferToDelay(1*random.random())
         d.addCallback(lambda _: self.x.pop(0))
         return d
         
@@ -51,7 +51,7 @@ class IteratorGetter(object):
         self.x = x
         self.dHistory = []
 
-    def getNext(self, slowness=5):
+    def getNext(self, slowness=2):
         if self.x:
             x = self.x.pop()
             d = iteration.deferToDelay(slowness*random.random())
@@ -63,7 +63,7 @@ class IteratorGetter(object):
 
 
 class TestDeferator(TestCase):
-    verbose = True
+    verbose = False
 
     def test_isIterator(self):
         isIterator = iteration.Deferator.isIterator
@@ -84,7 +84,7 @@ class TestDeferator(TestCase):
     def test_iterates(self):
         x = [5, 4, 3, 2, 1, 0]
         ig = IteratorGetter(x)
-        df = iteration.Deferator(repr(ig), ig.getNext, slowness=3)
+        df = iteration.Deferator(repr(ig), ig.getNext, slowness=2)
         for k, d in enumerate(df):
             value = yield d
             self.msg("Item #{:d}: {}", k+1, value)
@@ -92,7 +92,7 @@ class TestDeferator(TestCase):
     
 
 class TestPrefetcherator(TestCase):
-    verbose = True
+    verbose = False
 
     @defer.inlineCallbacks
     def test_setIterator(self):

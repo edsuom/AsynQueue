@@ -31,7 +31,6 @@ import errors
 from iteration import Deferator, Prefetcherator, IterationProducer
 
 
-
 def o2p(obj):
     """
     Converts an object into a pickle string or a blank string if an
@@ -63,10 +62,6 @@ class Info(object):
     later with L{setCall}.
     """
     __slots__ = ['callTuple']
-
-    def __init__(self, *args, **kw):
-        if args:
-            self.callTuple = (args[0], args[1:], kw)
 
     def setCall(self, f, args, kw):
         self.callTuple = f, args, kw

@@ -84,9 +84,20 @@ class Task(object):
 
     def timedout(self):
         if not self.d.called:
-            self.d.callback(('t', None))
+            self.d.callback(
+                ('t', "Timeout after {:f} seconds".format(self.timeout)))
         self.callID = None
-    
+
+    def reset(self):
+        self.d = defer.Deferred()
+        return self.d
+        
+    def rush(self):
+        self.priority = -1000000
+
+    def relax(self):
+        self.priority = 1000000
+        
     def __repr__(self):
         """
         Gives me an informative string representation

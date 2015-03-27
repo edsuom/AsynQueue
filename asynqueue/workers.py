@@ -43,15 +43,37 @@ class ThreadWorker(object):
     cQualified = []
 
     def __init__(self, series=[]):
+        self.tasks = []
         self.iQualified = series
         self.t = util.ThreadLooper()
 
     def setResignator(self, callableObject):
-        self.t.lock.addStopper(callableObject)
+        self.t.dLock.addStopper(callableObject)
 
     def run(self, task):
+        """
+        Returns a deferred that fires only after the threaded call is
+        done. I do basic FIFO queuing of calls to this method, but
+        priority queuing is above my paygrade and you'd best honor my
+        deferred and let someone like L{tasks.WorkerManager} only call
+        this method when I say I'm ready.
+
+        One simple thing I *will* do is apply the doNext keyword to
+        any task with the highest priority, -20 or lower (for a
+        L{base.TaskQueue.call} with its own *doNext* keyword set). If
+        you call this method one task at a time like you're supposed
+        to, even that won't make a difference. But, why not.
+        """
+        def done(result):
+            if task in self.tasks:
+                self.tasks.remove(task)
+            task.d.callback(result)
+        
+        self.tasks.append(task)
         f, args, kw = task.callTuple
-        return self.t.call(f, *args, **kw).addCallback(task.d.callback)
+        if task.priority <= -20:
+            kw['doNext'] = True
+        return self.t.call(f, *args, **kw).addCallback(done)
     
     def stop(self):
         """
@@ -67,15 +89,8 @@ class ThreadWorker(object):
         previous call to L{stop} and returns the task that hung the
         thread.
         """
-        if self.task is not None and not self.task.d.called:
-            result = [self.task]
-        else:
-            # This shouldn't happen
-            result = []
-        if hasattr(self.t, 'd') and not self.t.d.called:
-            del self.task
-            self.t.d.callback(None)
         self.t.stop()
+        return self.tasks
 
 
 class AsyncWorker(object):
@@ -87,19 +102,24 @@ class AsyncWorker(object):
 
     You can supply a series keyword containing a list of one or more
     task series that I am qualified to handle.
+
+    Might be useful where you want the benefits of priority queueing
+    without leaving the Twisted mindset even for a moment.
+    
     """
     def __init__(self, series=[]):
         self.iQualified = series
         self.info = util.Info()
-        self.lock = util.DeferredLock()
+        self.dLock = util.DeferredLock()
 
     def setResignator(self, callableObject):
-        self.lock.addStopper(callableObject)
+        self.dLock.addStopper(callableObject)
 
     def run(self, task):
         def ready(lock):
             lock.release()
-            # This must not block!
+            kw.pop('doNext', None)
+            # THOU SHALT NOT BLOCK!
             return defer.maybeDeferred(
                 f, *args, **kw).addCallbacks(done, oops)
 
@@ -111,10 +131,10 @@ class AsyncWorker(object):
             task.callback((False, text))
 
         f, args, kw = task.callTuple
-        return self.lock.acquire().addCallback(ready)
+        return self.dLock.acquire().addCallback(ready)
     
     def stop(self):
-        return self.lock.stop()
+        return self.dLock.stop()
 
     def crash(self):
         """
@@ -151,12 +171,9 @@ class ProcessWorker(object):
         def processEnded(self, reason):
             self.disconnectCallback()
     
-    def __init__(self, N=1, reconnect=False, series=[]):
-        self.lock = util.DeferredLock()
-        self.lock.acquire()
-        # TODO: Allow N > 1
-        if N > 1:
-            raise NotImplementedError("Only one task at a time for now")
+    def __init__(self, reconnect=False, series=[]):
+        self.dLock = util.DeferredLock()
+        self.dLock.acquire()
         self.reconnect = reconnect
         self.iQualified = series
         # The process number
@@ -189,7 +206,7 @@ class ProcessWorker(object):
         return pP.waitUntilReady().addCallback(ready)
 
     def _releaseLock(self, *args):
-        self.lock.release()
+        self.dLock.release()
         
     def _ditchClass(self):
         self.pList.remove(self.aP)
@@ -203,7 +220,7 @@ class ProcessWorker(object):
             possibleResignator()
     
     @defer.inlineCallbacks
-    def _assembleChunkedResult(self, ID):
+    def assembleChunkedResult(self, ID):
         moreLeft = True
         pickleString = ""
         while moreLeft:
@@ -230,12 +247,13 @@ class ProcessWorker(object):
         """
         Sends the task callable, args, kw to the process and returns a
         deferred to the eventual result.
-
-        You must make sure that the local worker is ready for the next
-        task before running this with another one.
         """
         self.tasks.append(task)
-        yield self.lock.acquire()
+        doNext = task.kw.pop('doNext', False)
+        if doNext:
+            yield self.dLock.acquireNext()
+        else:
+            yield self.dLock.acquire()
         # Run the task on the subordinate Python interpreter
         #-----------------------------------------------------------
         # Everything is sent to the pserver as pickled keywords
@@ -261,7 +279,7 @@ class ProcessWorker(object):
             task.callback(('i', deferator))
         elif status == 'c':
             # Chunked result, which will take a while
-            dResult = yield self._assembleChunkedResult(response['result'])
+            dResult = yield self.assembleChunkedResult(response['result'])
             task.callback(('c', dResult))
         elif status in "re":
             task.callback((status, response['result']))
@@ -272,8 +290,8 @@ class ProcessWorker(object):
 
     def stop(self):
         self._ignoreDisconnection = True
-        self.lock.addStopper(self._stopper)
-        return self.lock.stop()
+        self.dLock.addStopper(self._stopper)
+        return self.dLock.stop()
 
     def crash(self):
         if self.aP in self.pList:
