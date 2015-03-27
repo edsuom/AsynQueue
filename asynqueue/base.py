@@ -440,6 +440,7 @@ class TaskQueue(QueueBase):
         series   = kw.pop('series',   None  )
         timeout  = kw.pop('timeout',  None  )
         doLast   = kw.pop('doLast',   False )
+        consumer = kw.pop('consumer', None  )
         task = self.taskFactory.new(func, args, kw, niceness, series, timeout)
         # Workers have to honor the doNext keyword, too
         if kw.get('doNext', False):
@@ -447,7 +448,7 @@ class TaskQueue(QueueBase):
         elif doLast:
             task.relax()
         self.heap.put(task)
-        task.d.addCallback(self._taskDone)
+        task.d.addCallback(self._taskDone, task, consumer)
         return task.d
 
     def callAll(self, func, *args, **kw):

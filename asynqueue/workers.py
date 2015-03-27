@@ -26,7 +26,7 @@ from twisted.python import failure
 from twisted.internet import defer, reactor, endpoints
 from twisted.protocols import amp
 
-import errors, util
+import errors, util, iteration
 from interfaces import IWorker
 from pserver import RunTask, GetMore, QuitRunning
 
@@ -107,6 +107,9 @@ class AsyncWorker(object):
     without leaving the Twisted mindset even for a moment.
     
     """
+    implements(IWorker)
+    cQualified = []
+    
     def __init__(self, series=[]):
         self.iQualified = series
         self.info = util.Info()
@@ -124,13 +127,22 @@ class AsyncWorker(object):
                 f, *args, **kw).addCallbacks(done, oops)
 
         def done(result):
-            task.callback((True, result))
+            if iteration.Deferator.isIterator(result):
+                status = 'i'
+                if consumer:
+                    result = iteration.consumeIterations(result, consumer)
+                else:
+                    result = iteration.iteratorToProducer(iterator)
+            else:
+                status = 'r'
+            task.callback((status, result))
 
         def oops(failureObj):
             text = self.info.setCall(f, args, kw).aboutFailure(failureObj)
-            task.callback((False, text))
+            task.callback(('e', text))
 
         f, args, kw = task.callTuple
+        consumer = kw.pop('consumer', None)
         return self.dLock.acquire().addCallback(ready)
     
     def stop(self):
@@ -150,7 +162,17 @@ class ProcessWorker(object):
 
     You can also supply a series keyword containing a list of one or
     more task series that I am qualified to handle.
+
+    When running tasks via me, don't assume that you can just call
+    blocking code because it's done remotely. The AMP server on the
+    other end runs under Twisted, too, and the result of the call may
+    be a deferred. If the call is a blocking one, set the *thread*
+    keyword C{True} for it and it will run via an instance of
+    L{util.ThreadLoop}.
+    
     """
+    implements(IWorker)
+    cQualified = []
     pList = []
 
     class ProcessProtocol(object):
@@ -273,7 +295,7 @@ class ProcessWorker(object):
         if status == 'i':
             # An iteratable
             ID = response['result']
-            deferator = util.Deferator(
+            deferator = iteration.Deferator(
                 "Remote iterator ID={}".format(ID),
                 self.aP.callRemote, GetMore, ID=ID)
             task.callback(('i', deferator))

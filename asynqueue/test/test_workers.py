@@ -26,7 +26,7 @@ import multiprocessing as mp
 import zope.interface
 from twisted.internet import defer
 
-from testbase import TestCase, base, workers, errors
+from testbase import deferToDelay, TestCase, base, workers, errors
 
 
 class TestThreadWorker(TestCase):
@@ -107,27 +107,25 @@ class TestThreadWorker(TestCase):
         return d
 
 
-def blockingTask(x):
-    delay = random.uniform(1.5, 2.0)
-    if VERBOSE:
-        print "Running %f sec. task in process %d" % \
-            (delay, mp.current_process().pid)
-    time.sleep(delay)
-    return 2*x
-
-
-class TestProcessWorker_namedCallable(TestCase):
+class TestAsyncWorker(TestCase):
+    verbose = False
+    
     def setUp(self):
-        self.worker = workers.ProcessWorker(bt=blockingTask)
+        self.worker = workers.AsyncWorker()
         self.queue = base.TaskQueue()
         self.queue.attachWorker(self.worker)
 
     def tearDown(self):
         return self.queue.shutdown()
 
-    def testNamedCallable(self):
-        d = self.queue.call('bt', 10)
-        d.addCallback(self.assertEqual, 20)
+    def _twistyTask(self, x):
+        delay = random.uniform(1.5, 2.0)
+        self.msg("Running {:f} sec. async task", delay)
+        return deferToDelay(delay).addCallback(lambda _: 2*x)
+        
+    def test_call(self):
+        d = self.queue.call(self._twistyTask, 2)
+        d.addCallback(self.assertEqual, 4)
         return d
 
 
@@ -139,6 +137,21 @@ class TestProcessWorker(TestCase):
 
     def tearDown(self):
         return self.queue.shutdown()
+
+    def _twistyTask(self, x):
+        delay = random.uniform(1.5, 2.0)
+        self.msg(
+            "Running {:f} sec. async task in process {}",
+            delay, self.worker.pName)
+        return deferToDelay(delay).addCallback(lambda _: 2*x)
+        
+    def _blockingTask(self, x):
+        delay = random.uniform(1.5, 2.0)
+        self.msg(
+            "Running {:f} sec. blocking task in process {}",
+            delay, self.worker.pName)
+        time.sleep(delay)
+        return 2*x
 
     def checkStopped(self, null):
         self.assertFalse(self.worker.process.is_alive())
