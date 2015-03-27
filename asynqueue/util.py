@@ -160,12 +160,13 @@ class DeferredTracker(object):
         Put another deferred in the tracker.
         """
         def transparentCallback(anything):
-            self.dList.remove(d)
+            if d in self.dList:
+                self.dList.remove(d)
             return anything
 
-        d.addBoth(transparentCallback, d)
+        d.addBoth(transparentCallback)
         if not isinstance(d, defer.Deferred):
-            raise TypeError("Object '%s' is not a deferred" % d)
+            raise TypeError("Object {} is not a deferred".format(repr(d)))
         self.dList.append(d)
         return d
 

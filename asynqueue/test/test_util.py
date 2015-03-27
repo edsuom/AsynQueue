@@ -71,7 +71,7 @@ class TestInfo(TestCase):
 
     def _divide(self, x, y):
         return x/y
-        
+
     def test_aboutCall(self):
         for pattern, f, args, kw in (
                 ('[cC]allable!', None, (), {}),
@@ -88,9 +88,39 @@ class TestInfo(TestCase):
         self.assertPattern('Exception ', text)
         self.assertPattern('[dD]ivi.+by zero', text)
 
-    #def test_aboutFailure(self):
-    #    self.fail("TODO")
 
+class TestDeferredTracker(TestCase):
+    verbose = False
+
+    def setUp(self):
+        self.dt = util.DeferredTracker()
+
+    def _slowStuff(self, N, delay=None, maxDelay=0.5):
+        dList = []
+        for k in xrange(N):
+            if delay is None:
+                delay = maxDelay*random.random()
+            d = deferToDelay(delay)
+            d.addCallback(lambda _: k)
+            dList.append(d)
+        return dList
+    
+    @defer.inlineCallbacks
+    def test_basic(self):
+        # Nothing in there yet, immediate
+        yield self.dt.deferToAll()
+        yield self.dt.deferToLast()
+        # Put some in and wait for them
+        for d in self._slowStuff(3):
+            self.dt.put(d)
+        yield self.dt.deferToAll()
+        # Put some in with the same delay and defer to the last one
+        for d in self._slowStuff(3, delay=0.5):
+            self.dt.put(d)
+        x = yield self.dt.deferToLast()
+        self.assertEqual(x, 2)
+        yield self.dt.deferToAll()
+    
 
 class ToyConsumer(object):
     implements(IConsumer)
@@ -136,7 +166,7 @@ class Stuff(object):
 
 
 class TestThreadLooper(TestCase):
-    verbose = True
+    verbose = False
 
     def setUp(self):
         self.stuff = Stuff()
@@ -224,7 +254,6 @@ class TestThreadLooper(TestCase):
 
     @defer.inlineCallbacks
     def test_iterator_slow(self):
-        # This FAILED with a timeout ERROR
         status, result = yield self.t.call(self.stuff.fiveSeconderator)
         self.assertEqual(status, 'i')
         dRegular = self.t.call(self.stuff.divide, 3.0, 2.0)
@@ -255,8 +284,6 @@ class TestThreadLooper(TestCase):
             self.stuff.divide, 1, 0).addCallbacks(done, oops)
     
     def test_deferToThread_iterator(self):
-        # SAW THIS HANG WHEN RUNNING FULL MODULE TEST!
-        # Four lines of "Wrote: ..." and no fifth line or anything else
         @defer.inlineCallbacks
         def done(p):
             self.msg("Call to iterator returned: {}", repr(p))
