@@ -26,7 +26,8 @@ import multiprocessing as mp
 import zope.interface
 from twisted.internet import defer
 
-from testbase import deferToDelay, TestCase, base, workers, errors
+from testbase import deferToDelay, TestCase, \
+    errors, base, workers, tasks
 
 
 class TestThreadWorker(TestCase):
@@ -41,14 +42,14 @@ class TestThreadWorker(TestCase):
         return self.queue.shutdown()
 
     def _blockingTask(self, x):
-        delay = random.uniform(0.1, 1.0)
+        delay = random.uniform(0.1, 0.5)
         self.msg(
             "Running {:f} sec. task in thread {}",
             delay, threading.currentThread().getName())
         time.sleep(delay)
         return 2*x
 
-    def testShutdown(self):
+    def test_shutdown(self):
         def checkStopped(null):
             self.assertFalse(self.worker.t.threadRunning)
 
@@ -57,7 +58,7 @@ class TestThreadWorker(TestCase):
         d.addCallback(checkStopped)
         return d
 
-    def testShutdownWithoutRunning(self):
+    def test_shutdownWithoutRunning(self):
         def checkStopped(null):
             self.assertFalse(self.worker.t.threadRunning)
 
@@ -65,7 +66,7 @@ class TestThreadWorker(TestCase):
         d.addCallback(checkStopped)
         return d
 
-    def testStop(self):
+    def test_stop(self):
         def checkStopped(null):
             self.assertFalse(self.worker.t.threadRunning)
 
@@ -74,12 +75,29 @@ class TestThreadWorker(TestCase):
         d.addCallback(checkStopped)
         return d
 
-    def testOneTask(self):
+    def test_oneTask(self):
         d = self.queue.call(self._blockingTask, 15)
         d.addCallback(self.assertEqual, 30)
         return d
 
-    def testMultipleWorkers(self):
+    def test_multipleTasks(self):
+        N = 5
+        expected = [2*x for x in xrange(N)]
+        for k in self.multiplerator(N, expected):
+            self.d = self.queue.call(self._blockingTask, k)
+        return self.dm
+
+    def test_multipleCalls(self):
+        N = 5
+        expected = [('r', 2*x) for x in xrange(N)]
+        worker = workers.ThreadWorker()
+        for k in self.multiplerator(N, expected):
+            task = tasks.Task(self._blockingTask, (k,), {}, 0, None)
+            self.d = task.d
+            worker.run(task)
+        return self.dm.addCallback(lambda _: worker.stop())
+        
+    def test_multipleWorkers(self):
         N = 20
         mutable = []
 
@@ -108,7 +126,7 @@ class TestThreadWorker(TestCase):
 
 
 class TestAsyncWorker(TestCase):
-    verbose = False
+    verbose = True
     
     def setUp(self):
         self.worker = workers.AsyncWorker()
@@ -119,7 +137,7 @@ class TestAsyncWorker(TestCase):
         return self.queue.shutdown()
 
     def _twistyTask(self, x):
-        delay = random.uniform(1.5, 2.0)
+        delay = random.uniform(0.1, 0.5)
         self.msg("Running {:f} sec. async task", delay)
         return deferToDelay(delay).addCallback(lambda _: 2*x)
         
@@ -128,6 +146,24 @@ class TestAsyncWorker(TestCase):
         d.addCallback(self.assertEqual, 4)
         return d
 
+    def test_multipleTasks(self):
+        N = 5
+        expected = [2*x for x in xrange(N)]
+        for k in self.multiplerator(N, expected):
+            self.d = self.queue.call(self._twistyTask, k)
+        return self.dm
+
+    def test_multipleCalls(self):
+        N = 5
+        expected = [('r', 2*x) for x in xrange(N)]
+        worker = workers.AsyncWorker()
+        for k in self.multiplerator(N, expected):
+            task = tasks.Task(self._twistyTask, (k,), {}, 0, None)
+            self.d = task.d
+            worker.run(task)
+        # NOTE: Hangs here
+        return self.dm.addCallback(lambda _: worker.stop())
+        
 
 class TestProcessWorker(TestCase):
     def setUp(self):

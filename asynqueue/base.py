@@ -34,8 +34,8 @@ except:
 else:
     defer.Deferred = cdefer.Deferred
 
-from util import Info
 import tasks, iteration
+from util import Info
 from errors import QueueRunError, ImplementationError, WorkerError
 
 
@@ -122,7 +122,7 @@ class LoadInfoProducer(object):
     
     def shutdown(self):
         """
-        Stop me from producing and 
+        Stop me from producing and unregister any consumers I have.
         """
         self.producing = False
         for consumer in self.consumers:
@@ -154,83 +154,93 @@ class LoadInfoProducer(object):
         self.shutdown()
 
 
-class QueueBase(object):
+class Queue(object):
     """
-    Base class for asynchronous queues
+    I am an asynchronous priority queue. Construct me with an item
+    handler that can be called with each item from the queue and
+    shutdown when I'm done.
+
+    Put anything you like in the queue except C{None} objects. Those
+    are reserved for triggering a queue shutdown.
     """
-    def startup(self):
+    def __init__(self, handler, timeout=None):
         """
-        Starts up a L{defer.deferredGenerator} that runs the queue. This method
-        can only be run once, by the constructor upon instantiation.
+        Starts up a deferred-yielding loop that runs the queue. This
+        method can only be run once, by the constructor upon
+        instantiation.
         """
         @defer.inlineCallbacks
         def runner():
             while True:
-                task = yield self.heap.get()
-                if task is None:
+                self._runFlag = True
+                item = yield self.heap.get()
+                if item is None:
                     break
-                yield self.mgr.assignment(task)
+                self.loadInfoProducer.oneLess()
+                yield self.handler(item)
             # Clean up after the loop exits
-            result = yield self.mgr.shutdown(self.timeout)
+            result = yield self.handler.shutdown(timeout)
             self.heap.shutdown()
             defer.returnValue(result)
         
         if self.isRunning():
             raise QueueRunError("Startup only occurs upon instantiation")
+        self.heap = Priority()
+        self.handler = handler
+        self.loadInfoProducer = LoadInfoProducer()
+        # Start my loop
         self._d = runner()
-        self._triggerID = reactor.addSystemEventTrigger(
-            'before', 'shutdown', self.shutdown)
     
     def isRunning(self):
         """
         Returns C{True} if the queue is running, C{False} otherwise.
         """
-        return hasattr(self, '_triggerID')
+        return getattr(self, '_runFlag', False)
     
     def shutdown(self):
         """
         Initiates a shutdown of the queue by putting a lowest-possible
         priority C{None} object onto the priority heap.
         
-        @return: A deferred that fires when all the workers have shut
-          down, with a list of any tasks left unfinished in the queue.
+        @return: A deferred that fires when my handler has shut down,
+          with a list of any items left unhandled in the queue.
         """
-        def cleanup(unfinishedTasks):
-            if hasattr(self, '_triggerID'):
-                reactor.removeSystemEventTrigger(self._triggerID)
-                del self._triggerID
-            return unfinishedTasks
-        
         if self.isRunning():
             self.heap.put(None)
-            d = self._d
-        else:
-            d = defer.succeed([])
-        d.addCallback(cleanup)
-        return d
+            return self._d
+        return defer.succeed([])
 
+    def put(self, item):
+        """
+        Put an item into my heap
+        """
+        self.heap.put(item)
+        self.loadInfoProducer.oneMore()
+        
     def cancelSeries(self, series):
         """
-        Cancels any pending tasks in the specified I{series}, unceremoniously
-        removing them from the queue.
+        Cancels any pending items in the specified I{series},
+        unceremoniously removing them from the queue.
         """
         self.heap.cancel(lambda item: getattr(item, 'series', None) == series)
 
     def cancelAll(self):
         """
-        Cancels all pending tasks, unceremoniously removing them from the
+        Cancels all pending items, unceremoniously removing them from the
         queue.
         """
         self.heap.cancel(lambda item: True)
     
     def subscribe(self, consumer):
         """
-        Subscribes the supplied provider of L{interfaces.IConsumer}
-        to updates on the number of tasks queued whenever it goes up or down.
+        Subscribes the supplied provider of L{interfaces.IConsumer} to
+        updates on the number of items queued whenever it goes up or
+        down.
 
-        The figure is the integer number of calls currently pending, i.e., the
-        number of tasks that have been queued up but haven't yet been called
-        plus those that have been called but haven't yet returned a result.
+        The figure is the integer number of calls currently pending,
+        i.e., the number of items that have been queued up but haven't
+        yet been handled plus those that have been called but haven't
+        yet returned a result.
         """
         if interfaces.IConsumer.providedBy(consumer):
             self.loadInfoProducer.registerConsumer(consumer)
@@ -239,10 +249,10 @@ class QueueBase(object):
                 "Object doesn't provide the IConsumer interface")
 
 
-class TaskQueue(QueueBase):
+class TaskQueue(object):
     """
-    I am a task queue for dispatching arbitrary callables to be run by one or
-    more worker objects.
+    I am a task queue for dispatching arbitrary callables to be run by
+    one or more worker objects.
 
     You can construct me with one or more workers, or you can attach them later
     with L{attachWorker}, in which you'll receive an ID that you can use to
@@ -255,25 +265,51 @@ class TaskQueue(QueueBase):
       made after queue shutdown is being ignored, rather than raising
       an exception.
 
-    @keyword profile: Set to a filename and each call will be run
-        under a profiler. The profiler stats will be dumped to the
+    @keyword profile: (TODO) Set to a filename and each call will be
+        run under a profiler. The profiler stats will be dumped to the
         filename when the queue shuts down.
-
+    
     """
     def __init__(self, *args, **kw):
-        self.info = Info()
-        self.tasksBeingRetried = []
-        self.taskFactory = tasks.TaskFactory()
-        self.mgr = tasks.WorkerManager()
-        self.heap = Priority()
-        self.loadInfoProducer = LoadInfoProducer()
-        for worker in args:
-            self.attachWorker(worker)
-        self.startup()
+        # Options
         self.timeout = kw.get('timeout', None)
         self.warnOnly = kw.get('warn', False)
-        self.profile = kw.get('profile', None)
-    
+        profile = kw.get('profile', None)
+        # Bookkeeping
+        self.tasksBeingRetried = []
+        # Tools
+        self.info = Info()
+        self.th = tasks.TaskHandler(profile)
+        self.taskFactory = tasks.TaskFactory()
+        # Attach any workers provided now
+        for worker in args:
+            self.attachWorker(worker)
+        # Start things up with my very own live asynchronous queue
+        # using a TaskHandler
+        self.q = Queue(self.th, self.timeout)
+        # Provide for a clean shutdown
+        self._triggerID = reactor.addSystemEventTrigger(
+            'before', 'shutdown', self.shutdown)
+
+    def isRunning(self):
+        """
+        Returns C{True} if my task handler and queue are running,
+        C{False} otherwise.
+        """
+        return self.th.isRunning and self.q.isRunning()
+        
+    def shutdown(self):
+        def cleanup(stuff):
+            if hasattr(self, '_triggerID'):
+                reactor.removeSystemEventTrigger(self._triggerID)
+                del self._triggerID
+            return stuff
+        
+        if not self.isRunning:
+            return defer.succeed(None)
+        return self.th.shutdown().addCallback(
+            lambda _: self.q.shutdown()).addCallback(cleanup)
+        
     def attachWorker(self, worker):
         """
         Registers a new provider of IWorker for working on tasks from
@@ -282,12 +318,12 @@ class TaskQueue(QueueBase):
 
         See L{WorkerManager.hire}.
         """
-        return self.mgr.hire(worker)
+        return self.th.hire(worker)
 
     def _getWorkerID(self, workerOrID):
-        if workerOrID in self.mgr.workers:
+        if workerOrID in self.th.workers:
             return workerOrID
-        for thisID, worker in self.mgr.workers.iteritems():
+        for thisID, worker in self.th.workers.iteritems():
             if worker == workerOrID:
                 return thisID
     
@@ -306,9 +342,9 @@ class TaskQueue(QueueBase):
         if ID is None:
             return
         if crash:
-            d = self.mgr.terminate(ID, crash=True, reassign=reassign)
+            d = self.th.terminate(ID, crash=True, reassign=reassign)
         else:
-            d = self.mgr.terminate(ID, self.timeout, reassign=reassign)
+            d = self.th.terminate(ID, self.timeout, reassign=reassign)
         return d
 
     def qualifyWorker(self, worker, series):
@@ -318,7 +354,7 @@ class TaskQueue(QueueBase):
         """
         if series not in worker.iQualified:
             worker.iQualified.append(series)
-            self.mgr.assignmentFactory.request(worker, series)
+            self.th.assignmentFactory.request(worker, series)
     
     def workers(self, ID=None):
         """
@@ -329,8 +365,8 @@ class TaskQueue(QueueBase):
         particular order, will be returned instead.
         """
         if ID is None:
-            return self.mgr.workers.values()
-        return self.mgr.workers.get(ID, None)
+            return self.th.workers.values()
+        return self.th.workers.get(ID, None)
 
     def _taskDone(self, statusResult, task, consumer=None):
         """
@@ -381,7 +417,7 @@ class TaskQueue(QueueBase):
                     errors.QueueRunError("Timed out after two tries, gave up"))
             self.tasksBeingRetried.append(task)
             task.rush()
-            self.heap.put(task)
+            self.q.put(task)
             return task.reset().addCallback(self._taskDone)
         return Failure(
             errors.QueueRunError("Unknown status '{}'".format(status)))
@@ -434,7 +470,6 @@ class TaskQueue(QueueBase):
                 print text
             else:
                 raise QueueRunError(text)
-        self.loadInfoProducer.oneMore()
         # Some parameters just for me, not for the task
         niceness = kw.pop('niceness', 0     )
         series   = kw.pop('series',   None  )
@@ -447,7 +482,7 @@ class TaskQueue(QueueBase):
             task.rush()
         elif doLast:
             task.relax()
-        self.heap.put(task)
+        self.q.put(task)
         task.d.addCallback(self._taskDone, task, consumer)
         return task.d
 

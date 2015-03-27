@@ -40,11 +40,12 @@ class ThreadWorker(object):
     task series that I am qualified to handle.
     """
     implements(IWorker)
-    cQualified = []
+    cQualified = ['thread', 'local']
 
-    def __init__(self, series=[]):
+    def __init__(self, series=[], profiler=None):
         self.tasks = []
         self.iQualified = series
+        self.profiler = profiler
         self.t = util.ThreadLooper()
 
     def setResignator(self, callableObject):
@@ -73,6 +74,7 @@ class ThreadWorker(object):
         f, args, kw = task.callTuple
         if task.priority <= -20:
             kw['doNext'] = True
+        # TODO: Have thread run with self.profiler.runcall if profiler present
         return self.t.call(f, *args, **kw).addCallback(done)
     
     def stop(self):
@@ -108,10 +110,11 @@ class AsyncWorker(object):
     
     """
     implements(IWorker)
-    cQualified = []
+    cQualified = ['async', 'local']
     
-    def __init__(self, series=[]):
+    def __init__(self, series=[], profiler=None):
         self.iQualified = series
+        self.profiler = profiler
         self.info = util.Info()
         self.dLock = util.DeferredLock()
 
@@ -119,8 +122,7 @@ class AsyncWorker(object):
         self.dLock.addStopper(callableObject)
 
     def run(self, task):
-        def ready(lock):
-            lock.release()
+        def ready(null):
             kw.pop('doNext', None)
             # THOU SHALT NOT BLOCK!
             return defer.maybeDeferred(
@@ -135,6 +137,8 @@ class AsyncWorker(object):
                     result = iteration.iteratorToProducer(iterator)
             else:
                 status = 'r'
+            # Hangs if release is done after the task callback
+            self.dLock.release()
             task.callback((status, result))
 
         def oops(failureObj):
@@ -142,6 +146,9 @@ class AsyncWorker(object):
             task.callback(('e', text))
 
         f, args, kw = task.callTuple
+        if self.profiler:
+            args = [f] + list(args)
+            f = self.profiler.runcall
         consumer = kw.pop('consumer', None)
         return self.dLock.acquire().addCallback(ready)
     
@@ -172,7 +179,7 @@ class ProcessWorker(object):
     
     """
     implements(IWorker)
-    cQualified = []
+    cQualified = ['process', 'amp']
     pList = []
 
     class ProcessProtocol(object):
@@ -193,11 +200,12 @@ class ProcessWorker(object):
         def processEnded(self, reason):
             self.disconnectCallback()
     
-    def __init__(self, reconnect=False, series=[]):
+    def __init__(self, reconnect=False, series=[], profiler=None):
+        self.iQualified = series
+        self.profiler = profiler
         self.dLock = util.DeferredLock()
         self.dLock.acquire()
         self.reconnect = reconnect
-        self.iQualified = series
         # The process number
         self.pNumber = len(self.pList)
         # The process name, which is used for the UNIX socket address
@@ -277,6 +285,9 @@ class ProcessWorker(object):
         else:
             yield self.dLock.acquire()
         # Run the task on the subordinate Python interpreter
+        # TODO: Have the subordinate run with its own version of
+        # self.profiler.runcall if profiler present. It will need to
+        # return its own Stats object when we call QuitRunning
         #-----------------------------------------------------------
         # Everything is sent to the pserver as pickled keywords
         kw = {'f': o2p(task.f),

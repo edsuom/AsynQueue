@@ -141,7 +141,21 @@ class TestCase(unittest.TestCase):
                 args = args[:-1]
                 proto += "\n{}".format("-"*40)
             print proto.format(*args)
-    
+
+    def multiplerator(self, N, expected):
+        def check(null):
+            self.assertEqual(resultList, expected)
+            del self.d
+            del self.dm
+        
+        dList = []
+        resultList = []
+        for k in xrange(N):
+            yield k
+            self.d.addCallback(resultList.append)
+            dList.append(self.d)
+        self.dm = defer.DeferredList(dList).addCallback(check)
+            
     def checkOccurrences(self, pattern, text, number):
         occurrences = len(re.findall(pattern, text))
         if occurrences != number:

@@ -23,6 +23,7 @@ Miscellaneous useful stuff.
 
 import sys, traceback
 import cPickle as pickle
+import cProfile as profile
 
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
@@ -53,6 +54,16 @@ def p2o(pickledString, defaultObj=None):
         return defaultObj
     return pickle.loads(pickledString)
 
+
+class CallProfiler(profile.Profile):
+    def __init__(self, filename):
+        self.filename = filename
+        super(CallProfiler, self).__init__()
+
+    def shutdown(self):
+        self.dump_stats(self.filename)
+        self.disable()
+        
 
 class Info(object):
     """

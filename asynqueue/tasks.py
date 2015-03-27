@@ -21,7 +21,6 @@
 Task management for the task queue workers
 """
 
-# Imports
 from twisted.internet import defer, reactor
 # Use C Deferreds if possible, for efficiency
 try:
@@ -32,6 +31,7 @@ else:
     defer.Deferred = cdefer.Deferred
 
 from workers import IWorker
+from util import CallProfiler
 from errors import ImplementationError
 
 
@@ -283,29 +283,11 @@ class AssignmentFactory(object):
             self.pending.setdefault(series, []).append(assignment)
         return assignment.d
 
-    def newBroadcast(self, workers, task):
-        """
-        Creates and a new broadcast assignment for the supplied
-        I{task}, returning a deferred that fires when the assignment
-        has been accepted by all workers qualified for its task
-        series.
 
-        The task isn't run through the regular queue; each qualified
-        worker runs it immediately after completing its current
-        assignment. Don't call this method before all workers are done
-        with any previous broadcast assignment.
-
-        TODO: Not sure how I'm going to implement this without making
-        a huge mess.
-        """
-        raise NotImplementedError(
-            "Broadcast assignments not yet implemented")
-
-
-class WorkerManager(object):
+class TaskHandler(object):
     """
-    I manage one or more providers of L{IWorker} for a particular instance of
-    L{TaskQueue}.
+    I am a Queue handler that manages one or more providers of
+    L{IWorker}.
 
     When a new worker is hired with my L{hire} method, I run the
     L{Assignment.request} class method to request that the worker be assigned a
@@ -324,10 +306,13 @@ class WorkerManager(object):
     
     @ivar workers: A C{dict} of worker objects that are currently employed by
       me, keyed by a unique integer ID code for each worker.
-
+    
     """
-    def __init__(self):
+    def __init__(self, profile=None):
+        self.isRunning = True
         self.workers = {}
+        self.laborPools = {}
+        self.profiler = CallProfiler(profile) if profile else None
         self.assignmentFactory = AssignmentFactory()
 
     def shutdown(self, timeout=None):
@@ -338,9 +323,13 @@ class WorkerManager(object):
         any, that were left unfinished by the work force.
         """
         def gotResults(results):
+            if self.profiler:
+                self.profiler.shutdown()
+            # Why not just return the result? Don't remember.
             unfinishedTasks = []
             for result in results:
                 unfinishedTasks.extend(result)
+            self.isRunning = False
             return unfinishedTasks
         
         dList = []
@@ -368,16 +357,25 @@ class WorkerManager(object):
 
         worker.hired = True
         worker.assignments = {}
-        qualifications = [None] +\
-                         getattr(worker, 'cQualified', []) +\
-                         getattr(worker, 'iQualified', [])
+        worker.profiler = self.profiler
+        # Qualifications
+        qualifications = [None]
+        if hasattr(worker, 'cQualified'):
+            qualifications.extend(worker.cQualified)
+        if hasattr(worker, 'iQualified'):
+            qualifications.extend(worker.iQualified)
         for series in qualifications:
             self.assignmentFactory.request(worker, series)
+            if series is not None:
+                self.laborPools.setdefault(series, []).append(worker)
+        # ID Badge
         workerID = worker.ID = getattr(self, '_workerCounter', 0) + 1
         self._workerCounter = workerID
         self.workers[workerID] = worker
+        # Exit process
         worker.setResignator(
             lambda : self.terminate(worker.ID, crash=True, reassign=True))
+        # Welcome aboard!
         return workerID
     
     def terminate(self, workerID, timeout=None, crash=False, reassign=False):
@@ -419,6 +417,9 @@ class WorkerManager(object):
             return defer.succeed([])
         worker.hired = False
         self.assignmentFactory.cancelRequests(worker)
+        for series, workerList in self.laborPools.iteritems():
+            if worker in workerList:
+                workerList.remove(worker)
         if crash:
             d = defer.succeed(worker.crash())
         else:
@@ -432,27 +433,29 @@ class WorkerManager(object):
         if reassign:
             d.addCallback(reassignTasks)
         return d
-    
-    def assignment(self, task, broadcast=False):
+
+    def roster(self, series=None):
         """
-        Generates a new assignment for the supplied I{task}.
+        Returns a list of the workers who are qualified to run the
+        specified series, or all my workers if no series specified.
+        """
+        if series is None:
+            return workers.items()
+        return self.laborPools.get(series, [])
+        
+    def __call__(self, task):
+        """
+        Generates a new assignment for the supplied I{task}. This is the
+        handler for an item of L{base.Queue}.
 
         If the worker that runs the task is still working for me when it
         becomes ready for another task following this one, an assignment
         request will be entered for it to obtain another task of the same
         series.
-
-        @keyword broadcast: Set C{True} if the task is to be run by
-          all workers. In that case, the deferred only fires when all
-          workers have accepted their copies of the task. (TODO)
         
         @return: A deferred that fires when the task has been assigned
           to a worker and it has accepted the assignment, or in
           broadcast mode, when all workers have accepted their copies
           of the assignment.
-
         """
-        if broadcast:
-            return self.assignmentFactory.newBroadcast(
-                self.workers.values(), task)
         return self.assignmentFactory.new(task)
