@@ -147,7 +147,7 @@ class TaskUniverse(object):
                 self.pfs[ID] = iteration.Prefetcherator(ID)
         return self.pfs[ID]
     
-    def _iteratorResult(self, result):
+    def _handleIterator(self, result):
         """
         Handles a result that is an iterator.
 
@@ -155,9 +155,10 @@ class TaskUniverse(object):
         for each f-args-kw combo resulting in calls to this method.
         """
         # Try the iterator on for size
-        if self._pf().setIterator(result):
+        pf = self._pf()
+        if pf.setup(result):
             self.response['status'] = 'i'
-            self.response['result'] = ID
+            self.response['result'] = pf.ID
             return
         # Aw, can't do the iteration, try an iterator-as-list fallback
         try:
@@ -170,7 +171,7 @@ class TaskUniverse(object):
         else:
             self.pickledResult(pickledResult)
 
-    def _pickledResult(self, pickledResult):
+    def _handlePickle(self, pickledResult):
         """
         Handles a regular result that's been pickled for transmission.
         """
@@ -178,7 +179,7 @@ class TaskUniverse(object):
             # Too big to send as a single pickled result
             self.response['status'] = 'c'
             pf = self._pf()
-            pf.setIterator(ChunkyString(pickledResult))
+            pf.setup(ChunkyString(pickledResult))
             self.response['result'] = pf.ID
         else:
             # Small enough to just send
@@ -194,10 +195,10 @@ class TaskUniverse(object):
                 self._pf().setNextCallable(df, *dargs, **dkw)
             elif iteration.Deferator.isIterator(result):
                 # It's a Deferator-able iterator
-                self._iteratorResult(result)
+                self._handleIterator(result)
             else:
                 # It's a regular result
-                self._pickledResult(o2p(result))
+                self._handlePickle(o2p(result))
             return self.response
                     
         self.response = {}

@@ -65,3 +65,23 @@ class TestTaskUniverse(TestCase):
         pf = self.u._pf()
         self.assertIsInstance(pf, iteration.Prefetcherator)
         self.assertEqual(self.u._pf(), pf)
+
+    def _generatorMethod(self, x, N=7):
+        for y in xrange(N):
+            yield x*y
+        
+    def test_handleIterator(self):
+        self.u.response = {}
+        self.u._handleIterator(self._generatorMethod(10))
+        self.assertEqual(self.u.response['status'], 'i')
+        ID = self.u.response['result']
+        pf = self.u._pf(ID)
+        self.assertIsInstance(pf, iteration.Prefetcherator)
+        
+    def test_handlePickle_small(self):
+        obj = [1, 2.0, "3"]
+        self.u.response = {}
+        pr = pserver.o2p(obj)
+        self.u._handlePickle(pr)
+        self.assertEqual(self.u.response['status'], 'r')
+        self.assertEqual(self.u.response['result'], pr)

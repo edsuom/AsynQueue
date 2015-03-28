@@ -83,11 +83,15 @@ class Info(object):
         Returns a unique ID for my current callable.
         """
         def hashFAK(fak):
-            if fak[2]:
-                fak[2:] = [fak[2].keys(), fak[2].values()]
-            return hash(fak)
-        
-        return hashFAK(list(getattr(self, 'callTuple', (0,0,0))))
+            fak[1] = tuple(fak[1])
+            fak[2] = (
+                tuple(fak[2].keys()),
+                tuple(fak[2].values())) if fak[2] else None
+            return hash(tuple(fak))
+
+        if not hasattr(self, 'callTuple'):
+            return hash(None)
+        return hashFAK(list(self.callTuple))
     
     def _divider(self, lineList):
         lineList.append(

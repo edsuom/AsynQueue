@@ -112,7 +112,7 @@ class TestDeferredTracker(TestCase):
     def setUp(self):
         self.dt = util.DeferredTracker()
 
-    def _slowStuff(self, N, delay=None, maxDelay=0.5):
+    def _slowStuff(self, N, delay=None, maxDelay=0.2):
         dList = []
         for k in xrange(N):
             if delay is None:
@@ -161,11 +161,11 @@ class ToyConsumer(object):
 
 
 class Stuff(object):
-    def divide(self, x, y, delay=0.5):
+    def divide(self, x, y, delay=0.2):
         time.sleep(delay)
         return x/y
 
-    def iterate(self, N, maxDelay=0.5):
+    def iterate(self, N, maxDelay=0.2):
         for k in xrange(N):
             if maxDelay > 0:
                 time.sleep(maxDelay*random.random())
@@ -202,7 +202,7 @@ class TestThreadLooper(TestCase):
             
     @defer.inlineCallbacks
     def test_call_OK_once(self):
-        status, result = yield self.t.call(self.stuff.divide, 10, 2, delay=1.0)
+        status, result = yield self.t.call(self.stuff.divide, 10, 2, delay=0.3)
         self.assertEqual(status, 'r')
         self.assertEqual(result, 5)
 
@@ -216,7 +216,7 @@ class TestThreadLooper(TestCase):
     def test_call_multi_OK(self):
         dList = []
         for x in (2, 4, 8, 10):
-            d = self.t.call(self.stuff.divide, x, 2, delay=random.random())
+            d = self.t.call(self.stuff.divide, x, 2, delay=0.2*random.random())
             d.addCallback(self._gotOne)
             dList.append(d)
         return defer.DeferredList(dList).addCallback(
@@ -225,7 +225,7 @@ class TestThreadLooper(TestCase):
     def test_call_doNext(self):
         dList = []
         for num, delay, doNext in (
-                (3, 0.5, False), (6, 0.1, False), (12, 0.1, True)):
+                (3, 0.4, False), (6, 0.1, False), (12, 0.1, True)):
             d = self.t.call(
                 self.stuff.divide, num, 3, delay=delay, doNext=doNext)
             d.addCallback(self._gotOne)
