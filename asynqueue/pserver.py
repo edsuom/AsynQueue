@@ -28,7 +28,7 @@ from twisted.internet import reactor
 from twisted.internet.protocol import Factory
 from twisted.protocols import amp
 
-import util
+import util, iteration
 from util import o2p, p2o
 
 
@@ -144,7 +144,7 @@ class TaskUniverse(object):
         if ID is None:
             ID = self.info.getID()
             if ID not in self.pfs:
-                self.pfs[ID] = util.Prefetcherator(ID)
+                self.pfs[ID] = iteration.Prefetcherator(ID)
         return self.pfs[ID]
     
     def _iteratorResult(self, result):
@@ -187,12 +187,12 @@ class TaskUniverse(object):
 
     def call(self, f, *args, **kw):
         def ran(result):
-            if isinstance(result, util.Deferator):
+            if isinstance(result, iteration.Deferator):
                 # Result is a Deferator, just tell my prefetcherator
                 # to use its getNext function.
                 df, dargs, dkw = result.callTuple
                 self._pf().setNextCallable(df, *dargs, **dkw)
-            elif util.Deferator.isIterator(result):
+            elif iteration.Deferator.isIterator(result):
                 # It's a Deferator-able iterator
                 self._iteratorResult(result)
             else:

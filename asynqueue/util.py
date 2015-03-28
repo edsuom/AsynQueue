@@ -219,6 +219,7 @@ class DeferredLock(defer.DeferredLock):
 
     """
     def __init__(self):
+        self.stoppers = []
         self.running = True
         super(DeferredLock, self).__init__()
 
@@ -252,8 +253,6 @@ class DeferredLock(defer.DeferredLock):
         result awaited, in the order received.
 
         """
-        if not hasattr(self, 'stoppers'):
-            self.stoppers = []
         self.stoppers.append([f, args, kw])
     
     def stop(self):

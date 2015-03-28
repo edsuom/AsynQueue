@@ -146,7 +146,6 @@ class TestCase(unittest.TestCase):
         def check(null):
             self.assertEqual(resultList, expected)
             del self.d
-            del self.dm
         
         dList = []
         resultList = []

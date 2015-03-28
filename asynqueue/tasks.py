@@ -70,14 +70,14 @@ class Task(object):
             self.callID = None
 
     def callback(self, result):
-        if self.callID:
+        if getattr(self, 'callID', None):
             self.callID.cancel()
             self.callID = None
         if not self.d.called:
             self.d.callback(result)
 
     def errback(self, result):
-        if self.callID:
+        if getattr(self, 'callID', None):
             self.callID.cancel()
             self.callID = None
         self.d.errback(result)
