@@ -69,6 +69,23 @@ class TestInfo(TestCase):
         self.p = Picklable()
         self.info = util.Info()
 
+    def _foo(self, x):
+        return 2*x
+
+    def _bar(self, x, y=0):
+        return x+y
+        
+    def test_getID(self):
+        IDs = []
+        for fak in ((self._foo, (1,), {}),
+                    (self._foo, (2,), {}),
+                    (self._bar, (3,), {}),
+                    (self._bar, (3,), {'y': 1}),
+                    ):
+            ID = self.info.setCall(*fak).getID()
+            self.assertNotIn(ID, IDs)
+            IDs.append(ID)
+        
     def _divide(self, x, y):
         return x/y
 

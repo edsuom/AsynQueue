@@ -32,7 +32,7 @@ from twisted.trial import unittest
 testPath = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, testPath)
 # The modules under test
-import errors, util, iteration, base, tasks, interfaces, workers
+import errors, util, iteration, base, tasks, interfaces, workers, pserver
 
 
 VERBOSE = False

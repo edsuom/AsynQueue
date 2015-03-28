@@ -24,7 +24,7 @@ a ProcessWorker.
 
 import sys, traceback
 
-from twisted.internet import reactor
+from twisted.internet import reactor, defer
 from twisted.internet.protocol import Factory
 from twisted.protocols import amp
 
@@ -174,11 +174,11 @@ class TaskUniverse(object):
         """
         Handles a regular result that's been pickled for transmission.
         """
-        if len(pickledResult) > ChunkyResult.chunkSize:
+        if len(pickledResult) > ChunkyString.chunkSize:
             # Too big to send as a single pickled result
             self.response['status'] = 'c'
             pf = self._pf()
-            pf.setIterator(ChunkyResult(pickledResult))
+            pf.setIterator(ChunkyString(pickledResult))
             self.response['result'] = pf.ID
         else:
             # Small enough to just send

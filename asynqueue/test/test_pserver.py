@@ -22,9 +22,46 @@ Unit tests for asynqueue.pserver
 """
 
 from twisted.internet import defer
+from twisted.python.failure import Failure
 
-from testbase import TestCase, errors, pserver
+from testbase import TestCase, errors, iteration, pserver
 
 
 class TestChunkyString(TestCase):
-    verbose = True
+    verbose = False
+
+    def test_basic(self):
+        x = "0123456789" * 11111
+        cs = pserver.ChunkyString(x)
+        # Test with a smaller chunk size
+        N = 1000
+        cs.chunkSize = N
+        y = ""
+        count = 0
+        for chunk in cs:
+            self.assertLessEqual(len(chunk), N)
+            y += chunk
+            count += 1
+        self.assertEqual(y, x)
+        self.msg("Produced {:d} char string in {:d} iterations", len(x), count)
+
+
+class TestTaskUniverse(TestCase):
+    verbose = False
+
+    def setUp(self):
+        self.u = pserver.TaskUniverse()
+
+    def test_oops(self):
+        self.u.response = {}
+        failureObj = Failure(Exception("Test exception"))
+        self.u._oops(failureObj)
+        self.assertEqual(self.u.response['status'], 'e')
+        self.assertPattern(r'Test exception', self.u.response['result'])
+
+    @defer.inlineCallbacks
+    def test_pf(self):
+        yield self.u.call(lambda x: 2*x, 0)
+        pf = self.u._pf()
+        self.assertIsInstance(pf, iteration.Prefetcherator)
+        self.assertEqual(self.u._pf(), pf)

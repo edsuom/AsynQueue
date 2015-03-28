@@ -78,15 +78,17 @@ class Info(object):
         self.callTuple = f, args, kw
         return self
     
-    def getID(self, *args, **kw):
+    def getID(self):
         """
-        Returns a unique ID for my current callable or a func-args-kw
-        combination you specify.
+        Returns a unique ID for my current callable.
         """
-        if args:
-            return hash((args[0], args[1:], kw))
-        return hash(self.callTuple)
-
+        def hashFAK(fak):
+            if fak[2]:
+                fak[2:] = [fak[2].keys(), fak[2].values()]
+            return hash(fak)
+        
+        return hashFAK(list(getattr(self, 'callTuple', (0,0,0))))
+    
     def _divider(self, lineList):
         lineList.append(
             "-" * (max([len(x) for x in lineList]) + 1))
@@ -307,6 +309,8 @@ class ThreadLooper(object):
         self.event = threading.Event()
         self.thread = threading.Thread(target=self.loop)
         self.thread.start()
+        # An Info object is nice to have around
+        self.info = Info()
 
     def loop(self):
         """
@@ -340,7 +344,7 @@ class ThreadLooper(object):
                 # call will not reach this point.
             except Exception as e:
                 status = 'e'
-                result = Info(f, *args, **kw).aboutException()
+                result = self.info.setCall(f, args, kw).aboutException()
             else:
                 if Deferator.isIterator(result):
                     # An iterator
@@ -354,7 +358,7 @@ class ThreadLooper(object):
                     else:
                         status = 'e'
                         result = "Failed to iterate for call {}".format(
-                            callInfo(f, *args, **kw))
+                            self.info.setCall(f, args, kw).aboutCall())
                 else:
                     # Not an iterator; we already have our result
                     status = 'r'
