@@ -124,5 +124,10 @@ class TestTaskUniverse(TestCase):
         self.assertIsInstance(response, dict)
         self.assertEqual(response['status'], 'r')
         self.assertEqual(response['result'], pserver.o2p(2.5))
-        
+        response = yield self.u.call(self._xyDivide, 5.0, y=5)
+        self.assertEqual(response['status'], 'r')
+        self.assertEqual(response['result'], pserver.o2p(1.0))
+
+    
+
         
