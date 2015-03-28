@@ -75,7 +75,9 @@ class Deferator(object):
     The object (or string representation) isn't strictly needed; it's
     for informative purposes in case an error gets propagated back
     somewhere. You can cheat and just use C{None} for the first
-    constructor argument.
+    constructor argument. Or you can supply a Prefetcherator as the
+    first and sole argument.
+    
     """
     builtIns = (
         str, unicode,
@@ -99,13 +101,16 @@ class Deferator(object):
             result = True
         return result
 
-    def __init__(self, objOrRep, f, *args, **kw):
+    def __init__(self, objOrRep, *args, **kw):
+        self.moreLeft = True
         if isinstance(objOrRep, (str, unicode)):
             self.representation = objOrRep.strip('<>')
         else:
             self.representation = repr(objOrRep)
-        self.callTuple = f, args, kw 
-        self.moreLeft = True
+            if isinstance(objOrRep, Prefetcherator):
+                self.callTuple = (objOrRep.getNext, [], {})
+                return
+        self.callTuple = args[0], args[1:], kw 
 
     def __repr__(self):
         return "<Deferator wrapping of\n  <{}>,\nat 0x{}>".format(
@@ -148,6 +153,15 @@ class Prefetcherator(object):
         if callWhenDone is not None:
             self.callWhenDone = callWhenDone
 
+    def __repr__(self):
+        text = "<Prefetcherator instance '{}'".format(self.ID)
+        if self.isBusy:
+            text += " with nextCallTuple '{}'>".format(
+                repr(self.nextCallTuple))
+        else:
+            text += ">"
+        return text
+            
     def isBusy(self):
         return hasattr(self, 'nextCallTuple')
 

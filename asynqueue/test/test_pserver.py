@@ -46,42 +46,83 @@ class TestChunkyString(TestCase):
         self.msg("Produced {:d} char string in {:d} iterations", len(x), count)
 
 
+class BigObject(object):
+    itemSize = 10000
+    
+    def __init__(self, N):
+        self.N = N
+
+    def setContents(self):
+        Nsf = 0
+        self.keys = []
+        self.stuff = {}
+        while Nsf < self.N:
+            N = min([self.N-Nsf, self.itemSize])
+            self.keys.append(Nsf)
+            self.stuff[Nsf] = "X" * N
+            Nsf += N
+        
+        
 class TestTaskUniverse(TestCase):
     verbose = False
 
     def setUp(self):
         self.u = pserver.TaskUniverse()
 
-    def test_oops(self):
-        self.u.response = {}
-        failureObj = Failure(Exception("Test exception"))
-        self.u._oops(failureObj)
-        self.assertEqual(self.u.response['status'], 'e')
-        self.assertPattern(r'Test exception', self.u.response['result'])
-
     @defer.inlineCallbacks
     def test_pf(self):
         yield self.u.call(lambda x: 2*x, 0)
-        pf = self.u._pf()
+        pf = self.u.pf('xyz')
         self.assertIsInstance(pf, iteration.Prefetcherator)
-        self.assertEqual(self.u._pf(), pf)
+        self.assertEqual(self.u.pf('xyz'), pf)
+        self.assertNotEqual(self.u.pf('abc'), pf)
 
     def _generatorMethod(self, x, N=7):
         for y in xrange(N):
             yield x*y
         
     def test_handleIterator(self):
-        self.u.response = {}
-        self.u._handleIterator(self._generatorMethod(10))
-        self.assertEqual(self.u.response['status'], 'i')
-        ID = self.u.response['result']
-        pf = self.u._pf(ID)
+        response = {'ID': None}
+        self.u._handleIterator(self._generatorMethod(10), response)
+        self.assertEqual(response['status'], 'i')
+        ID = response['result']
+        pf = self.u.pf(ID)
         self.assertIsInstance(pf, iteration.Prefetcherator)
         
     def test_handlePickle_small(self):
         obj = [1, 2.0, "3"]
-        self.u.response = {}
+        response = {'ID': None}
         pr = pserver.o2p(obj)
-        self.u._handlePickle(pr)
-        self.assertEqual(self.u.response['status'], 'r')
-        self.assertEqual(self.u.response['result'], pr)
+        self.u._handlePickle(pr, response)
+        self.assertEqual(response['status'], 'r')
+        self.assertEqual(response['result'], pr)
+
+    @defer.inlineCallbacks
+    def test_handlePickle_large(self):
+        response = {'ID': None}
+        bo = BigObject(N=200000)
+        bo.setContents()
+        pr = pserver.o2p(bo)
+        self.u._handlePickle(pr, response)
+        self.assertEqual(response['status'], 'c')
+        pf = self.u.pf(response['result'])
+        self.assertIsInstance(pf, iteration.Prefetcherator)
+        chunks = []
+        for d in iteration.Deferator(pf):
+            chunk = yield d
+            chunks.append(chunk)
+        reconBigObject = pserver.p2o("".join(chunks))
+        self.assertEqual(reconBigObject.keys, bo.keys)
+        self.assertEqual(reconBigObject.stuff, bo.stuff)
+
+    def _xyDivide(self, x, y=2):
+        return x/y
+        
+    @defer.inlineCallbacks
+    def test_call_single(self):
+        response = yield self.u.call(self._xyDivide, 5.0)
+        self.assertIsInstance(response, dict)
+        self.assertEqual(response['status'], 'r')
+        self.assertEqual(response['result'], pserver.o2p(2.5))
+        
+        

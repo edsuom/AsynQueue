@@ -67,7 +67,7 @@ class TestInfo(TestCase):
 
     def setUp(self):
         self.p = Picklable()
-        self.info = util.Info()
+        self.info = util.Info(remember=True)
 
     def _foo(self, x):
         return 2*x
@@ -77,24 +77,42 @@ class TestInfo(TestCase):
         
     def test_getID(self):
         IDs = []
-        for fak in ((self._foo, (1,), {}),
-                    (self._foo, (2,), {}),
-                    (self._bar, (3,), {}),
-                    (self._bar, (3,), {'y': 1}),
-                    ):
+        fakList = [
+            (self._foo, (1,), {}),
+            (self._foo, (2,), {}),
+            (self._bar, (3,), {}),
+            (self._bar, (3,), {'y': 1}),
+        ]
+        for fak in fakList:
             ID = self.info.setCall(*fak).getID()
             self.assertNotIn(ID, IDs)
             IDs.append(ID)
+        for k, ID in enumerate(IDs):
+            self.assertEqual(
+                self.info.getInfo(ID, 'callTuple'),
+                fakList[k])
         
     def _divide(self, x, y):
         return x/y
 
     def test_aboutCall(self):
+        IDs = []
+        pastInfo = []
         for pattern, f, args, kw in (
                 ('[cC]allable!', None, (), {}),
-                ('\.foo\(1\)', self.p.foo, (1,), {})):
-            self.info.setCall(f, args, kw)
-            self.assertPattern(pattern, self.info.aboutCall())
+                ('\.foo\(1\)', self.p.foo, (1,), {}),
+                ('\.foo\(2\)', self.p.foo, (2,), {}),
+                ('\._bar\(1, y=2\)', self._bar, (1,), {'y':2}),
+        ):
+            ID = self.info.setCall(f, args, kw).getID()
+            self.assertNotIn(ID, IDs)
+            IDs.append(ID)
+            text = self.info.aboutCall()
+            pastInfo.append(text)
+            self.assertPattern(pattern, text)
+        # Check that the old info is still there
+        for k, ID in enumerate(IDs):
+            self.assertEqual(self.info.aboutCall(ID), pastInfo[k])
 
     def test_aboutException(self):
         try:

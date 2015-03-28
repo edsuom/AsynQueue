@@ -72,10 +72,19 @@ class Info(object):
     that particular function call, or you can set it (and change it)
     later with L{setCall}.
     """
-    __slots__ = ['callTuple']
+    def __init__(self, remember=False):
+        if remember:
+            self.pastInfo = {}
 
     def setCall(self, f, args, kw):
+        """
+        Sets my current f-args-kw tuple, returning a reference to myself
+        to allow easy method chaining.
+        """
+        if hasattr(self, 'currentID'):
+            del self.currentID
         self.callTuple = f, args, kw
+        self.getID()
         return self
     
     def getID(self):
@@ -89,20 +98,55 @@ class Info(object):
                 tuple(fak[2].values())) if fak[2] else None
             return hash(tuple(fak))
 
-        if not hasattr(self, 'callTuple'):
-            return hash(None)
-        return hashFAK(list(self.callTuple))
+        if hasattr(self, 'currentID'):
+            return self.currentID
+        if hasattr(self, 'callTuple'):
+            ID = hashFAK(list(self.callTuple))
+            if hasattr(self, 'pastInfo'):
+                self.pastInfo[ID] = {'callTuple': self.callTuple}
+        else:
+            ID = None
+        self.currentID = ID
+        return ID
+
+    def forgetID(self, ID):
+        if ID in getattr(self, 'pastInfo', {}):
+            del self.pastInfo['ID']
+
+    def getInfo(self, ID, name):
+        def getCallTuple():
+            return getattr(self, 'callTuple', None)
+        
+        if hasattr(self, 'pastInfo'):
+            if ID is None and name == 'callTuple':
+                return getCallTuple()
+            return self.pastInfo.get(ID, {}).get(name, None)
+        if name == 'callTuple':
+            return getCallTuple()
+        return None
     
+    def saveInfo(self, name, text, ID=None):
+        if ID is None:
+            ID = self.getID()
+        if hasattr(self, 'pastInfo'):
+            self.pastInfo.setdefault(ID, {})[name] = text
+        return text
+        
     def _divider(self, lineList):
         lineList.append(
             "-" * (max([len(x) for x in lineList]) + 1))
         
-    def aboutCall(self):
+    def aboutCall(self, ID=None):
         """
-        Returns an informative string describing my function call.
+        Returns an informative string describing my current function call
+        or a previous one identified by ID.
         """
-        callTuple = getattr(self, 'callTuple', None)
-        if callTuple is None:
+        if ID:
+            pastInfo = self.getInfo(ID, 'aboutCall')
+            if pastInfo:
+                return pastInfo
+        callTuple = self.getInfo(ID, 'callTuple')
+        if not callTuple:
             return ""
         func, args, kw = callTuple
         if func.__class__.__name__ == "function":
@@ -121,13 +165,17 @@ class Info(object):
         for name, value in kw.iteritems():
             text += ", {}={}".format(name, value)
         text += ")"
-        return text
-
-    def aboutException(self):
+        return self.saveInfo('aboutCall', text, ID)
+    
+    def aboutException(self, ID=None):
         """
         Returns an informative string describing an exception raised from
-        my function call.
+        my function call or a previous one identified by ID.
         """
+        if ID:
+            pastInfo = self.getInfo(ID, 'aboutException')
+            if pastInfo:
+                return pastInfo
         stuff = sys.exc_info()
         lineList = ["Exception '{}'".format(stuff[1])]
         callInfo = self.aboutCall()
@@ -137,13 +185,19 @@ class Info(object):
         self._divider(lineList)
         lineList.append("".join(traceback.format_tb(stuff[2])))
         del stuff
-        return "\n".join(lineList)
+        text = "\n".join(lineList)
+        return self.saveInfo('aboutException', text, ID)
 
-    def aboutFailure(self, failureObj):
+    def aboutFailure(self, failureObj, ID=None):
         """
         Returns an informative string describing a Twisted failure raised
-        from my function call. You can use this as an errback.
+        from my function call or a previous one identified by ID. You
+        can use this as an errback.
         """
+        if ID:
+            pastInfo = self.getInfo(ID, 'aboutFailure')
+            if pastInfo:
+                return pastInfo
         lineList = ["Failure '{}'".format(failureObj.getErrorMessage())]
         callInfo = self.aboutCall()
         if callInfo:
@@ -151,9 +205,10 @@ class Info(object):
                 " doing call '{}':".format(callInfo))
         self._divider(lineList)
         lineList.append(failureObj.getTraceback(detail='verbose'))
-        return "\n".join(lineList)
+        text = "\n".join(lineList)
+        return self.saveInfo('aboutFailure', text, ID)
 
-    def __call__(self, *args):
+    def __call__(self, ID):
         if args and isinstance(args[0], Failure):
             return self.aboutFailure(args[0])
         return self.aboutException()

@@ -130,24 +130,16 @@ class TaskUniverse(object):
         self.info = util.Info()
         self.dt = util.DeferredTracker()
 
-    def _oops(self, failureObj):
-        self.response['status'] = 'e'
-        self.response['result'] = self.info(failureObj)
-
-    def _pf(self, ID=None):
+    def pf(self, ID):
         """
-        Returns the Prefetcherator of record for a particular ID if one is
-        specified. Otherwise returns a unique Prefetcherator instance
-        for the current f-args-kw combo, constructing a new one if
-        necessary.
+        Returns the Prefetcherator of record for a particular ID,
+        constructing a new one if necessary.
         """
-        if ID is None:
-            ID = self.info.getID()
-            if ID not in self.pfs:
-                self.pfs[ID] = iteration.Prefetcherator(ID)
+        if ID not in self.pfs:
+            self.pfs[ID] = iteration.Prefetcherator(ID)
         return self.pfs[ID]
     
-    def _handleIterator(self, result):
+    def _handleIterator(self, result, response):
         """
         Handles a result that is an iterator.
 
@@ -155,54 +147,61 @@ class TaskUniverse(object):
         for each f-args-kw combo resulting in calls to this method.
         """
         # Try the iterator on for size
-        pf = self._pf()
+        ID = response['ID']
+        pf = self.pf(ID)
         if pf.setup(result):
-            self.response['status'] = 'i'
-            self.response['result'] = pf.ID
+            response['status'] = 'i'
+            response['result'] = ID
             return
         # Aw, can't do the iteration, try an iterator-as-list fallback
         try:
             pickledResult = list(result)
         except:
-            self.response['status'] = 'e'
+            response['status'] = 'e'
             text = "Failed to iterate for task {}".format(
-                self.info.aboutCall())
-            self.response['result'] = text
+                self.info.aboutCall(ID))
+            response['result'] = text
         else:
             self.pickledResult(pickledResult)
 
-    def _handlePickle(self, pickledResult):
+    def _handlePickle(self, pickledResult, response):
         """
         Handles a regular result that's been pickled for transmission.
         """
         if len(pickledResult) > ChunkyString.chunkSize:
             # Too big to send as a single pickled result
-            self.response['status'] = 'c'
-            pf = self._pf()
-            pf.setup(ChunkyString(pickledResult))
-            self.response['result'] = pf.ID
+            response['status'] = 'c'
+            ID = response['ID']
+            self.pf(ID).setup(ChunkyString(pickledResult))
+            response['result'] = ID
         else:
             # Small enough to just send
-            self.response['status'] = 'r'
-            self.response['result'] = pickledResult
-
+            response['status'] = 'r'
+            response['result'] = pickledResult
+    
     def call(self, f, *args, **kw):
         def ran(result):
             if isinstance(result, iteration.Deferator):
                 # Result is a Deferator, just tell my prefetcherator
                 # to use its getNext function.
                 df, dargs, dkw = result.callTuple
-                self._pf().setNextCallable(df, *dargs, **dkw)
+                self.pf(ID).setNextCallable(df, *dargs, **dkw)
             elif iteration.Deferator.isIterator(result):
                 # It's a Deferator-able iterator
-                self._handleIterator(result)
+                self._handleIterator(result, response)
             else:
                 # It's a regular result
-                self._handlePickle(o2p(result))
-            return self.response
-                    
-        self.response = {}
-        self.info.setCall(f, args, kw)
+                self._handlePickle(o2p(result), response)
+
+        def oops(failureObj):
+            response['status'] = 'e'
+            response['result'] = self.info(failureObj)
+
+        def done(null):
+            self.info.forgetID(response.pop('ID'))
+            return response
+            
+        response = {'ID': self.info.setCall(f, args, kw).getID()}
         if kw.pop('thread', False):
             if not hasattr(self, 't'):
                 self.t = util.ThreadLooper()
@@ -210,7 +209,8 @@ class TaskUniverse(object):
         else:
             d = defer.maybeDeferred(f, *args, **kw)
         self.dt.put(d)
-        d.addCallbacks(ran, self._oops)
+        d.addCallbacks(ran, oops)
+        d.addCallback(done)
         return d
 
     def shutdown(self):
