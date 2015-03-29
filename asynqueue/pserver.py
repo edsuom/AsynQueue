@@ -195,7 +195,8 @@ class TaskUniverse(object):
 
         def oops(failureObj):
             response['status'] = 'e'
-            response['result'] = self.info(failureObj)
+            response['result'] = self.info.aboutFailure(
+                failureObj, response['ID'])
 
         def done(null):
             self.info.forgetID(response.pop('ID'))
@@ -215,7 +216,7 @@ class TaskUniverse(object):
 
     def shutdown(self):
         if hasattr(self, 't'):
-            d = self.t.stop()
+            d = self.t.stop().addCallback(lambda _: delattr(self, 't'))
             self.dt.put(d)
         return self.dt.deferToAll()
 
@@ -295,6 +296,7 @@ class TaskFactory(Factory):
         someday. Or not.
         """
         print "OK"
+        sys.stdout.flush()
                  
 
 def start(address):

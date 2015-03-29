@@ -191,7 +191,7 @@ class ProcessWorker(object):
         def makeConnection(self, process):
             pass
         def childDataReceived(self, childFD, data):
-            if childFD == 1 and data == 'OK':
+            if childFD == 1 and data.strip() == 'OK':
                 self.d.callback(None)
         def childConnectionLost(self, childFD):
             self.disconnectCallback()

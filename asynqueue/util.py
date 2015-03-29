@@ -37,7 +37,7 @@ def o2p(obj):
     Converts an object into a pickle string or a blank string if an
     empty container.
     """
-    if not obj:
+    if isinstance(obj, (list, tuple, dict)) and not obj:
         return ""
     return pickle.dumps(obj, pickle.HIGHEST_PROTOCOL)
 
@@ -207,11 +207,6 @@ class Info(object):
         lineList.append(failureObj.getTraceback(detail='verbose'))
         text = "\n".join(lineList)
         return self.saveInfo('aboutFailure', text, ID)
-
-    def __call__(self, ID):
-        if args and isinstance(args[0], Failure):
-            return self.aboutFailure(args[0])
-        return self.aboutException()
 
 
 class DeferredTracker(object):
