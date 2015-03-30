@@ -24,9 +24,9 @@ Unit tests for asynqueue.workers
 import time, random, threading
 import multiprocessing as mp
 import zope.interface
-from twisted.internet import defer
+from twisted.internet import defer, reactor
 
-from testbase import deferToDelay, TestCase, \
+from testbase import deferToDelay, TestCase, ProcessProtocol, \
     errors, base, workers, tasks
 
 
@@ -174,13 +174,21 @@ class TestProcessWorker(TestCase):
         self.worker = workers.ProcessWorker()
         self.queue = base.TaskQueue()
         self.queue.attachWorker(self.worker)
+        self.pid = str(self.worker.pt.pid)
 
     def tearDown(self):
         return self.queue.shutdown()
 
+    @defer.inlineCallbacks
     def checkStopped(self, *args):
-        # How to do this with AMP-based ProcessWorker?
-        pass
+        yield deferToDelay(0.5)
+        print "PID", self.pid
+        pp = ProcessProtocol(self.verbose)
+        args = ("/bin/ps", '-p', self.pid, '--no-headers')
+        pt = reactor.spawnProcess(pp, args[0], args)
+        stdout = yield pp.waitUntilReady()
+        self.assertEqual(stdout, "")
+        yield pt.loseConnection()
 
     @defer.inlineCallbacks
     def test_basic(self):
@@ -188,7 +196,7 @@ class TestProcessWorker(TestCase):
             "asynqueue.pserver.divide", 5.0, 2.0)
         self.assertEqual(result, 2.5)
         yield self.queue.shutdown()
-        self.checkStopped()
+        #yield self.checkStopped()
     
     def test_shutdownWithoutRunning(self):
         d = self.queue.shutdown()

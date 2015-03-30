@@ -44,6 +44,34 @@ def deferToDelay(delay):
     return d
 
 
+class ProcessProtocol(object):
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+        self.d = defer.Deferred()
+    def waitUntilReady(self):
+        return self.d
+    def makeConnection(self, process):
+        pass
+    def childDataReceived(self, childFD, data):
+        data = data.strip()
+        if childFD == 2:
+            print "\nERROR on pserver:\n{}\n{}\n{}\n".format(
+                "-"*40, data, "-"*40)
+        elif self.verbose:
+            print "Data on FD {:d}: '{}'".format(childFD, data)
+        if childFD == 1 and not self.d.called:
+            self.d.callback(data)
+    def childConnectionLost(self, childFD):
+        if self.verbose:
+            print "Connection Lost"
+    def processExited(self, reason):
+        if self.verbose:
+            print "Process Exited"
+    def processEnded(self, reason):
+        if self.verbose:
+            print "Process Ended"
+
+    
 class MockTask(object):
     def __init__(self, f, args, kw, priority, series, timeout=None):
         self.ran = False

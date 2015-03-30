@@ -26,7 +26,8 @@ from twisted.internet import defer, utils, reactor, endpoints
 from twisted.python.failure import Failure
 from twisted.protocols import amp
 
-from testbase import TestCase, deferToDelay, errors, iteration, pserver
+from testbase import TestCase, deferToDelay, ProcessProtocol, \
+    errors, iteration, pserver
 
 
 class TestChunkyString(TestCase):
@@ -182,32 +183,6 @@ class TestTaskUniverse(TestCase):
         self.assertEqual(results, [None])
         
 
-class ProcessProtocol(object):
-    def __init__(self, verbose=False):
-        self.verbose = verbose
-        self.d = defer.Deferred()
-    def waitUntilReady(self):
-        return self.d
-    def makeConnection(self, process):
-        pass
-    def childDataReceived(self, childFD, data):
-        if childFD == 2:
-            print "\nERROR on pserver:\n{}\n{}\n{}\n".format(
-                "-"*40, data.strip(), "-"*40)
-        elif self.verbose:
-            print "Data on FD {:d}: '{}'".format(childFD, data.strip())
-        if childFD == 1 and data.strip() == 'OK':
-            self.d.callback(None)
-    def childConnectionLost(self, childFD):
-        if self.verbose:
-            print "Connection Lost"
-    def processExited(self, reason):
-        if self.verbose:
-            print "Process Exited"
-    def processEnded(self, reason):
-        if self.verbose:
-            print "Process Ended"
-
 class TestTaskServerBasics(TestCase):
     verbose = True
 
@@ -237,7 +212,8 @@ class TestTaskServerRemote(TestCase):
         yield deferToDelay(0.5)
     
     def _startServer(self):
-        def ready(null):
+        def ready(stdout):
+            self.assertEqual(stdout, "OK")
             self.msg("Task Server ready for connection")
             dest = endpoints.UNIXClientEndpoint(reactor, address)
             return endpoints.connectProtocol(
