@@ -39,7 +39,7 @@ def o2p(obj):
     """
     if isinstance(obj, (list, tuple, dict)) and not obj:
         return ""
-    return pickle.dumps(obj, pickle.HIGHEST_PROTOCOL)
+    return pickle.dumps(obj)#, pickle.HIGHEST_PROTOCOL)
 
 def p2o(pickledString, defaultObj=None):
     """
@@ -80,6 +80,10 @@ class Info(object):
         """
         Sets my current f-args-kw tuple, returning a reference to myself
         to allow easy method chaining.
+
+        The function 'f' can be an actual callable object or a string
+        depicting one.
+        
         """
         if hasattr(self, 'currentID'):
             del self.currentID
@@ -149,7 +153,9 @@ class Info(object):
         if not callTuple:
             return ""
         func, args, kw = callTuple
-        if func.__class__.__name__ == "function":
+        if isinstance(func, (str, unicode)):
+            text = func
+        elif func.__class__.__name__ == "function":
             text = func.__name__
         elif callable(func):
             text = "{}.{}".format(func.__class__.__name__, func.__name__)

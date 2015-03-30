@@ -26,17 +26,51 @@ import sys, traceback
 
 from twisted.internet import reactor, defer
 from twisted.internet.protocol import Factory
+from twisted.python import reflect
 from twisted.protocols import amp
 
 import util, iteration
 from util import o2p, p2o
 
 
+class TestStuff(object):
+    @staticmethod
+    def divide(x, y):
+        return x/y
+    def accumulate(self, y):
+        if not hasattr(self, 'x'):
+            self.x = 0
+        self.x += y
+        return self.x
+divide = TestStuff.divide
+
+
+class SetNamespace(amp.Command):
+    """
+    Sets the namespace for named callables used in L{RunTask}.
+
+    Supply either a pickled object with one or more methods you want
+    to use or a fully named module-global callable that can be
+    imported via L{twisted.python.reflect.namedObject}.
+    """
+    arguments = [
+        ('np', amp.String())
+    ]
+    response = [
+        ('status', amp.String())
+    ]
+
+
 class RunTask(amp.Command):
     """
-    Runs a task and returns the status and result. The callable, args,
-    and kw are all pickled strings. The args and kw can be empty
-    strings, indicating no args or kw.
+    Runs a task and returns the status and result.
+
+    The callable is either a pickled callable object or the name of a
+    callable, either in a previously set namespace or the global
+    namespace (with any intervening modules imported automatically).
+
+    The args and kw are all pickled strings. The args and kw can be
+    empty strings, indicating no args or kw.
 
     The response has the following status/result structure:
 
@@ -51,10 +85,9 @@ class RunTask(amp.Command):
 
     'c': Ran fine, but the result is too big for a single return
          value. So you get an ID string for calls to C{GetMore}.
-
     """
     arguments = [
-        ('f', amp.String()),
+        ('fn', amp.String()),
         ('args', amp.String()),
         ('kw', amp.String()),
     ]
@@ -124,6 +157,7 @@ class TaskUniverse(object):
     """
     I am the universe for all tasks running with a particular
     connection to my L{TaskServer}.
+
     """
     def __init__(self):
         self.pfs = {}
@@ -226,9 +260,10 @@ class TaskServer(amp.AMP):
     The AMP server protocol for running tasks, entirely unsafely.
     """
     multiverse = {}
-    shutdownDelay = 1.0
+    shutdownDelay = 0.1
 
     def makeConnection(self, transport):
+        self.info = util.Info()
         self.u = TaskUniverse()
         self.multiverse[id(transport)] = self.u
         return super(TaskServer, self).makeConnection(transport)
@@ -237,17 +272,65 @@ class TaskServer(amp.AMP):
         super(TaskServer, self).connectionLost(reason)
         return self.quitRunning()
 
-    def runTask(self, f, args, kw):
+    #------------------------------------------------------------------
+    def setNamespace(self, np):
+        response = {}
+        converter = p2o if '\n' in np.strip() else reflect.namedObject
+        try:
+            self.u.namespace = converter(np)
+        except:
+            response['status'] = self.info.setCall(
+                "setNamespace", (np,), {}).aboutException()
+        else:
+            response['status'] = "OK"
+        return response
+    #------------------------------------------------------------------
+    SetNamespace.responder(setNamespace)
+
+    def _parseArg(self, fn):
+        if '\n' in fn:
+            # Looks like a pickle
+            try:
+                # Pickled callable?
+                f = p2o(fn)
+                if not callable(f):
+                    f = None
+            except:
+                # Nope, and it wouldn't be anything else worth trying, either
+                f = None
+            return f
+        f = getattr(getattr(self.u, 'namespace', None), fn, None)
+        if callable(f):
+            # Callable in set namespace 
+            return f
+        # Last resort: Callable in global namespace?
+        try:
+            f = reflect.namedObject(fn)
+        except:
+            # No, not that either.
+            pass
+        else:
+            if callable(f):
+                return f
+    
+    #------------------------------------------------------------------
+    def runTask(self, fn, args, kw):
         """
         Responder for L{RunTask}
         """
-        f = p2o(f)
+        func = self._parseArg(fn)
         args = p2o(args, [])
         kw = p2o(kw, {})
-        return self.u.call(f, *args, **kw)
+        if func:
+            return self.u.call(func, *args, **kw)
+        text = self.info.setCall(fn, args, kw).aboutCall()
+        return {
+            'status': 'e',
+            'result': "Couldn't identify callable for '{}'".format(text)}
     #------------------------------------------------------------------
     RunTask.responder(runTask)
 
+    #------------------------------------------------------------------
     def getMore(self, ID):
         """
         Responder for L{GetMore}
@@ -267,7 +350,8 @@ class TaskServer(amp.AMP):
             self.pfs[ID].getNext).addCallbacks(done, oops)
     #------------------------------------------------------------------
     GetMore.responder(getMore)
-    
+
+    #------------------------------------------------------------------
     def quitRunning(self):
         """
         Responder for L{QuitRunning}
@@ -303,7 +387,8 @@ def start(address):
     pf = TaskFactory()
     # Currently the security of UNIX domain sockets is the only
     # security we have!
-    reactor.listenUNIX(address, pf)
+    port = reactor.listenUNIX(address, pf)
+    reactor.addSystemEventTrigger('before', 'shutdown', port.stopListening)
     reactor.run()
 
 

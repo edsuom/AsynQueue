@@ -171,11 +171,13 @@ class ProcessProtocol(object):
     def waitUntilReady(self):
         return self.d
     def makeConnection(self, process):
-        if self.verbose:
-            print "Made connection to process {}".format(repr(process))
+        pass
     def childDataReceived(self, childFD, data):
-        if self.verbose:
-            print "Data on FD {:d}: {}".format(childFD, data)
+        if childFD == 2:
+            print "\nERROR on pserver:\n{}\n{}\n{}\n".format(
+                "-"*40, data.strip(), "-"*40)
+        elif self.verbose:
+            print "Data on FD {:d}: '{}'".format(childFD, data.strip())
         if childFD == 1 and data.strip() == 'OK':
             self.d.callback(None)
     def childConnectionLost(self, childFD):
@@ -188,26 +190,88 @@ class ProcessProtocol(object):
         if self.verbose:
             print "Process Ended"
 
-            
-class TestTaskServer(TestCase):
+class TestTaskServerBasics(TestCase):
     verbose = True
 
+    def setUp(self):
+        self.ts = pserver.TaskServer()
+        self.ts.u = pserver.TaskUniverse()
+
+    def checkCallable(self, f):
+        self.assertTrue(callable(f))
+        
+    def test_parseArg(self):
+        self.checkCallable(
+            self.ts._parseArg(pserver.o2p(pserver.TestStuff.divide)))
+        self.checkCallable(
+            self.ts._parseArg("asynqueue.pserver.divide"))
+
+            
+class TestTaskServerRemote(TestCase):
+    verbose = False
+
+    @defer.inlineCallbacks
     def tearDown(self):
-        self.pt.loseConnection()
+        if hasattr(self, 'ap'):
+            yield self.ap.callRemote(pserver.QuitRunning)
+            yield self.ap.transport.loseConnection()
+        yield self.pt.loseConnection()
+        yield deferToDelay(0.5)
     
     def _startServer(self):
         def ready(null):
             self.msg("Task Server ready for connection")
             dest = endpoints.UNIXClientEndpoint(reactor, address)
-            return endpoints.connectProtocol(dest, amp.AMP())
+            return endpoints.connectProtocol(
+                dest, amp.AMP()).addCallback(connected)
+
+        def connected(ap):
+            self.ap = ap
+            self.msg("Connected with AMP protocol {}", repr(ap))
+            return ap
 
         address = os.path.expanduser(
             os.path.join("~", "test-pserver.sock"))
         args = [sys.executable, "-m", "asynqueue.pserver", address]
         pp = ProcessProtocol(self.verbose)
         self.pt = reactor.spawnProcess(pp, sys.executable, args)
+        self.msg("Spawning Python interpreter {:d}", self.pt.pid)
         return pp.waitUntilReady().addCallback(ready)
 
     def test_start(self):
-        return self._startServer()
+        def started(ap):
+            self.assertIsInstance(ap, amp.AMP)
+        return self._startServer().addCallback(started)
+
+    @defer.inlineCallbacks
+    def test_runTask_globalModule(self):
+        ap = yield self._startServer()
+        pargs = pserver.o2p((3.0, 2.0))
+        response = yield ap.callRemote(
+            pserver.RunTask,
+            fn="asynqueue.pserver.divide", args=pargs, kw="")
+        self.assertIsInstance(response, dict)
+        self.msg(response['result'])
+        self.assertEqual(response['status'], 'r')
+        self.assertEqual(pserver.p2o(response['result']), 1.5)
+
+    @defer.inlineCallbacks
+    def test_runTask_namespace(self):
+        ap = yield self._startServer()
+        from asynqueue.pserver import TestStuff
+        ts = TestStuff()
+        response = yield ap.callRemote(
+            pserver.SetNamespace, np=pserver.o2p(ts))
+        self.assertEqual(response['status'], "OK")
+        total = 0
+        for x in xrange(5):
+            total += x
+            pargs = pserver.o2p((x,))
+            response = yield ap.callRemote(
+                pserver.RunTask,
+                fn="accumulate", args=pargs, kw="")
+            self.assertIsInstance(response, dict)
+            self.msg(response['result'])
+            self.assertEqual(response['status'], 'r')
+            self.assertEqual(pserver.p2o(response['result']), total)
     
