@@ -42,6 +42,12 @@ class TestStuff(object):
             self.x = 0
         self.x += y
         return self.x
+    def setStuff(self, N1, N2):
+        self.stuff = ["x"*N1] * N2
+        return self
+    def stufferator(self):
+        for chunk in self.stuff:
+            yield chunk
 divide = TestStuff.divide
 
 
@@ -77,6 +83,8 @@ class RunTask(amp.Command):
     'e': An exception was raised; the result is a pretty-printed
          traceback string.
 
+    'n': Ran fine, the result was a C{None} object.
+    
     'r': Ran fine, the result is the pickled return value of the call.
 
     'i': Ran fine, but the result is an iterable other than a standard
@@ -214,12 +222,18 @@ class TaskUniverse(object):
             response['result'] = pickledResult
     
     def call(self, f, *args, **kw):
+        """
+        """
         def ran(result):
-            if isinstance(result, iteration.Deferator):
+            if result is None:
+                # Result is a None object
+                response['status'] = 'n'
+                response['result'] = ""
+            elif isinstance(result, iteration.Deferator):
                 # Result is a Deferator, just tell my prefetcherator
                 # to use its getNext function.
                 df, dargs, dkw = result.callTuple
-                self.pf(ID).setNextCallable(df, *dargs, **dkw)
+                self.pf(ID).setup(df, *dargs, **dkw)
             elif iteration.Deferator.isIterator(result):
                 # It's a Deferator-able iterator
                 self._handleIterator(result, response)
@@ -236,7 +250,7 @@ class TaskUniverse(object):
             self.info.forgetID(response.pop('ID'))
             return response
             
-        response = {'ID': self.info.setCall(f, args, kw).getID()}
+        response = {'ID': str(self.info.setCall(f, args, kw).getID())}
         if kw.pop('thread', False):
             if not hasattr(self, 't'):
                 self.t = util.ThreadLooper()
@@ -248,6 +262,37 @@ class TaskUniverse(object):
         d.addCallback(done)
         return d
 
+    def getNext(self, ID):
+        """
+        Gets the next item for the specified prefetcherator, returning a
+        deferred that fires with a response containing the pickled
+        item, the isValid status indicating if the item is legit, and
+        the moreLeft status indicating that at least one more item is
+        left.
+        """
+        def bogusResponse(messageProto, *args):
+            response['value'] = messageProto.format(*args)
+            response['isValid'] = False
+            response['moreLeft'] = False
+        
+        def done(result):
+            response['value'] = o2p(result[0])
+            response['isValid'] = result[1]
+            response['moreLeft'] = result[2]
+
+        def oops(failureObj):
+            bogusResponse(
+                self.info.setCall(
+                    "Prefetcherator.getNext", [ID]).aboutFailure(failureObj))
+        
+        response = {}
+        if ID not in self.pfs:
+            bogusResponse("No Prefetcherator '{}'", ID)
+        d = defer.maybeDeferred(self.pfs[ID].getNext)
+        d.addCallbacks(done, oops)
+        d.addCallback(lambda _: response)
+        return d
+    
     def shutdown(self):
         if hasattr(self, 't'):
             d = self.t.stop().addCallback(lambda _: delattr(self, 't'))
@@ -335,19 +380,7 @@ class TaskServer(amp.AMP):
         """
         Responder for L{GetMore}
         """
-        def done(result):
-            for k, value in enumerate(result):
-                name = GetMore.response[k][0]
-                response[name] = value
-
-        def oops(failureObj):
-            response['value'] = None
-            response['isValid'] = False
-            response['moreLeft'] = False
-
-        response = {}
-        return defer.maybeDeferred(
-            self.pfs[ID].getNext).addCallbacks(done, oops)
+        return self.u.getNext(ID)
     #------------------------------------------------------------------
     GetMore.responder(getMore)
 

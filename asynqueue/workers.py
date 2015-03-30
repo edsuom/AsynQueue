@@ -278,6 +278,10 @@ class ProcessWorker(object):
         Sends the task callable, args, kw to the process and returns a
         deferred to the eventual result.
         """
+        def result(value):
+            task.callback((status, value))
+            self.tasks.remove(task)
+        
         self.tasks.append(task)
         doNext = task.kw.pop('doNext', False)
         if doNext:
@@ -309,17 +313,19 @@ class ProcessWorker(object):
             deferator = iteration.Deferator(
                 "Remote iterator ID={}".format(ID),
                 self.aP.callRemote, GetMore, ID=ID)
-            task.callback(('i', deferator))
+            result(deferator)
         elif status == 'c':
             # Chunked result, which will take a while
             dResult = yield self.assembleChunkedResult(response['result'])
-            task.callback(('c', dResult))
-        elif status in "re":
-            task.callback((status, response['result']))
+            result(dResult)
+        elif status == 'r':
+            result(p2o(response['result']))
+        elif status == 'n':
+            result(None)
+        elif status == 'e':
+            result(response['result'])
         else:
             raise ValueError("Unknown status {}".format(status))
-        # Task is now done, one way or another
-        self.tasks.remove(task)
 
     def stop(self):
         self._ignoreDisconnection = True

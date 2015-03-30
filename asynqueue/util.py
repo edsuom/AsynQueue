@@ -76,15 +76,20 @@ class Info(object):
         if remember:
             self.pastInfo = {}
 
-    def setCall(self, f, args, kw):
+    def setCall(self, *metaArgs):
         """
         Sets my current f-args-kw tuple, returning a reference to myself
         to allow easy method chaining.
 
         The function 'f' can be an actual callable object or a string
         depicting one.
-        
+
+        You can specify args with a second argument (as a list or
+        tuple), and kw with a third argument (as a dict).
         """
+        f = metaArgs[0]
+        args = metaArgs[1] if len(metaArgs) > 1 else []
+        kw = metaArgs[2] if len(metaArgs) > 2 else {}
         if hasattr(self, 'currentID'):
             del self.currentID
         self.callTuple = f, args, kw

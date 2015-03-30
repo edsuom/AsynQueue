@@ -56,14 +56,19 @@ class BigObject(object):
 
     def setContents(self):
         Nsf = 0
-        self.keys = []
-        self.stuff = {}
+        self.stuff = []
         while Nsf < self.N:
             N = min([self.N-Nsf, self.itemSize])
-            self.keys.append(Nsf)
-            self.stuff[Nsf] = "X" * N
+            self.stuff.append("X" * N)
             Nsf += N
+        return self
 
+    def getNext(self):
+        if self.stuff:
+            chunk = self.stuff.pop(0)
+            return (chunk, True, len(self.stuff) > 0)
+        return (None, False, False)
+        
         
 class TestTaskUniverse(TestCase):
     verbose = False
@@ -105,8 +110,7 @@ class TestTaskUniverse(TestCase):
     @defer.inlineCallbacks
     def test_handlePickle_large(self):
         response = {'ID': None}
-        bo = BigObject(N=200000)
-        bo.setContents()
+        bo = BigObject(N=200000).setContents()
         pr = pserver.o2p(bo)
         self.u._handlePickle(pr, response)
         self.assertEqual(response['status'], 'c')
@@ -117,7 +121,6 @@ class TestTaskUniverse(TestCase):
             chunk = yield d
             chunks.append(chunk)
         reconBigObject = pserver.p2o("".join(chunks))
-        self.assertEqual(reconBigObject.keys, bo.keys)
         self.assertEqual(reconBigObject.stuff, bo.stuff)
 
     def _xyDivide(self, x, y=2):
@@ -154,6 +157,21 @@ class TestTaskUniverse(TestCase):
             dList.append(d)
         yield defer.DeferredList(dList)
         self.assertEqual(resultList, [0.0, 1.0, 2.0, 3.0, 4.0])
+
+    @defer.inlineCallbacks
+    def test_getMore(self):
+        N = 200000
+        chunks = []
+        ID = "testID"
+        bo = BigObject(N).setContents()
+        self.u.pfs[ID] = bo
+        while True:
+            response = yield self.u.getNext(ID)
+            self.assertTrue(response['isValid'])
+            chunks.append(pserver.p2o(response['value']))
+            if not response['moreLeft']:
+                break
+        self.assertEqual(len("".join(chunks)), N)
 
     @defer.inlineCallbacks
     def test_shutdown(self):
@@ -275,3 +293,30 @@ class TestTaskServerRemote(TestCase):
             self.assertEqual(response['status'], 'r')
             self.assertEqual(pserver.p2o(response['result']), total)
     
+    @defer.inlineCallbacks
+    def test_iterate(self):
+        chunks = []
+        N1, N2 = 200, 1000
+        ap = yield self._startServer()
+        from asynqueue.pserver import TestStuff
+        ts = TestStuff().setStuff(N1, N2)
+        response = yield ap.callRemote(
+            pserver.SetNamespace, np=pserver.o2p(ts))
+        self.msg("!SetNamespace: {}", response)
+        self.assertEqual(response['status'], 'OK', response['status'])
+        response = yield ap.callRemote(
+            pserver.RunTask, fn="stufferator", args="", kw="")
+        self.msg("!RunTask:stufferator: {}", response)
+        self.assertEqual(response['status'], 'i', response['result'])
+        ID = response['result']
+        while True:
+            response = yield ap.callRemote(
+                pserver.GetMore, ID=ID)
+            self.msg("!GetMore: {}", response)
+            self.assertTrue(response['isValid'])
+            chunks.append(pserver.p2o(response['value']))
+            if not response['moreLeft']:
+                break
+        self.assertEqual(chunks, ts.stuff)
+
+            
