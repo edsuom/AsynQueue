@@ -29,7 +29,7 @@ from twisted.internet.protocol import Factory
 from twisted.python import reflect
 from twisted.protocols import amp
 
-import util, iteration
+import errors, util, iteration
 from util import o2p, p2o
 
 

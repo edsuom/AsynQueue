@@ -164,42 +164,13 @@ class TestAsyncWorker(TestCase):
         # NOTE: Hangs here
         return self.dm.addCallback(lambda _: worker.stop())
 
-        
-class Stuff(object):
-    def __init__(self, verbose):
-        self.verbose = verbose
-
-    def msg(self, proto, *args):
-        if self.verbose:
-            if not hasattr(self, 'msgAlready'):
-                proto = "\n" + proto
-                self.msgAlready = True
-            if args and args[-1] == "-":
-                args = args[:-1]
-                proto += "\n{}".format("-"*40)
-            print proto.format(*args)
-        
-    def twistyTask(self, x):
-        delay = random.uniform(1.5, 2.0)
-        self.msg(
-            "Running {:f} sec. async task in process {}",
-            delay, self.worker.pName)
-        return deferToDelay(delay).addCallback(lambda _: 2*x)
-        
-    def blockingTask(self, x):
-        delay = random.uniform(0.2, 0.5)
-        self.msg(
-            "Running {:f} sec. blocking task in process {}",
-            delay, self.worker.pName)
-        time.sleep(delay)
-        return 2*x
-
 
 class TestProcessWorker(TestCase):
     verbose = True
     
     def setUp(self):
-        self.stuff = Stuff(self.verbose)
+        from pserver import TestStuff
+        self.stuff = TestStuff()
         self.worker = workers.ProcessWorker()
         self.queue = base.TaskQueue()
         self.queue.attachWorker(self.worker)
@@ -207,13 +178,15 @@ class TestProcessWorker(TestCase):
     def tearDown(self):
         return self.queue.shutdown()
 
-    def checkStopped(self, null):
-        self.assertFalse(self.worker.process.is_alive())
+    def checkStopped(self, *args):
+        # How to do this with AMP-based ProcessWorker?
+        pass
 
     @defer.inlineCallbacks
-    def test_shutdown(self):
-        result = yield self.queue.call(self.stuff.blockingTask, 0, thread=True)
-        self.assertEqual(result, 0)
+    def test_basic(self):
+        result = yield self.queue.call(
+            "asynqueue.pserver.divide", 5.0, 2.0)
+        self.assertEqual(result, 2.5)
         yield self.queue.shutdown()
         self.checkStopped()
     

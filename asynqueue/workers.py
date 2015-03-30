@@ -20,7 +20,7 @@
 """
 Implementors of the worker interface.
 """
-import sys, os.path
+import sys, os, os.path
 
 from zope.interface import implements
 from twisted.python import failure
@@ -219,6 +219,8 @@ class ProcessWorker(object):
         # The UNIX socket address
         self.address = os.path.expanduser(
             os.path.join("~", "{}.sock".format(self.pName)))
+        if os.path.exists(self.address):
+            os.remove(self.address)
         # Start the server and make the connection, releasing the lock
         # when ready to accept tasks
         self._spawnAndConnect().addCallback(self._releaseLock)
@@ -270,7 +272,7 @@ class ProcessWorker(object):
                 raise ValueError(
                     "Invalid result chunk with ID={}".format(ID))
             pickleString += chunk
-        defer.returnValue(p2o(pickleString))
+        defer.returnValue(util.p2o(pickleString))
 
     def _stopper(self):
         def killIfNecessary(null):
@@ -316,7 +318,7 @@ class ProcessWorker(object):
         kw = {}
         for k, value in enumerate(task.callTuple):
             name = RunTask.arguments[k][0]
-            kw[name] = o2p(value)
+            kw[name] = value if isinstance(value, str) else util.o2p(value)
         # The heart of the matter
         response = yield self.ap.callRemote(RunTask, **kw)
         #-----------------------------------------------------------
@@ -338,7 +340,7 @@ class ProcessWorker(object):
             dResult = yield self.assembleChunkedResult(response['result'])
             result(dResult)
         elif status == 'r':
-            result(p2o(response['result']))
+            result(util.p2o(response['result']))
         elif status == 'n':
             result(None)
         elif status == 'e':

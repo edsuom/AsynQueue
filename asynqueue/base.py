@@ -34,9 +34,8 @@ except:
 else:
     defer.Deferred = cdefer.Deferred
 
-import tasks, iteration
+import errors, tasks, iteration
 from util import Info
-from errors import QueueRunError, ImplementationError, WorkerError
 
 
 class Priority(object):
@@ -54,7 +53,7 @@ class Priority(object):
         """
         if self.pendingGetCalls:
             msg = "No more items forthcoming"
-            theFailure = Failure(QueueRunError(msg))
+            theFailure = Failure(errors.QueueRunError(msg))
             for d in self.pendingGetCalls:
                 d.errback(theFailure)
     
@@ -184,7 +183,8 @@ class Queue(object):
             defer.returnValue(result)
         
         if self.isRunning():
-            raise QueueRunError("Startup only occurs upon instantiation")
+            raise errors.QueueRunError(
+                "Startup only occurs upon instantiation")
         self.heap = Priority()
         self.handler = handler
         self.loadInfoProducer = LoadInfoProducer()
@@ -245,7 +245,7 @@ class Queue(object):
         if interfaces.IConsumer.providedBy(consumer):
             self.loadInfoProducer.registerConsumer(consumer)
         else:
-            raise ImplementationError(
+            raise errors.ImplementationError(
                 "Object doesn't provide the IConsumer interface")
 
 
@@ -469,7 +469,7 @@ class TaskQueue(object):
             if self.warnOnly:
                 print text
             else:
-                raise QueueRunError(text)
+                raise errors.QueueRunError(text)
         # Some parameters just for me, not for the task
         niceness = kw.pop('niceness', 0     )
         series   = kw.pop('series',   None  )
