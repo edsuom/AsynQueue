@@ -398,7 +398,8 @@ class TaskHandler(object):
         def crashTheWorker(worker, d):
             unfinished = worker.crash()
             # Fire deferred with list of unfinished tasks
-            d.callback(unfinished)
+            if not d.called:
+                d.callback(unfinished)
 
         def stopped(result):
             if callID.active():

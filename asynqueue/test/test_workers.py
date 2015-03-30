@@ -196,7 +196,7 @@ class TestProcessWorker(TestCase):
             "asynqueue.pserver.divide", 5.0, 2.0)
         self.assertEqual(result, 2.5)
         yield self.queue.shutdown()
-        #yield self.checkStopped()
+        yield self.checkStopped()
     
     def test_shutdownWithoutRunning(self):
         d = self.queue.shutdown()

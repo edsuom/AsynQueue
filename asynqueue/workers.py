@@ -20,7 +20,7 @@
 """
 Implementors of the worker interface.
 """
-import sys, os, os.path
+import sys, os, os.path, tempfile, shutil
 
 from zope.interface import implements
 from twisted.python import failure
@@ -28,8 +28,7 @@ from twisted.internet import defer, reactor, endpoints
 from twisted.protocols import amp
 
 from interfaces import IWorker
-import errors, util, iteration
-from pserver import RunTask, GetMore, QuitRunning
+import errors, util, iteration, pserver
 
 
 class ThreadWorker(object):
@@ -161,12 +160,51 @@ class AsyncWorker(object):
         There's no point to implementing this because the Twisted main
         loop will block along with any task you give this worker.
         """
-        
 
 class ProcessWorker(object):
     """
-    I implement an L{IWorker} that runs tasks in a subordinate Python
-    interpreter via Twisted's Asynchronous Messaging Protocol.
+    I implement an L{IWorker} that runs tasks in a dedicated worker
+    process.
+
+    You can also supply a series keyword containing a list of one or
+    more task series that I am qualified to handle.
+
+    All my tasks are run in a single instance of
+    L{util.ThreadLoop}. Block away!
+    """
+    pollInterval = 0.01
+    
+    implements(IWorker)
+    cQualified = ['process', 'local']
+
+    def __init__(self, *specialties, **kw):
+        import multiprocessing as mp
+        self.iQualified = list(specialties)
+        self.cMain, cProcess = mp.Pipe()
+        pu = ProcessUniverse()
+        self.process = mp.Process(target=pu.loop, args=(cProcess,))
+        self.process.start()
+        # Set named callables
+        for name, f in kw.iteritems():
+            self.send(('set', (name, f), {}))
+            result = self.cMain.recv()
+            if isinstance(result, failure.Failure):
+                result.raiseException()
+            elif result != "OK":
+                raise Exception(
+                    "Error setting named callable '{}'".format(name))
+            
+    def send(self, stuff):
+        self.cMain.send(stuff)
+
+    # TODO: ...
+        
+
+class SocketWorker(object):
+    """
+    I implement an L{IWorker} that runs tasks in a subordinate or
+    remote Python interpreter via Twisted's Asynchronous Messaging
+    Protocol.
 
     You can also supply a series keyword containing a list of one or
     more task series that I am qualified to handle.
@@ -177,75 +215,65 @@ class ProcessWorker(object):
     be a deferred. If the call is a blocking one, set the *thread*
     keyword C{True} for it and it will run via an instance of
     L{util.ThreadLoop}.
-    
     """
     implements(IWorker)
     pList = []
-    cQualified = ['process', 'amp']
-
-    class ProcessProtocol(object):
-        def __init__(self, disconnectCallback):
-            self.d = defer.Deferred()
-            self.disconnectCallback = disconnectCallback
-        def waitUntilReady(self):
-            return self.d
-        def makeConnection(self, process):
-            pass
-        def childDataReceived(self, childFD, data):
-            data = data.strip()
-            if childFD == 1:
-                if data == 'OK':
-                    self.d.callback(None)
-            elif childFD == 2:
-                self.disconnectCallback("ERROR: {}".format(data))
-        def childConnectionLost(self, childFD):
-            self.disconnectCallback("CONNECTION LOST!")
-        def processExited(self, reason):
-            self.disconnectCallback(reason)
-        def processEnded(self, reason):
-            self.disconnectCallback(reason)
+    tempDir = []
+    cQualified = ['process', 'network']
     
-    def __init__(self, reconnect=False, series=[], profiler=None):
+    def __init__(self, sFile=None, reconnect=False, series=[], profiler=None):
         self.tasks = []
+        self.address = address
         self.iQualified = series
         self.profiler = profiler
+        self.reconnect = reconnect
         self.dLock = util.DeferredLock()
         self.dLock.acquire()
-        self.reconnect = reconnect
-        # The process number
-        self.pNumber = len(self.pList)
-        # The process name, which is used for the UNIX socket address
-        self.pName = ".asynqueue-worker-{:03d}".format(self.pNumber)
-        # The UNIX socket address
-        self.address = os.path.expanduser(
-            os.path.join("~", "{}.sock".format(self.pName)))
-        if os.path.exists(self.address):
-            os.remove(self.address)
-        # Start the server and make the connection, releasing the lock
-        # when ready to accept tasks
-        self._spawnAndConnect().addCallback(self._releaseLock)
+        self._spawnAndConnect(sFile).addCallback(
+            lambda _: self.dLock.release())
 
-    def _spawnAndConnect(self):
+    def _newSocketFile(self):
+        """
+        Assigns a unique name to a socket file in a temporary directory
+        common to all instances of me, which will be removed with all
+        socket files after reactor shutdown. Doesn't actually create
+        the socket file; the server does that.
+        """
+        # The process name
+        pName = "worker-{:03d}".format(len(self.pList))
+        # A unique temp directory for all instances' socket files
+        if self.tempDir:
+            tempDir = self.tempDir[0]
+        else:
+            tempDir = tempfile.mkdtemp()
+            reactor.addSystemEventTrigger(
+                'after', 'shutdown',
+                shutil.rmtree, tempDir, ignore_errors=True)
+            self.tempDir.append(tempDir)
+        return os.path.join(tempDir, "{}.sock".format(pName))
+    
+    def _spawnAndConnect(self, sFile=None):
+        """
+        Spawn a subordinate Python interpreter and connects to it via the
+        AMP protocol and a unique UNIX socket address.
+        """
         def ready(null):
-            print "PROCESS STARTED"
             # Now connect to the pserver via the UNIX socket
             dest = endpoints.UNIXClientEndpoint(reactor, self.address)
             return endpoints.connectProtocol(
                 dest, amp.AMP()).addCallback(connected)
 
         def connected(ap):
-            print "CONNECTED"
             self.ap = ap
             self.pList.append(self.ap)
 
+        if sFile is None:
+            sFile = self.newSocketFile()
         # Spawn the pserver and "wait" for it to indicate it's OK
         args = [sys.executable, "-m", "asynqueue.pserver", self.address]
-        pp = self.ProcessProtocol(self._disconnected)
+        pp = pserver.ProcessProtocol(self._disconnected)
         self.pt = reactor.spawnProcess(pp, sys.executable, args)
         return pp.waitUntilReady().addCallback(ready)
-
-    def _releaseLock(self, *args):
-        self.dLock.release()
         
     def _ditchClass(self):
         if self.ap in self.pList:
@@ -266,7 +294,7 @@ class ProcessWorker(object):
         moreLeft = True
         pickleString = ""
         while moreLeft:
-            stuff = yield self.ap.callRemote(GetMore, ID=ID)
+            stuff = yield self.ap.callRemote(pserver.GetMore, ID=ID)
             chunk, isValid, moreLeft = stuff
             if not isValid:
                 raise ValueError(
@@ -285,7 +313,8 @@ class ProcessWorker(object):
         
         self._ditchClass()
         if hasattr(self, 'ap'):
-            return self.ap.callRemote(QuitRunning).addCallback(killIfNecessary)
+            return self.ap.callRemote(
+                pserver.QuitRunning).addCallback(killIfNecessary)
 
     # Implementation methods
     # -------------------------------------------------------------------------
@@ -302,7 +331,7 @@ class ProcessWorker(object):
         def result(value):
             task.callback((status, value))
             self.tasks.remove(task)
-        
+
         self.tasks.append(task)
         doNext = task.callTuple[2].pop('doNext', False)
         if doNext:
@@ -312,28 +341,28 @@ class ProcessWorker(object):
         # Run the task on the subordinate Python interpreter
         # TODO: Have the subordinate run with its own version of
         # self.profiler.runcall if profiler present. It will need to
-        # return its own Stats object when we call QuitRunning
+        # return its own Stats object when we call pserver.QuitRunning
         #-----------------------------------------------------------
         # Everything is sent to the pserver as pickled keywords
         kw = {}
         for k, value in enumerate(task.callTuple):
-            name = RunTask.arguments[k][0]
+            name = pserver.RunTask.arguments[k][0]
             kw[name] = value if isinstance(value, str) else util.o2p(value)
         # The heart of the matter
-        response = yield self.ap.callRemote(RunTask, **kw)
+        response = yield self.ap.callRemote(pserver.RunTask, **kw)
         #-----------------------------------------------------------
         # At this point, we can permit another remote call to get
         # going for a separate task.
-        self._releaseLock()
+        self.dLock.release()
         # Process the response. No lock problems even if that
-        # involves further remote calls, i.e., GetMore
+        # involves further remote calls, i.e., pserver.GetMore
         status = response['status']
         if status == 'i':
             # An iteratable
             ID = response['result']
             deferator = iteration.Deferator(
                 "Remote iterator ID={}".format(ID),
-                self.ap.callRemote, GetMore, ID=ID)
+                self.ap.callRemote, pserver.GetMore, ID=ID)
             result(deferator)
         elif status == 'c':
             # Chunked result, which will take a while
