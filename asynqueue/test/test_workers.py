@@ -163,10 +163,43 @@ class TestAsyncWorker(TestCase):
             worker.run(task)
         # NOTE: Hangs here
         return self.dm.addCallback(lambda _: worker.stop())
+
         
+class Stuff(object):
+    def __init__(self, verbose):
+        self.verbose = verbose
+
+    def msg(self, proto, *args):
+        if self.verbose:
+            if not hasattr(self, 'msgAlready'):
+                proto = "\n" + proto
+                self.msgAlready = True
+            if args and args[-1] == "-":
+                args = args[:-1]
+                proto += "\n{}".format("-"*40)
+            print proto.format(*args)
+        
+    def twistyTask(self, x):
+        delay = random.uniform(1.5, 2.0)
+        self.msg(
+            "Running {:f} sec. async task in process {}",
+            delay, self.worker.pName)
+        return deferToDelay(delay).addCallback(lambda _: 2*x)
+        
+    def blockingTask(self, x):
+        delay = random.uniform(0.2, 0.5)
+        self.msg(
+            "Running {:f} sec. blocking task in process {}",
+            delay, self.worker.pName)
+        time.sleep(delay)
+        return 2*x
+
 
 class TestProcessWorker(TestCase):
+    verbose = True
+    
     def setUp(self):
+        self.stuff = Stuff(self.verbose)
         self.worker = workers.ProcessWorker()
         self.queue = base.TaskQueue()
         self.queue.attachWorker(self.worker)
@@ -174,47 +207,33 @@ class TestProcessWorker(TestCase):
     def tearDown(self):
         return self.queue.shutdown()
 
-    def _twistyTask(self, x):
-        delay = random.uniform(1.5, 2.0)
-        self.msg(
-            "Running {:f} sec. async task in process {}",
-            delay, self.worker.pName)
-        return deferToDelay(delay).addCallback(lambda _: 2*x)
-        
-    def _blockingTask(self, x):
-        delay = random.uniform(1.5, 2.0)
-        self.msg(
-            "Running {:f} sec. blocking task in process {}",
-            delay, self.worker.pName)
-        time.sleep(delay)
-        return 2*x
-
     def checkStopped(self, null):
         self.assertFalse(self.worker.process.is_alive())
-            
-    def testShutdown(self):
-        d = self.queue.call(blockingTask, 0)
-        d.addCallback(lambda _: self.queue.shutdown())
-        d.addCallback(self.checkStopped)
-        return d
 
-    def testShutdownWithoutRunning(self):
+    @defer.inlineCallbacks
+    def test_shutdown(self):
+        result = yield self.queue.call(self.stuff.blockingTask, 0, thread=True)
+        self.assertEqual(result, 0)
+        yield self.queue.shutdown()
+        self.checkStopped()
+    
+    def test_shutdownWithoutRunning(self):
         d = self.queue.shutdown()
         d.addCallback(self.checkStopped)
         return d
 
-    def testStop(self):
-        d = self.queue.call(blockingTask, 0)
+    def test_stop(self):
+        d = self.queue.call(self._blockingTask, 0, thread=True)
         d.addCallback(lambda _: self.worker.stop())
         d.addCallback(self.checkStopped)
         return d
 
-    def testOneTask(self):
-        d = self.queue.call(blockingTask, 15)
+    def test_oneTask(self):
+        d = self.queue.call(self._blockingTask, 15, thread=True)
         d.addCallback(self.assertEqual, 30)
         return d
 
-    def testMultipleWorkers(self):
+    def test_multipleWorkers(self):
         N = 20
         mutable = []
 
@@ -235,7 +254,7 @@ class TestProcessWorker(TestCase):
             self.queue.attachWorker(worker)
         dList = []
         for x in xrange(N):
-            d = self.queue.call(blockingTask, x)
+            d = self.queue.call(self._blockingTask, x, thread=True)
             d.addCallback(gotResult)
             dList.append(d)
         d = defer.DeferredList(dList)

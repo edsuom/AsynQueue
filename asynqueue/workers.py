@@ -20,14 +20,15 @@
 """
 Implementors of the worker interface.
 """
+import sys, os.path
 
 from zope.interface import implements
 from twisted.python import failure
 from twisted.internet import defer, reactor, endpoints
 from twisted.protocols import amp
 
-import errors, util, iteration
 from interfaces import IWorker
+import errors, util, iteration
 from pserver import RunTask, GetMore, QuitRunning
 
 
@@ -179,28 +180,33 @@ class ProcessWorker(object):
     
     """
     implements(IWorker)
-    cQualified = ['process', 'amp']
     pList = []
+    cQualified = ['process', 'amp']
 
     class ProcessProtocol(object):
         def __init__(self, disconnectCallback):
-            self.d = d
+            self.d = defer.Deferred()
             self.disconnectCallback = disconnectCallback
         def waitUntilReady(self):
             return self.d
         def makeConnection(self, process):
             pass
         def childDataReceived(self, childFD, data):
-            if childFD == 1 and data.strip() == 'OK':
-                self.d.callback(None)
+            data = data.strip()
+            if childFD == 1:
+                if data == 'OK':
+                    self.d.callback(None)
+            elif childFD == 2:
+                self.disconnectCallback("ERROR: {}".format(data))
         def childConnectionLost(self, childFD):
-            self.disconnectCallback()
+            self.disconnectCallback("CONNECTION LOST!")
         def processExited(self, reason):
-            self.disconnectCallback()
+            self.disconnectCallback(reason)
         def processEnded(self, reason):
-            self.disconnectCallback()
+            self.disconnectCallback(reason)
     
     def __init__(self, reconnect=False, series=[], profiler=None):
+        self.tasks = []
         self.iQualified = series
         self.profiler = profiler
         self.dLock = util.DeferredLock()
@@ -209,39 +215,43 @@ class ProcessWorker(object):
         # The process number
         self.pNumber = len(self.pList)
         # The process name, which is used for the UNIX socket address
-        self.pName = "worker-{:d}".format(self.pNumber)
+        self.pName = ".asynqueue-worker-{:03d}".format(self.pNumber)
         # The UNIX socket address
-        self.address = os.path.join(
-            os.tempnam(), "{}.sock".format(self.pName))
+        self.address = os.path.expanduser(
+            os.path.join("~", "{}.sock".format(self.pName)))
         # Start the server and make the connection, releasing the lock
         # when ready to accept tasks
         self._spawnAndConnect().addCallback(self._releaseLock)
 
     def _spawnAndConnect(self):
         def ready(null):
+            print "PROCESS STARTED"
             # Now connect to the pserver via the UNIX socket
             dest = endpoints.UNIXClientEndpoint(reactor, self.address)
             return endpoints.connectProtocol(
                 dest, amp.AMP()).addCallback(connected)
 
-        def connected(aP):
-            self.aP = aP
-            self.tasks = []
-            self.pList.append(self.aP)
+        def connected(ap):
+            print "CONNECTED"
+            self.ap = ap
+            self.pList.append(self.ap)
 
         # Spawn the pserver and "wait" for it to indicate it's OK
         args = [sys.executable, "-m", "asynqueue.pserver", self.address]
-        pP = self.ProcessProtocol(d, self._disconnected)
-        reactor.spawnProcess(pP, sys.executable, args)
-        return pP.waitUntilReady().addCallback(ready)
+        pp = self.ProcessProtocol(self._disconnected)
+        self.pt = reactor.spawnProcess(pp, sys.executable, args)
+        return pp.waitUntilReady().addCallback(ready)
 
     def _releaseLock(self, *args):
         self.dLock.release()
         
     def _ditchClass(self):
-        self.pList.remove(self.aP)
+        if self.ap in self.pList:
+            self.pList.remove(self.ap)
 
-    def _disconnected(self):
+    def _disconnected(self, text):
+        if text:
+            print "Process disconnected!\n{}\n{}".format("-"*40, text)
         if getattr(self, '_ignoreDisconnection', False):
             return
         self._ditchClass()
@@ -254,7 +264,7 @@ class ProcessWorker(object):
         moreLeft = True
         pickleString = ""
         while moreLeft:
-            stuff = yield self.aP.callRemote(GetMore, ID=ID)
+            stuff = yield self.ap.callRemote(GetMore, ID=ID)
             chunk, isValid, moreLeft = stuff
             if not isValid:
                 raise ValueError(
@@ -263,8 +273,17 @@ class ProcessWorker(object):
         defer.returnValue(p2o(pickleString))
 
     def _stopper(self):
+        def killIfNecessary(null):
+            if hasattr(self, 'pt'):
+                import os, signal
+                try:
+                    os.kill(self.pt.pid, signal.SIGQUIT)
+                except:
+                    pass
+        
         self._ditchClass()
-        return self.aP.callRemote(QuitRunning)
+        if hasattr(self, 'ap'):
+            return self.ap.callRemote(QuitRunning).addCallback(killIfNecessary)
 
     # Implementation methods
     # -------------------------------------------------------------------------
@@ -283,7 +302,7 @@ class ProcessWorker(object):
             self.tasks.remove(task)
         
         self.tasks.append(task)
-        doNext = task.kw.pop('doNext', False)
+        doNext = task.callTuple[2].pop('doNext', False)
         if doNext:
             yield self.dLock.acquireNext()
         else:
@@ -294,12 +313,12 @@ class ProcessWorker(object):
         # return its own Stats object when we call QuitRunning
         #-----------------------------------------------------------
         # Everything is sent to the pserver as pickled keywords
-        kw = {'f': o2p(task.f),
-              'args': o2p(task.args),
-              'kw': o2p(task.kw)
-          }
+        kw = {}
+        for k, value in enumerate(task.callTuple):
+            name = RunTask.arguments[k][0]
+            kw[name] = o2p(value)
         # The heart of the matter
-        response = yield self.aP.callRemote(RunTask, **kw)
+        response = yield self.ap.callRemote(RunTask, **kw)
         #-----------------------------------------------------------
         # At this point, we can permit another remote call to get
         # going for a separate task.
@@ -312,7 +331,7 @@ class ProcessWorker(object):
             ID = response['result']
             deferator = iteration.Deferator(
                 "Remote iterator ID={}".format(ID),
-                self.aP.callRemote, GetMore, ID=ID)
+                self.ap.callRemote, GetMore, ID=ID)
             result(deferator)
         elif status == 'c':
             # Chunked result, which will take a while
@@ -333,6 +352,6 @@ class ProcessWorker(object):
         return self.dLock.stop()
 
     def crash(self):
-        if self.aP in self.pList:
+        if self.ap in self.pList:
             self._stopper()
         return self.tasks
