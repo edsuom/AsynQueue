@@ -250,6 +250,29 @@ class TestSocketWorker(TestCase):
     def tearDown(self):
         yield self.queue.shutdown()
 
+    def test_processFunc(self):
+        def bogus():
+            pass
+        
+        # Bogus
+        np, fn = self.worker._processFunc(bogus)
+        self.assertEqual(np, None)
+        self.assertEqual(fn, None)
+        # Module-level function
+        np, fn = self.worker._processFunc(blockingTask)
+        self.assertEqual(np, __name__)
+        self.assertEqual(fn, 'blockingTask')
+        # Method
+        import pserver
+        stuff = pserver.TestStuff()
+        np, fn = self.worker._processFunc(stuff.accumulate)
+        self.assertIsInstance(util.p2o(np), pserver.TestStuff)
+        self.assertEqual(fn, 'accumulate')
+        # Method by fqn
+        np, fn = self.worker._processFunc("pserver.TestStuff.accumulate")
+        self.assertEqual(np, "pserver.TestStuff")
+        self.assertEqual(fn, 'accumulate')
+        
     @defer.inlineCallbacks
     def test_basic(self):
         result = yield self.queue.call(

@@ -23,7 +23,7 @@ Implementors of the worker interface.
 import sys, os, os.path, tempfile, shutil
 
 from zope.interface import implements
-from twisted.python import failure
+from twisted.python import failure, reflect
 from twisted.internet import defer, reactor, endpoints
 from twisted.protocols import amp
 
@@ -373,6 +373,24 @@ class SocketWorker(object):
             yield util.killProcess(self.pid)
 
     def _processFunc(self, func):
+        """
+        Returns a 2-tuple with (1) a pickled object of which func is a
+        method, or a string of a global-module importable object
+        containing that method, or C{None}, and (2) a string of a
+        callable attribute of the object, or a pickled callable
+        itself, or C{None} if nothing works.
+        """
+        def splitAttr(x):
+            parts = x.split(".")
+            return ".".join(parts[:-1]), parts[-1]
+        
+        if isinstance(func, (str, unicode)):
+            np, fn = splitAttr(func)
+            try:
+                reflect.namedObject(np)
+            except:
+                return None, None
+            return np, fn
         # Try to define a namespace for the function and then we can
         # call it by name
         parentObj = getattr(func, 'im_self', None)
@@ -381,16 +399,18 @@ class SocketWorker(object):
             # send
             try:
                 np = util.o2p(parentObj)
+                util.p2o(np)
             except:
-                # Couldn't pickle it
+                # Couldn't pickle and unpickle it
                 pass
             else:
                 # We will call with the method's attribute name
                 return np, func.__func__.__name__
-        # Couldn't pickle a parent object, try getting a
+        # Couldn't pickle/unpickle a parent object, try getting a
         # fully-qualified name instead
         try:
             fqn = reflect.fullyQualifiedName(func)
+            reflect.namedObject(fqn)
         except:
             # This didn't work either. Just try pickling the
             # callable and hope for the best
@@ -401,8 +421,7 @@ class SocketWorker(object):
             else:
                 return None, fn
         else:
-            fqn = fqn.split(".")
-            return ".".join(fqn[:-1]), fqn[-1]
+            return splitAttr(fqn)
             
     # Implementation methods
     # -------------------------------------------------------------------------

@@ -52,7 +52,6 @@ class TestStuff(object):
         import time
         time.sleep(delay)
         return 2*x
-divide = TestStuff.divide
 
 
 class SetNamespace(amp.Command):
