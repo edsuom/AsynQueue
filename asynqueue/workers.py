@@ -206,7 +206,6 @@ class ProcessWorker(object):
         Sends the task callable and args, kw to the process (must all be
         picklable) and polls the interprocess connection for a result
         """
-        self.tasks.append(task)
         if task is None:
             # A termination task, do after pending tasks are done
             yield self.dLock.acquire()
@@ -215,6 +214,7 @@ class ProcessWorker(object):
             # to exit
             self.process.join()
         else:
+            self.tasks.append(task)
             if task.priority > -20:
                 # Wait in line behind all pending tasks
                 yield self.dLock.acquire()
