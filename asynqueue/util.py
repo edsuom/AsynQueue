@@ -21,15 +21,14 @@
 Miscellaneous useful stuff.
 """
 
-import sys, traceback
+import os, signal, sys, traceback
 import cPickle as pickle
 import cProfile as profile
 
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 
-import errors
-from iteration import Deferator, Prefetcherator, IterationProducer
+import errors, iteration
 
 
 def o2p(obj):
@@ -53,6 +52,30 @@ def p2o(pickledString, defaultObj=None):
     if not pickledString:
         return defaultObj
     return pickle.loads(pickledString)
+
+@defer.inlineCallbacks
+def killProcess(pid):
+    """
+    Kills the process with the supplied PID, returning a deferred that
+    fires when it's no longer running. The return value is C{True} if
+    the process was alive and had to be killed, C{False} if it was
+    already dead.
+    """
+    def callIfVirgin():
+        if not d.called:
+            d.callback(None)
+    
+    pidString = str(pid)
+    pp = ProcessProtocol()
+    args = ("/bin/ps", '-p', pidString, '--no-headers')
+    pt = reactor.spawnProcess(pp, args[0], args)
+    stdout = yield pp.waitUntilReady()
+    pt.loseConnection()
+    if pidString in stdout:
+        os.kill(pid, signal.SIGTERM)
+        result = True
+    result = False
+    defer.returnValue(result)
 
 
 class CallProfiler(profile.Profile):
@@ -337,27 +360,67 @@ class DeferredLock(defer.DeferredLock):
         return super(DeferredLock, self).acquire().addCallback(runStoppers)
     
 
-class ThreadLooper(object):
+class CallRunner(object):
     """
-    I run function calls in a dedicated thread, returning a deferred
-    to each eventual result.
-
-    If the result is an iterable other than one of Python's built-in
-    ones, the deferred fires with an instance of L{Deferator}
-    instead. Each of its iterations corresponds to an iteration that
-    runs in my thread on the underlying iterable.
-
-    My statusResult attribute is a 2-tuple containing the status of
-    the last call and its result:
+    Call me with a callTuple to get a 2-tuple containing the status of
+    the call and its result:
 
     'e': An exception was raised; the result is a pretty-printed
-      traceback string.
+         traceback string.
 
     'r': Ran fine, the result is the return value of the call.
 
     'i': Ran fine, but the result is an iterable other than a standard
-      Python one. The result is an instance of L{Deferator}.
+         Python one. The result is an instance of
+         L{iteration.Deferator}.
 
+    If the result is an iterable other than one of Python's built-in
+    ones, the deferred fires with an instance of
+    L{iteration.Deferator} instead. Each of its iterations corresponds
+    to an iteration that runs on the underlying iterable, inside a
+    callWrapper if you supply one to my constructor.
+    """
+    def __init__(self, callWrapper=None):
+        self.info = Info()
+        self.callWrapper = callWrapper
+
+    def __call__(self, callTuple):
+        f, args, kw = callTuple
+        try:
+            result = f(*args, **kw)
+            # If the task causes the thread to hang, the method
+            # call will not reach this point.
+        except Exception as e:
+            return ('e', self.info.setCall(f, args, kw).aboutException())
+        if iteration.Deferator.isIterator(result):
+            # An iterator
+            pf = iteration.Prefetcherator()
+            if pf.setup(result):
+                # OK, we can iterate this
+                if self.callWrapper:
+                    # With the getNext call wrapped in another function
+                    return ('i', iteration.Deferator(
+                        repr(result), self.callWrapper, pf.getNext))
+                # With the naked getNext call
+                return ('i', iteration.Deferator(
+                    repr(result), pf.getNext))
+            # An iterator, but not a proper one
+            return ('e', "Failed to iterate for call {}".format(
+                self.info.setCall(f, args, kw).aboutCall()))
+        # Not an iterator; we already have our result
+        return ('r', result)
+
+        
+class ThreadLooper(object):
+    """
+    I run function calls in a dedicated thread, returning a deferred
+    to each eventual result, a 2-tuple containing the status of the
+    last call and its result according to the format of L{CallRunner}.
+
+    If the result is an iterable other than one of Python's built-in
+    ones, the deferred fires with an instance of
+    L{iteration.Deferator} instead. Each of its iterations corresponds
+    to an iteration that runs in my thread on the underlying iterable.
     """
     # My default wait timeout is one minute: This is just how long the
     # thread loop waits before checking for a pending deferred and
@@ -370,13 +433,16 @@ class ThreadLooper(object):
         # Just a simple attribute to indicate if the thread loop is
         # running, mostly for unit testing
         self.threadRunning = True
+        # Tools
+        self.runner = CallRunner(self._getNextWrapper)
         self.dLock = DeferredLock()
         self.event = threading.Event()
         self.thread = threading.Thread(target=self.loop)
         self.thread.start()
-        # An Info object is nice to have around
-        self.info = Info()
 
+    def _getNextWrapper(self, f):
+        return self.deferToThread(f, doNext=True)
+        
     def loop(self):
         """
         Runs a loop in a dedicated thread that waits for new tasks. The loop
@@ -402,31 +468,8 @@ class ThreadLooper(object):
             if self.callTuple is None:
                 # Shutdown was requested
                 break
-            f, args, kw = self.callTuple
-            try:
-                result = f(*args, **kw)
-                # If the task causes the thread to hang, the method
-                # call will not reach this point.
-            except Exception as e:
-                status = 'e'
-                result = self.info.setCall(f, args, kw).aboutException()
-            else:
-                if Deferator.isIterator(result):
-                    # An iterator
-                    pf = Prefetcherator()
-                    if pf.setup(result):
-                        # OK, we can iterate this
-                        status = 'i'
-                        result = Deferator(
-                            repr(result),
-                            self.deferToThread, pf.getNext, doNext=True)
-                    else:
-                        status = 'e'
-                        result = "Failed to iterate for call {}".format(
-                            self.info.setCall(f, args, kw).aboutCall())
-                else:
-                    # Not an iterator; we already have our result
-                    status = 'r'
+            status, result = self.runner(self.callTuple)
+            
             # We are about to call back the shared deferred, so clear
             # the event to force me to wait for the next call at the
             # top of the loop. The main thread will not set the event
@@ -476,12 +519,12 @@ class ThreadLooper(object):
         Twisted's deferToThread.
 
         If you expect a deferred iterator as your result (an instance
-        of L{Deferator}), supply an IConsumer implementor via the
-        consumer keyword. Each iteration will be written to it, and
-        the deferred will fire when the iterations are
+        of L{iteration.Deferator}), supply an IConsumer implementor
+        via the consumer keyword. Each iteration will be written to
+        it, and the deferred will fire when the iterations are
         done. Otherwise, the deferred will fire with an
-        L{iteration.IterationProducer} and you will have to register
-        with and run it yourself.
+        L{iteration.iteration.IterationProducer} and you will have to
+        register with and run it yourself.
         
         """
         def done(statusResult):
@@ -489,7 +532,7 @@ class ThreadLooper(object):
             if status == 'e':
                 return Failure(errors.WorkerError(result))
             if status == 'i':
-                ip = IterationProducer(result)
+                ip = iteration.IterationProducer(result)
                 if consumer:
                     ip.registerConsumer(consumer)
                     return ip.run()
@@ -510,4 +553,65 @@ class ThreadLooper(object):
         # Now stop the lock
         self.dLock.addStopper(self.thread.join)
         return self.dLock.stop()
+
+
+class ProcessUniverse(object):
+    """
+    Each process for a L{workers.ProcessWorker} lives in one of these.
+    """
+    def __init__(self):
+        self.runner = CallRunner()
+    
+    def loop(self, connection):
+        """
+        Runs a loop in a dedicated process that waits for new tasks. The
+        loop exits when a C{None} object is supplied as a task.
+        """
+        while True:
+            # Wait here for the next task
+            callSpec = connection.recv()
+            if callSpec is None:
+                # Termination task, no reply expected; just exit the
+                # loop
+                break
+            connection.send(self.runner(callSpec))
+        # Broken out of loop, ready for the process to end
+        connection.close()
+
+        
+class ProcessProtocol(object):
+    """
+    I am a simple protocol for a master Python interpreter to spawn
+    and communicate with a subordinate Python. This protocol is used
+    by the master (client).
+    """
+    def __init__(self, disconnectCallback=None):
+        self.d = defer.Deferred()
+        self.disconnectCallback = disconnectCallback
+
+    def callback(self, text):
+        if callable(self.disconnectCallback):
+            self.disconnectCallback(text)
+        
+    def waitUntilReady(self):
+        return self.d
+
+    def makeConnection(self, process):
+        pass
+
+    def childDataReceived(self, childFD, data):
+        data = data.strip()
+        if childFD == 1:
+            self.d.callback(data)
+        elif childFD == 2:
+            self.callback("ERROR: {}".format(data))
+
+    def childConnectionLost(self, childFD):
+        self.callback("CONNECTION LOST!")
+
+    def processExited(self, reason):
+        self.callback(reason)
+
+    def processEnded(self, reason):
+        self.callback(reason)
 

@@ -27,7 +27,7 @@ import zope.interface
 from twisted.internet import defer, reactor
 
 from testbase import deferToDelay, TestCase, ProcessProtocol, \
-    errors, base, workers, tasks
+    errors, util, base, workers, tasks
 
 
 class TestThreadWorker(TestCase):
@@ -165,53 +165,47 @@ class TestAsyncWorker(TestCase):
         return self.dm.addCallback(lambda _: worker.stop())
 
 
+def blockingTask(x, delay=None):
+    if delay is None:
+        delay = random.uniform(0.1, 0.5)
+    time.sleep(delay)
+    return 2*x
+        
+
 class TestProcessWorker(TestCase):
     verbose = True
     
     def setUp(self):
-        from pserver import TestStuff
-        self.stuff = TestStuff()
         self.worker = workers.ProcessWorker()
         self.queue = base.TaskQueue()
         self.queue.attachWorker(self.worker)
-        self.pid = str(self.worker.pt.pid)
 
     def tearDown(self):
         return self.queue.shutdown()
 
-    @defer.inlineCallbacks
-    def checkStopped(self, *args):
-        yield deferToDelay(0.5)
-        print "PID", self.pid
-        pp = ProcessProtocol(self.verbose)
-        args = ("/bin/ps", '-p', self.pid, '--no-headers')
-        pt = reactor.spawnProcess(pp, args[0], args)
-        stdout = yield pp.waitUntilReady()
-        self.assertEqual(stdout, "")
-        yield pt.loseConnection()
+    def checkStopped(self, null):
+        self.failIf(self.worker.process.is_alive())
+            
+    def test_shutdown(self):
+        d = self.queue.call(blockingTask, 0, delay=0.5)
+        d.addCallback(lambda _: self.queue.shutdown())
+        d.addCallback(self.checkStopped)
+        return d
 
-    @defer.inlineCallbacks
-    def test_basic(self):
-        result = yield self.queue.call(
-            "asynqueue.pserver.divide", 5.0, 2.0)
-        self.assertEqual(result, 2.5)
-        yield self.queue.shutdown()
-        yield self.checkStopped()
-    
     def test_shutdownWithoutRunning(self):
         d = self.queue.shutdown()
         d.addCallback(self.checkStopped)
         return d
 
     def test_stop(self):
-        d = self.queue.call(self._blockingTask, 0, thread=True)
+        d = self.queue.call(blockingTask, 0)
         d.addCallback(lambda _: self.worker.stop())
         d.addCallback(self.checkStopped)
         return d
 
     def test_oneTask(self):
-        d = self.queue.call(self._blockingTask, 15, thread=True)
-        d.addCallback(self.assertEqual, 30)
+        d = self.queue.call(blockingTask, 15)
+        d.addCallback(self.failUnlessEqual, 30)
         return d
 
     def test_multipleWorkers(self):
@@ -219,13 +213,12 @@ class TestProcessWorker(TestCase):
         mutable = []
 
         def gotResult(result):
-            if VERBOSE:
-                print "Task result: %s" % result
+            self.msg("Task result: {}", result)
             mutable.append(result)
 
         def checkResults(null):
-            self.assertEqual(len(mutable), N)
-            self.assertEqual(
+            self.failUnlessEqual(len(mutable), N)
+            self.failUnlessEqual(
                 sum(mutable),
                 sum([2*x for x in xrange(N)]))
 
@@ -235,9 +228,36 @@ class TestProcessWorker(TestCase):
             self.queue.attachWorker(worker)
         dList = []
         for x in xrange(N):
-            d = self.queue.call(self._blockingTask, x, thread=True)
+            d = self.queue.call(blockingTask, x)
             d.addCallback(gotResult)
             dList.append(d)
         d = defer.DeferredList(dList)
         d.addCallback(checkResults)
         return d
+
+        
+class TestSocketWorker(TestCase):
+    verbose = True
+    
+    def setUp(self):
+        from pserver import TestStuff
+        self.stuff = TestStuff()
+        self.worker = workers.SocketWorker()
+        self.queue = base.TaskQueue()
+        self.queue.attachWorker(self.worker)
+
+    @defer.inlineCallbacks
+    def tearDown(self):
+        yield self.queue.shutdown()
+
+    @defer.inlineCallbacks
+    def test_basic(self):
+        result = yield self.queue.call(
+            "asynqueue.pserver.divide", 5.0, 2.0)
+        self.assertEqual(result, 2.5)
+
+    @defer.inlineCallbacks
+    def test_namespace(self):
+        result = yield self.queue.call(
+            self.stuff.blockingTask, 1, 0.5, thread=True)
+        self.assertEqual(result, 2)

@@ -161,6 +161,7 @@ class AsyncWorker(object):
         loop will block along with any task you give this worker.
         """
 
+        
 class ProcessWorker(object):
     """
     I implement an L{IWorker} that runs tasks in a dedicated worker
@@ -177,29 +178,82 @@ class ProcessWorker(object):
     implements(IWorker)
     cQualified = ['process', 'local']
 
-    def __init__(self, *specialties, **kw):
+    def __init__(self, series=[], profiler=None):
+        self.tasks = []
+        self.iQualified = series
+        self.profiler = profiler
+        self.dLock = util.DeferredLock()
+        # Multiprocessing with (Gasp! Twisted heresy!) standard lib Python
         import multiprocessing as mp
-        self.iQualified = list(specialties)
         self.cMain, cProcess = mp.Pipe()
-        pu = ProcessUniverse()
+        pu = util.ProcessUniverse()
         self.process = mp.Process(target=pu.loop, args=(cProcess,))
         self.process.start()
-        # Set named callables
-        for name, f in kw.iteritems():
-            self.send(('set', (name, f), {}))
-            result = self.cMain.recv()
-            if isinstance(result, failure.Failure):
-                result.raiseException()
-            elif result != "OK":
-                raise Exception(
-                    "Error setting named callable '{}'".format(name))
-            
-    def send(self, stuff):
-        self.cMain.send(stuff)
 
-    # TODO: ...
+    def _killProcess(self):
+        self.cMain.close()
+        self.process.terminate()
         
+    # Implementation methods
+    # -------------------------------------------------------------------------
+        
+    def setResignator(self, callableObject):
+        self.dLock.addStopper(callableObject)
 
+    @defer.inlineCallbacks
+    def run(self, task):
+        """
+        Sends the task callable and args, kw to the process (must all be
+        picklable) and polls the interprocess connection for a result
+        """
+        self.tasks.append(task)
+        if task is None:
+            # A termination task, do after pending tasks are done
+            yield self.dLock.acquire()
+            self.cMain.send(None)
+            # Wait (a very short amount of time) for the process loop
+            # to exit
+            self.process.join()
+        else:
+            if task.priority > -20:
+                # Wait in line behind all pending tasks
+                yield self.dLock.acquire()
+            else:
+                # This is high priority; cut in line just behind the
+                # current pending task
+                yield self.dLock.acquireNext()
+            # Our turn!
+            self.cMain.send(task.callTuple)
+            # "wait" here (in Twisted-friendly fashion) for a response
+            # from the process
+            while True:
+                if self.cMain.poll():
+                    # Got a result!
+                    if task in self.tasks:
+                        self.tasks.remove(task)
+                    task.callback(self.cMain.recv())
+                    break
+                else:
+                    # Not year, check again after the poll interval
+                    yield iteration.deferToDelay(self.pollInterval)
+        # Ready for another task or shutdown
+        self.dLock.release()
+    
+    def stop(self):
+        """
+        The returned deferred fires when the task loop has ended and its
+        process terminated.
+        """
+        def terminationTaskDone(null):
+            self._killProcess()
+            return self.dLock.stop()            
+        return self.run(None).addCallback(terminationTaskDone)
+
+    def crash(self):
+        self._killProcess()
+        return self.tasks
+
+                    
 class SocketWorker(object):
     """
     I implement an L{IWorker} that runs tasks in a subordinate or
@@ -221,17 +275,16 @@ class SocketWorker(object):
     tempDir = []
     cQualified = ['process', 'network']
     
-    def __init__(self, sFile=None, reconnect=False, series=[], profiler=None):
+    def __init__(self, series=[], sFile=None, reconnect=False, profiler=None):
         self.tasks = []
-        self.address = address
         self.iQualified = series
         self.profiler = profiler
+        # TODO: Implement reconnect option?
         self.reconnect = reconnect
+        # Acquire lock until subordinate spawning and AMP connection
         self.dLock = util.DeferredLock()
-        self.dLock.acquire()
-        self._spawnAndConnect(sFile).addCallback(
-            lambda _: self.dLock.release())
-
+        self._spawnAndConnect(sFile)
+        
     def _newSocketFile(self):
         """
         Assigns a unique name to a socket file in a temporary directory
@@ -259,32 +312,38 @@ class SocketWorker(object):
         """
         def ready(null):
             # Now connect to the pserver via the UNIX socket
-            dest = endpoints.UNIXClientEndpoint(reactor, self.address)
+            dest = endpoints.UNIXClientEndpoint(reactor, sFile)
             return endpoints.connectProtocol(
                 dest, amp.AMP()).addCallback(connected)
 
         def connected(ap):
             self.ap = ap
+            self.dLock.release()
             self.pList.append(self.ap)
 
         if sFile is None:
-            sFile = self.newSocketFile()
+            sFile = self._newSocketFile()
+        if hasattr(self, 'ap'):
+            # We already have a connection
+            return defer.succeed(None)
+        self.dLock.acquire()
         # Spawn the pserver and "wait" for it to indicate it's OK
-        args = [sys.executable, "-m", "asynqueue.pserver", self.address]
-        pp = pserver.ProcessProtocol(self._disconnected)
+        args = [sys.executable, "-m", "asynqueue.pserver", sFile]
+        pp = util.ProcessProtocol(self._disconnected)
         self.pt = reactor.spawnProcess(pp, sys.executable, args)
+        self.pid = self.pt.pid
         return pp.waitUntilReady().addCallback(ready)
         
     def _ditchClass(self):
-        if self.ap in self.pList:
-            self.pList.remove(self.ap)
+        if hasattr(self, 'ap'):
+            if self.ap in self.pList:
+                self.pList.remove(self.ap)
+            del self.ap
 
-    def _disconnected(self, text):
-        if text:
-            print "Process disconnected!\n{}\n{}".format("-"*40, text)
+    def _disconnected(self, reason):
+        self._ditchClass()
         if getattr(self, '_ignoreDisconnection', False):
             return
-        self._ditchClass()
         possibleResignator = getattr(self, 'resignator', None)
         if callable(possibleResignator):
             possibleResignator()
@@ -302,20 +361,49 @@ class SocketWorker(object):
             pickleString += chunk
         defer.returnValue(util.p2o(pickleString))
 
+    @defer.inlineCallbacks
     def _stopper(self):
-        def killIfNecessary(null):
-            if hasattr(self, 'pt'):
-                import os, signal
-                try:
-                    os.kill(self.pt.pid, signal.SIGQUIT)
-                except:
-                    pass
-        
         self._ditchClass()
         if hasattr(self, 'ap'):
-            return self.ap.callRemote(
-                pserver.QuitRunning).addCallback(killIfNecessary)
+            yield self.ap.callRemote(pserver.QuitRunning)
+            yield self.ap.transport.loseConnection()
+        if hasattr(self, 'pt'):
+            yield self.pt.loseConnection()
+        if hasattr(self, 'pid'):
+            yield util.killProcess(self.pid)
 
+    def _processFunc(self, func):
+        # Try to define a namespace for the function and then we can
+        # call it by name
+        parentObj = getattr(func, 'im_self', None)
+        if parentObj:
+            # It's a method of an object we may be able to pickle and
+            # send
+            try:
+                np = util.o2p(parentObj)
+            except:
+                # Couldn't pickle it
+                pass
+            else:
+                # We will call with the method's attribute name
+                return np, func.__func__.__name__
+        # Couldn't pickle a parent object, try getting a
+        # fully-qualified name instead
+        try:
+            fqn = reflect.fullyQualifiedName(func)
+        except:
+            # This didn't work either. Just try pickling the
+            # callable and hope for the best
+            try:
+                fn = util.o2p(func)
+            except:
+                return None, None
+            else:
+                return None, fn
+        else:
+            fqn = fqn.split(".")
+            return ".".join(fqn[:-1]), fqn[-1]
+            
     # Implementation methods
     # -------------------------------------------------------------------------
 
@@ -343,13 +431,24 @@ class SocketWorker(object):
         # self.profiler.runcall if profiler present. It will need to
         # return its own Stats object when we call pserver.QuitRunning
         #-----------------------------------------------------------
-        # Everything is sent to the pserver as pickled keywords
         kw = {}
-        for k, value in enumerate(task.callTuple):
-            name = pserver.RunTask.arguments[k][0]
-            kw[name] = value if isinstance(value, str) else util.o2p(value)
-        # The heart of the matter
-        response = yield self.ap.callRemote(pserver.RunTask, **kw)
+        func = task.callTuple[0]
+        np, fn = self._processFunc(func)
+        if np:
+            response = yield self.ap.callRemote(pserver.SetNamespace, np=np)
+            if response['status'] != "OK":
+                fn = None
+        if fn is None:
+            response['status'] = 'e'
+            response['result'] = "Couldn't find a way to send callable {}".format(
+                repr(func))
+        else:
+            kw['fn'] = fn
+            for k, value in enumerate(task.callTuple[1:]):
+                name = pserver.RunTask.arguments[k+1][0]
+                kw[name] = value if isinstance(value, str) else util.o2p(value)
+            # The heart of the matter
+            response = yield self.ap.callRemote(pserver.RunTask, **kw)
         #-----------------------------------------------------------
         # At this point, we can permit another remote call to get
         # going for a separate task.
@@ -383,6 +482,6 @@ class SocketWorker(object):
         return self.dLock.stop()
 
     def crash(self):
-        if self.ap in self.pList:
+        if hasattr(self, 'ap') and self.ap in self.pList:
             self._stopper()
         return self.tasks

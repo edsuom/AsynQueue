@@ -48,41 +48,11 @@ class TestStuff(object):
     def stufferator(self):
         for chunk in self.stuff:
             yield chunk
+    def blockingTask(self, x, delay):
+        import time
+        time.sleep(delay)
+        return 2*x
 divide = TestStuff.divide
-
-
-class ProcessProtocol(object):
-    """
-    I am a simple protocol for a master Python interpreter to spawn
-    and communicate with a subordinate Python that imports this
-    module. This protocol is used by the master (client).
-    """
-    def __init__(self, disconnectCallback):
-        self.d = defer.Deferred()
-        self.disconnectCallback = disconnectCallback
-
-    def waitUntilReady(self):
-        return self.d
-
-    def makeConnection(self, process):
-        pass
-
-    def childDataReceived(self, childFD, data):
-        data = data.strip()
-        if childFD == 1:
-            if data == 'OK':
-                self.d.callback(None)
-        elif childFD == 2:
-            self.disconnectCallback("ERROR: {}".format(data))
-
-        def childConnectionLost(self, childFD):
-        self.disconnectCallback("CONNECTION LOST!")
-
-    def processExited(self, reason):
-        self.disconnectCallback(reason)
-
-    def processEnded(self, reason):
-        self.disconnectCallback(reason)
 
 
 class SetNamespace(amp.Command):
@@ -336,7 +306,8 @@ class TaskUniverse(object):
 
 class TaskServer(amp.AMP):
     """
-    The AMP server protocol for running tasks, entirely unsafely.
+    The AMP server protocol for running tasks. The only security is
+    the client's restricted access to whatever creates the protocol.
     """
     multiverse = {}
     shutdownDelay = 0.1
@@ -433,8 +404,11 @@ class TaskServer(amp.AMP):
     QuitRunning.responder(quitRunning)
 
 
-
 class TaskFactory(Factory):
+    """
+    I am a factory for a L{TaskServer} protocol, sending a handshaking
+    code on stdout when a new AMP connection is made.
+    """
     protocol = TaskServer
                  
     def startFactory(self):
