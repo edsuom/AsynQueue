@@ -257,6 +257,18 @@ class TestProcessWorker(TestCase):
         d.addCallback(checkResults)
         return d
 
+    @defer.inlineCallbacks
+    def test_iterator(self):
+        N1, N2 = 50, 100
+        from util import TestStuff
+        stuff = TestStuff()
+        stuff.setStuff(N1, N2)
+        consumer = IterationConsumer(self.verbose)
+        yield self.queue.call(stuff.stufferator, consumer=consumer)
+        for chunk in consumer.data:
+            self.assertEqual(len(chunk), N1)
+        self.assertEqual(len(consumer.data), N2)
+
         
 class TestSocketWorker(TestCase):
     verbose = True

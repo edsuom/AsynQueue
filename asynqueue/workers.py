@@ -131,11 +131,15 @@ class AsyncWorker(object):
 
         def done(result):
             if iteration.Deferator.isIterator(result):
-                status = 'i'
-                if consumer:
-                    result = iteration.consumeIterations(result, consumer)
+                pf = iteration.Prefetcherator()
+                if pf.setup(result):
+                    # OK, we can iterate this
+                    status = 'i'
+                    result = iteration.Deferator(repr(result), pf.getNext)
                 else:
-                    result = iteration.iteratorToProducer(iterator)
+                    status = 'e'
+                    result = "Failed to iterate for call {}".format(
+                        self.info.setCall(f, args, kw).aboutCall())
             else:
                 status = 'r'
             # Hangs if release is done after the task callback
