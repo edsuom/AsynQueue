@@ -26,8 +26,7 @@ import multiprocessing as mp
 import zope.interface
 from twisted.internet import defer, reactor
 
-from testbase import deferToDelay, TestCase, ProcessProtocol, \
-    errors, util, base, workers, tasks
+from testbase import *
 
 
 class TestThreadWorker(TestCase):
@@ -124,6 +123,18 @@ class TestThreadWorker(TestCase):
         d.addCallback(checkResults)
         return d
 
+    @defer.inlineCallbacks
+    def test_iterator(self):
+        N1, N2 = 50, 100
+        from util import TestStuff
+        stuff = TestStuff()
+        stuff.setStuff(N1, N2)
+        consumer = IterationConsumer(self.verbose)
+        yield self.queue.call(stuff.stufferator, consumer=consumer)
+        for chunk in consumer.data:
+            self.assertEqual(len(chunk), N1)
+        self.assertEqual(len(consumer.data), N2)
+
 
 class TestAsyncWorker(TestCase):
     verbose = True
@@ -161,9 +172,20 @@ class TestAsyncWorker(TestCase):
             task = tasks.Task(self._twistyTask, (k,), {}, 0, None)
             self.d = task.d
             worker.run(task)
-        # NOTE: Hangs here
         return self.dm.addCallback(lambda _: worker.stop())
 
+    @defer.inlineCallbacks
+    def test_iterator(self):
+        N1, N2 = 50, 100
+        from util import TestStuff
+        stuff = TestStuff()
+        stuff.setStuff(N1, N2)
+        consumer = IterationConsumer(self.verbose)
+        yield self.queue.call(stuff.stufferator, consumer=consumer)
+        for chunk in consumer.data:
+            self.assertEqual(len(chunk), N1)
+        self.assertEqual(len(consumer.data), N2)
+        
 
 def blockingTask(x, delay=None):
     if delay is None:
@@ -240,7 +262,7 @@ class TestSocketWorker(TestCase):
     verbose = True
     
     def setUp(self):
-        from pserver import TestStuff
+        from util import TestStuff
         self.stuff = TestStuff()
         self.worker = workers.SocketWorker()
         self.queue = base.TaskQueue()
@@ -263,14 +285,13 @@ class TestSocketWorker(TestCase):
         self.assertEqual(np, __name__)
         self.assertEqual(fn, 'blockingTask')
         # Method
-        import pserver
-        stuff = pserver.TestStuff()
+        stuff = util.TestStuff()
         np, fn = self.worker._processFunc(stuff.accumulate)
-        self.assertIsInstance(util.p2o(np), pserver.TestStuff)
+        self.assertIsInstance(util.p2o(np), util.TestStuff)
         self.assertEqual(fn, 'accumulate')
         # Method by fqn
-        np, fn = self.worker._processFunc("pserver.TestStuff.accumulate")
-        self.assertEqual(np, "pserver.TestStuff")
+        np, fn = self.worker._processFunc("util.TestStuff.accumulate")
+        self.assertEqual(np, "util.TestStuff")
         self.assertEqual(fn, 'accumulate')
         
     @defer.inlineCallbacks

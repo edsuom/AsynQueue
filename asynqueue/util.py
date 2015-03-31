@@ -78,6 +78,30 @@ def killProcess(pid):
     defer.returnValue(result)
 
 
+def testFunction(x):
+    return 2*x
+
+class TestStuff(object):
+    @staticmethod
+    def divide(x, y):
+        return x/y
+    def accumulate(self, y):
+        if not hasattr(self, 'x'):
+            self.x = 0
+        self.x += y
+        return self.x
+    def setStuff(self, N1, N2):
+        self.stuff = ["x"*N1] * N2
+        return self
+    def stufferator(self):
+        for chunk in self.stuff:
+            yield chunk
+    def blockingTask(self, x, delay):
+        import time
+        time.sleep(delay)
+        return 2*x
+
+    
 class CallProfiler(profile.Profile):
     def __init__(self, filename):
         self.filename = filename
@@ -434,14 +458,11 @@ class ThreadLooper(object):
         # running, mostly for unit testing
         self.threadRunning = True
         # Tools
-        self.runner = CallRunner(self._getNextWrapper)
+        self.runner = CallRunner(self.deferToThread)
         self.dLock = DeferredLock()
         self.event = threading.Event()
         self.thread = threading.Thread(target=self.loop)
         self.thread.start()
-
-    def _getNextWrapper(self, f):
-        return self.deferToThread(f, doNext=True)
         
     def loop(self):
         """

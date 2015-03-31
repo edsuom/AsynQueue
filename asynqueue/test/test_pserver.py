@@ -27,7 +27,7 @@ from twisted.python.failure import Failure
 from twisted.protocols import amp
 
 from testbase import TestCase, deferToDelay, ProcessProtocol, \
-    errors, iteration, pserver
+    errors, util, iteration, pserver
 
 
 class TestChunkyString(TestCase):
@@ -195,9 +195,9 @@ class TestTaskServerBasics(TestCase):
         
     def test_parseArg(self):
         self.checkCallable(
-            self.ts._parseArg(pserver.o2p(pserver.TestStuff.divide)))
+            self.ts._parseArg(pserver.o2p(util.testFunction)))
         self.checkCallable(
-            self.ts._parseArg("asynqueue.pserver.divide"))
+            self.ts._parseArg("asynqueue.util.testFunction"))
 
             
 class TestTaskServerRemote(TestCase):
@@ -240,19 +240,19 @@ class TestTaskServerRemote(TestCase):
     @defer.inlineCallbacks
     def test_runTask_globalModule(self):
         ap = yield self._startServer()
-        pargs = pserver.o2p((3.0, 2.0))
+        pargs = pserver.o2p((1.0,))
         response = yield ap.callRemote(
             pserver.RunTask,
-            fn="asynqueue.pserver.divide", args=pargs, kw="")
+            fn="asynqueue.util.testFunction", args=pargs, kw="")
         self.assertIsInstance(response, dict)
         self.msg(response['result'])
         self.assertEqual(response['status'], 'r')
-        self.assertEqual(pserver.p2o(response['result']), 1.5)
-
+        self.assertEqual(pserver.p2o(response['result']), 2.0)
+    
     @defer.inlineCallbacks
     def test_runTask_namespace(self):
         ap = yield self._startServer()
-        from asynqueue.pserver import TestStuff
+        from asynqueue.util import TestStuff
         ts = TestStuff()
         response = yield ap.callRemote(
             pserver.SetNamespace, np=pserver.o2p(ts))
@@ -274,7 +274,7 @@ class TestTaskServerRemote(TestCase):
         chunks = []
         N1, N2 = 200, 1000
         ap = yield self._startServer()
-        from asynqueue.pserver import TestStuff
+        from asynqueue.util import TestStuff
         ts = TestStuff().setStuff(N1, N2)
         response = yield ap.callRemote(
             pserver.SetNamespace, np=pserver.o2p(ts))

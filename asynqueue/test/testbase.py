@@ -44,7 +44,28 @@ def deferToDelay(delay):
     return d
 
 
-class ProcessProtocol(object):
+class MsgBase(object):
+    """
+    A mixin for providing a convenient message method.
+    """
+    def msg(self, proto, *args):
+        if hasattr(self, 'verbose'):
+            verbose = self.verbose
+        elif 'VERBOSE' in globals():
+            verbose = VERBOSE
+        else:
+            verbose = False
+        if verbose:
+            if not hasattr(self, 'msgAlready'):
+                proto = "\n" + proto
+                self.msgAlready = True
+            if args and args[-1] == "-":
+                args = args[:-1]
+                proto += "\n{}".format("-"*40)
+            print proto.format(*args)
+
+
+class ProcessProtocol(MsgBase):
     def __init__(self, verbose=False):
         self.verbose = verbose
         self.d = defer.Deferred()
@@ -55,23 +76,41 @@ class ProcessProtocol(object):
     def childDataReceived(self, childFD, data):
         data = data.strip()
         if childFD == 2:
-            print "\nERROR on pserver:\n{}\n{}\n{}\n".format(
+            self.msg(
+                "ERROR on pserver:\n{}\n{}\n{}\n",
                 "-"*40, data, "-"*40)
-        elif self.verbose:
-            print "Data on FD {:d}: '{}'".format(childFD, data)
+        else:
+            self.msg("Data on FD {:d}: '{}'", childFD, data)
         if childFD == 1 and not self.d.called:
             self.d.callback(data)
     def childConnectionLost(self, childFD):
-        if self.verbose:
-            print "Connection Lost"
+        self.msg("Connection Lost")
     def processExited(self, reason):
-        if self.verbose:
-            print "Process Exited"
+        self.msg("Process Exited")
     def processEnded(self, reason):
-        if self.verbose:
-            print "Process Ended"
+        self.msg("Process Ended")
 
-    
+
+class IterationConsumer(MsgBase):
+    implements(interfaces.IConsumer)
+
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+
+    def registerProducer(self, producer, streaming):
+        self.data = []
+        self.msg(
+            "Registered with producer {}. Streaming: {}",
+            repr(producer), repr(streaming))
+
+    def unregisterProducer(self):
+        self.msg("Producer unregistered")
+
+    def write(self, data):
+        self.data.append(data)
+        self.msg("Data received, len: {:d}", len(data))
+
+
 class MockTask(object):
     def __init__(self, f, args, kw, priority, series, timeout=None):
         self.ran = False
@@ -145,7 +184,7 @@ class MockWorker(object):
             return [self.task]
 
 
-class TestCase(unittest.TestCase):
+class TestCase(MsgBase, unittest.TestCase):
     """
     Slightly improved TestCase
     """
@@ -153,22 +192,6 @@ class TestCase(unittest.TestCase):
         if hasattr(self, 'msgAlready'):
             del self.msgAlready
         return super(TestCase, self).doCleanups()
-
-    def msg(self, proto, *args):
-        if hasattr(self, 'verbose'):
-            verbose = self.verbose
-        elif 'VERBOSE' in globals():
-            verbose = VERBOSE
-        else:
-            verbose = False
-        if verbose:
-            if not hasattr(self, 'msgAlready'):
-                proto = "\n" + proto
-                self.msgAlready = True
-            if args and args[-1] == "-":
-                args = args[:-1]
-                proto += "\n{}".format("-"*40)
-            print proto.format(*args)
 
     def multiplerator(self, N, expected):
         def check(null):

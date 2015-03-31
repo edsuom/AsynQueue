@@ -63,7 +63,9 @@ class ThreadWorker(object):
         any task with the highest priority, -20 or lower (for a
         L{base.TaskQueue.call} with its own *doNext* keyword set). If
         you call this method one task at a time like you're supposed
-        to, even that won't make a difference. But, why not.
+        to, even that won't make a difference, except that it will cut
+        in front of any existing call with *doNext* set. So use
+        judiciously.
         """
         def done(result):
             if task in self.tasks:
@@ -123,7 +125,6 @@ class AsyncWorker(object):
 
     def run(self, task):
         def ready(null):
-            kw.pop('doNext', None)
             # THOU SHALT NOT BLOCK!
             return defer.maybeDeferred(
                 f, *args, **kw).addCallbacks(done, oops)
@@ -150,7 +151,11 @@ class AsyncWorker(object):
             args = [f] + list(args)
             f = self.profiler.runcall
         consumer = kw.pop('consumer', None)
-        return self.dLock.acquire().addCallback(ready)
+        if kw.pop('doNext', False) or task.priority <= -20:
+            d = self.dLock.acquireNext()
+        else:
+            d = self.dLock.acquire()
+        return d.addCallback(ready)
     
     def stop(self):
         return self.dLock.stop()
@@ -174,6 +179,7 @@ class ProcessWorker(object):
     L{util.ThreadLoop}. Block away!
     """
     pollInterval = 0.01
+    backOff = 1.04
     
     implements(IWorker)
     cQualified = ['process', 'local']
@@ -204,7 +210,8 @@ class ProcessWorker(object):
     def run(self, task):
         """
         Sends the task callable and args, kw to the process (must all be
-        picklable) and polls the interprocess connection for a result
+        picklable) and polls the interprocess connection for a result,
+        with exponential backoff.
         """
         if task is None:
             # A termination task, do after pending tasks are done
@@ -226,6 +233,7 @@ class ProcessWorker(object):
             self.cMain.send(task.callTuple)
             # "wait" here (in Twisted-friendly fashion) for a response
             # from the process
+            delay = self.pollInterval
             while True:
                 if self.cMain.poll():
                     # Got a result!
@@ -234,8 +242,12 @@ class ProcessWorker(object):
                     task.callback(self.cMain.recv())
                     break
                 else:
-                    # Not year, check again after the poll interval
-                    yield iteration.deferToDelay(self.pollInterval)
+                    # Not yet, check again after the poll interval,
+                    # which increases exponentially so that each
+                    # incremental delay is somewhat proportional to
+                    # the amount of time spent waiting thus far.
+                    yield iteration.deferToDelay(delay)
+                    delay *= self.backOff
         # Ready for another task or shutdown
         self.dLock.release()
     
@@ -454,13 +466,16 @@ class SocketWorker(object):
         func = task.callTuple[0]
         np, fn = self._processFunc(func)
         if np:
-            response = yield self.ap.callRemote(pserver.SetNamespace, np=np)
-            if response['status'] != "OK":
-                fn = None
+            if getattr(self, 'lastNamespace', None) != np:
+                response = yield self.ap.callRemote(pserver.SetNamespace, np=np)
+                print "NP-RESPONSE", np, response
+                if response['status'] != "OK":
+                    fn = None
+                    self.lastNamespace = np
         if fn is None:
             response['status'] = 'e'
-            response['result'] = "Couldn't find a way to send callable {}".format(
-                repr(func))
+            response['result'] = \
+                "Couldn't find a way to send callable {}".format(repr(func))
         else:
             kw['fn'] = fn
             for k, value in enumerate(task.callTuple[1:]):

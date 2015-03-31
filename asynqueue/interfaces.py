@@ -22,6 +22,7 @@ The worker interface.
 """
 
 from zope.interface import invariant, Interface, Attribute
+from twisted.internet.interfaces import IConsumer
 
 import errors
 

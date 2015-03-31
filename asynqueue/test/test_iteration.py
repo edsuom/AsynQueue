@@ -26,7 +26,7 @@ from copy import copy
 
 from twisted.internet import defer
 
-from testbase import TestCase, iteration, errors
+from testbase import TestCase, iteration, errors, IterationConsumer
 
 
 generator = (2*x for x in range(10))
