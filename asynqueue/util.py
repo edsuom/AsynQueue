@@ -114,10 +114,10 @@ class CallProfiler(profile.Profile):
 
 class Info(object):
     """
-    I provide text info about a call. Construct me with a function
-    object and any args and keywords if you want the info to include
-    that particular function call, or you can set it (and change it)
-    later with L{setCall}.
+    I provide text (picklable) info about a call. Construct me with a
+    function object and any args and keywords if you want the info to
+    include that particular function call, or you can set it (and
+    change it) later with L{setCall}.
     """
     def __init__(self, remember=False):
         if remember:
@@ -128,8 +128,9 @@ class Info(object):
         Sets my current f-args-kw tuple, returning a reference to myself
         to allow easy method chaining.
 
-        The function 'f' can be an actual callable object or a string
-        depicting one.
+        The function 'f' must be an actual callable object if you want
+        to use L{getWireVersion}. Otherwise it can also be a string
+        depicting a callable.
 
         You can specify args with a second argument (as a list or
         tuple), and kw with a third argument (as a dict).
@@ -170,6 +171,14 @@ class Info(object):
             del self.pastInfo['ID']
 
     def getInfo(self, ID, name):
+        """
+        If the supplied name is 'callTuple', returns the f-args-kw tuple
+        for my current callable. The value of ID is ignored in such
+        case.
+
+        Otherwise, returns the named information attribute for the
+        previous call identified with the supplied ID.
+        """
         def getCallTuple():
             return getattr(self, 'callTuple', None)
         
@@ -187,6 +196,91 @@ class Info(object):
         if hasattr(self, 'pastInfo'):
             self.pastInfo.setdefault(ID, {})[name] = text
         return text
+
+    def getWireVersion(self, ID=None):
+        """
+        For my current callable or a previous one identified by ID,
+        returns a 2-tuple suitable for sending to a process worker via
+        pickle.
+
+        The first element: a pickled object of which func is a method,
+        or a string of a global-module importable object containing
+        that method, or C{None} if the function is standalone.
+
+        The second element: a string of a callable attribute of the
+        object, or a pickled callable itself, or C{None} if nothing
+        works.
+        """
+        def isStr(func):
+            return isinstance(func, (str, unicode))
+        
+        def splitAttr(x):
+            parts = x.split(".")
+            if len(parts) > 1:
+                return ".".join(parts[:-1]), parts[-1]
+            return None, x
+
+        def tryReflect():
+            np, fn = splitAttr(func)
+            try:
+                reflect.namedObject(np)
+            except:
+                return None, None
+            return np, fn
+
+        def tryAsMethod():
+            """
+            See if the function is a method of an object we can pickle,
+            returning the pickled object and method name if so.
+            """
+            parentObj = getattr(func, 'im_self', None)
+            if not parentObj:
+                return
+            # It's a method of an object we may be able to pickle
+            # and send
+            try:
+                np = util.o2p(parentObj)
+                util.p2o(np)
+            except:
+                # Couldn't pickle and unpickle it
+                return
+            else:
+                # We will call with the method's attribute name
+                return np, func.__func__.__name__
+
+        def tryFQN():
+            """
+            See if the function can be defined as a fully qualified name (FQN)
+            that can be imported via L{reflect.namedObject}, returning
+            the FQN name of its parent object if it's a method along
+            with the method name as a string, or C{None} for the
+            parent and the FQN of the function itself, if that works
+            instead.
+            """
+            try:
+                fqn = reflect.fullyQualifiedName(func)
+                reflect.namedObject(fqn)
+            except:
+                # TODO
+                pass
+            return splitAttr(fqn)
+
+        if ID:
+            pastInfo = self.getInfo(ID, 'wireVersion')
+            if pastInfo:
+                return pastInfo
+        callTuple = self.getInfo(ID, 'wireVersion')
+        if not callTuple:
+            return None, None
+        func = callTuple[0]
+        if isStr(func):
+            result = tryReflect()
+        else:
+            # Couldn't pickle/unpickle a parent object, try getting a
+            # fully-qualified name instead
+            result = tryAsMethod()
+            if result is None:
+                result = tryFQN()
         
     def _divider(self, lineList):
         lineList.append(
