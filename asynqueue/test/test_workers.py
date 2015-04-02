@@ -283,28 +283,6 @@ class TestSocketWorker(TestCase):
     @defer.inlineCallbacks
     def tearDown(self):
         yield self.queue.shutdown()
-
-    def test_processFunc(self):
-        def bogus():
-            pass
-        
-        # Bogus
-        np, fn = self.worker._processFunc(bogus)
-        self.assertEqual(np, None)
-        self.assertEqual(fn, None)
-        # Module-level function
-        np, fn = self.worker._processFunc(blockingTask)
-        self.assertEqual(np, __name__)
-        self.assertEqual(fn, 'blockingTask')
-        # Method
-        stuff = util.TestStuff()
-        np, fn = self.worker._processFunc(stuff.accumulate)
-        self.assertIsInstance(util.p2o(np), util.TestStuff)
-        self.assertEqual(fn, 'accumulate')
-        # Method by fqn
-        np, fn = self.worker._processFunc("util.TestStuff.accumulate")
-        self.assertEqual(np, "util.TestStuff")
-        self.assertEqual(fn, 'accumulate')
         
     @defer.inlineCallbacks
     def test_basic(self):

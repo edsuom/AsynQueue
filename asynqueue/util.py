@@ -21,11 +21,12 @@
 Miscellaneous useful stuff.
 """
 
-import os, signal, sys, traceback
+import os, signal, sys, traceback, inspect
 import cPickle as pickle
 import cProfile as profile
 
 from twisted.internet import defer, reactor
+from twisted.python import reflect
 from twisted.python.failure import Failure
 
 import errors, iteration
@@ -167,6 +168,10 @@ class Info(object):
         return ID
 
     def forgetID(self, ID):
+        """
+        Use this whenever info won't be needed anymore for the specified
+        call ID, to avoid memory leaks.
+        """
         if ID in getattr(self, 'pastInfo', {}):
             del self.pastInfo['ID']
 
@@ -190,98 +195,111 @@ class Info(object):
             return getCallTuple()
         return None
     
-    def saveInfo(self, name, text, ID=None):
+    def saveInfo(self, name, x, ID=None):
         if ID is None:
             ID = self.getID()
         if hasattr(self, 'pastInfo'):
-            self.pastInfo.setdefault(ID, {})[name] = text
-        return text
+            self.pastInfo.setdefault(ID, {})[name] = x
+        return x
 
-    def getWireVersion(self, ID=None):
+    def nn(self, ID=None, raw=False):
         """
         For my current callable or a previous one identified by ID,
-        returns a 2-tuple suitable for sending to a process worker via
-        pickle.
+        returns a 3-tuple namespace-ID-name combination suitable for
+        sending to a process worker via pickle.
 
-        The first element: a pickled object of which func is a method,
-        or a string of a global-module importable object containing
-        that method, or C{None} if the function is standalone.
+        The first element: If the callable is a method, a pickled or
+        fully qualified name (FQN) version of its parent object. This
+        is C{None} if the callable is a standalone function.
 
-        The second element: a string of a callable attribute of the
-        object, or a pickled callable itself, or C{None} if nothing
-        works.
+        The second element: If the callable is a method, the
+        callable's name as an attribute of the parent object. If it's
+        a standalone function, the pickled or FQN version. If nothing
+        works, this element will be C{None} along with the first one.
+
+        If the raw keyword is set True, the raw parent (or function)
+        object will be returned instead of a pickle or FQN, but all
+        the type checking and round-trip testing still will be done.
         """
-        def isStr(func):
-            return isinstance(func, (str, unicode))
-        
-        def splitAttr(x):
-            parts = x.split(".")
-            if len(parts) > 1:
-                return ".".join(parts[:-1]), parts[-1]
-            return None, x
-
-        def tryReflect():
-            np, fn = splitAttr(func)
+        def strToFQN(x):
+            """
+            Returns the fully qualified name of the supplied string if it can
+            be imported and then reflected back into the FQN, or
+            C{None} if not.
+            """
             try:
-                reflect.namedObject(np)
+                obj = reflect.namedObject(x)
+                fqn = reflect.fullyQualifiedName(obj)
             except:
-                return None, None
-            return np, fn
-
-        def tryAsMethod():
-            """
-            See if the function is a method of an object we can pickle,
-            returning the pickled object and method name if so.
-            """
-            parentObj = getattr(func, 'im_self', None)
-            if not parentObj:
                 return
-            # It's a method of an object we may be able to pickle
-            # and send
+            return fqn
+            
+        def objToPickle(x):
+            """
+            Returns a string of the pickled object or C{None} if it couldn't
+            be pickled and unpickled back again.
+            """
             try:
-                np = util.o2p(parentObj)
-                util.p2o(np)
+                xp = o2p(x)
+                p2o(xp)
             except:
-                # Couldn't pickle and unpickle it
                 return
-            else:
-                # We will call with the method's attribute name
-                return np, func.__func__.__name__
+            return xp
 
-        def tryFQN():
+        def objToFQN(x):
             """
-            See if the function can be defined as a fully qualified name (FQN)
-            that can be imported via L{reflect.namedObject}, returning
-            the FQN name of its parent object if it's a method along
-            with the method name as a string, or C{None} for the
-            parent and the FQN of the function itself, if that works
-            instead.
+            Returns the fully qualified name of the supplied object if it can
+            be reflected into an FQN and back again, or C{None} if
+            not.
             """
             try:
-                fqn = reflect.fullyQualifiedName(func)
+                fqn = reflect.fullyQualifiedName(x)
                 reflect.namedObject(fqn)
             except:
-                # TODO
-                pass
-            return splitAttr(fqn)
+                return
+            return fqn
+
+        def processObject(x):
+            pickled = objToPickle(x)
+            if pickled:
+                return pickled
+            return objToFQN(x)
 
         if ID:
             pastInfo = self.getInfo(ID, 'wireVersion')
             if pastInfo:
                 return pastInfo
-        callTuple = self.getInfo(ID, 'wireVersion')
+        result = None, None
+        callTuple = self.getInfo(ID, 'callTuple')
         if not callTuple:
-            return None, None
+            # No callable set
+            return result
         func = callTuple[0]
-        if isStr(func):
-            result = tryReflect()
-        else:
-            # Couldn't pickle/unpickle a parent object, try getting a
-            # fully-qualified name instead
-            result = tryAsMethod()
-            if result is None:
-                result = tryFQN()
-        
+        if isinstance(func, (str, unicode)):
+            # A callable defined as a string can only be a function
+            # name, return its FQN or None if that doesn't work
+            result = None, strToFQN(func)
+        elif inspect.ismethod(func):
+            # It's a method, so get its parent
+            parent = getattr(func, 'im_self', None)
+            if parent:
+                processed = processObject(parent)
+                if processed:
+                    # Pickle or FQN of parent, method name
+                    if raw:
+                        processed = parent
+                    result = processed, func.__name__
+        if result == (None, None):
+            # Couldn't get or process a parent, try processing the
+            # callable itself
+            processed = processObject(func)
+            if processed:
+                # None, pickle or FQN of callable
+                if raw:
+                    processed = func
+                result = None, processed
+        return self.saveInfo('wireVersion', result, ID)        
+    
     def _divider(self, lineList):
         lineList.append(
             "-" * (max([len(x) for x in lineList]) + 1))
@@ -490,17 +508,18 @@ class CallRunner(object):
 
     'i': Ran fine, but the result is an iterable other than a standard
          Python one. The result is an instance of
-         L{iteration.Deferator}.
+         L{iteration.Prefetcherator}.
 
     If the result is an iterable other than one of Python's built-in
     ones, the deferred fires with an instance of
-    L{iteration.Deferator} instead. Each of its iterations corresponds
-    to an iteration that runs on the underlying iterable, inside a
-    callWrapper if you supply one to my constructor.
+    L{iteration.Prefetcherator} instead. Hook an instance of
+    L{iteration.Deferator} to this, via a pipe or wire if necessary.
+
+    Each of the deferator's iterations will then correspond to an
+    iteration that runs on the underlying iterable.
     """
-    def __init__(self, callWrapper=None):
+    def __init__(self):
         self.info = Info()
-        self.callWrapper = callWrapper
 
     def __call__(self, callTuple):
         f, args, kw = callTuple
@@ -512,16 +531,11 @@ class CallRunner(object):
             return ('e', self.info.setCall(f, args, kw).aboutException())
         if iteration.Deferator.isIterator(result):
             # An iterator
-            pf = iteration.Prefetcherator()
+            ID = str(hash(result))
+            pf = iteration.Prefetcherator(ID)
             if pf.setup(result):
                 # OK, we can iterate this
-                if self.callWrapper:
-                    # With the getNext call wrapped in another function
-                    return ('i', iteration.Deferator(
-                        repr(result), self.callWrapper, pf.getNext))
-                # With the naked getNext call
-                return ('i', iteration.Deferator(
-                    repr(result), pf.getNext))
+                return ('i', pf)
             # An iterator, but not a proper one
             return ('e', "Failed to iterate for call {}".format(
                 self.info.setCall(f, args, kw).aboutCall()))
@@ -537,8 +551,9 @@ class ThreadLooper(object):
 
     If the result is an iterable other than one of Python's built-in
     ones, the deferred fires with an instance of
-    L{iteration.Deferator} instead. Each of its iterations corresponds
-    to an iteration that runs in my thread on the underlying iterable.
+    L{iteration.Prefetcherator} instead. Couple it to your own
+    defetcherator to iterate over the underlying iterable running in
+    my thread.
     """
     # My default wait timeout is one minute: This is just how long the
     # thread loop waits before checking for a pending deferred and
@@ -552,7 +567,7 @@ class ThreadLooper(object):
         # running, mostly for unit testing
         self.threadRunning = True
         # Tools
-        self.runner = CallRunner(self.deferToThread)
+        self.runner = CallRunner()
         self.dLock = DeferredLock()
         self.event = threading.Event()
         self.thread = threading.Thread(target=self.loop)
@@ -627,7 +642,25 @@ class ThreadLooper(object):
         else:
             d = self.dLock.acquire()
         return d.addCallback(threadReady)
-    
+
+    def pf2ip(self, pf, consumer=None):
+        """
+        Converts a prefetcherator into an iterationProducer, with a
+        consumer registered if you supply one. Then each iteration
+        will be written to your consumer, and the deferred returned
+        will fire when the iterations are done. Otherwise, the
+        deferred will fire with an
+        L{iteration.iteration.IterationProducer} and you will have to
+        register with and run it yourself.
+        """
+        dr = iteration.Deferator(
+            repr(pf), self.deferToThread, pf.getNext)
+        ip = iteration.IterationProducer(dr)
+        if consumer:
+            ip.registerConsumer(consumer)
+            return ip.run()
+        return ip
+        
     def deferToThread(self, f, *args, **kw):
         """
         My single-threaded, queued, doNext-able, Deferator-able answer to
@@ -647,11 +680,7 @@ class ThreadLooper(object):
             if status == 'e':
                 return Failure(errors.WorkerError(result))
             if status == 'i':
-                ip = iteration.IterationProducer(result)
-                if consumer:
-                    ip.registerConsumer(consumer)
-                    return ip.run()
-                return ip
+                return self.pf2ip(result)
             return result
         
         consumer = kw.pop('consumer', None)
@@ -668,30 +697,6 @@ class ThreadLooper(object):
         # Now stop the lock
         self.dLock.addStopper(self.thread.join)
         return self.dLock.stop()
-
-
-class ProcessUniverse(object):
-    """
-    Each process for a L{workers.ProcessWorker} lives in one of these.
-    """
-    def __init__(self):
-        self.runner = CallRunner()
-    
-    def loop(self, connection):
-        """
-        Runs a loop in a dedicated process that waits for new tasks. The
-        loop exits when a C{None} object is supplied as a task.
-        """
-        while True:
-            # Wait here for the next task
-            callSpec = connection.recv()
-            if callSpec is None:
-                # Termination task, no reply expected; just exit the
-                # loop
-                break
-            connection.send(self.runner(callSpec))
-        # Broken out of loop, ready for the process to end
-        connection.close()
 
         
 class ProcessProtocol(object):

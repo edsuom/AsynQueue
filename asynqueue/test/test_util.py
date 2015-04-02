@@ -95,6 +95,29 @@ class TestInfo(TestCase):
     def _divide(self, x, y):
         return x/y
 
+    def test_nn(self):
+        def bogus():
+            pass
+        
+        # Bogus
+        ns, fn = self.info.setCall(bogus).nn()
+        self.assertEqual(ns, None)
+        self.assertEqual(fn, None)
+        # Module-level function
+        from test_workers import blockingTask
+        ns, fn = self.info.setCall(blockingTask).nn()
+        self.assertEqual(ns, None)
+        self.assertEqual(util.p2o(fn), blockingTask)
+        # Method, pickled
+        stuff = util.TestStuff()
+        ns, fn = self.info.setCall(stuff.accumulate).nn()
+        self.assertIsInstance(util.p2o(ns), util.TestStuff)
+        self.assertEqual(fn, 'accumulate')
+        # Method by fqn string
+        ns, fn = self.info.setCall("util.testFunction").nn()
+        self.assertEqual(ns, None)
+        self.assertEqual(fn, "util.testFunction")
+        
     def test_aboutCall(self):
         IDs = []
         pastInfo = []

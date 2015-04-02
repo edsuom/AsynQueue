@@ -378,13 +378,10 @@ class TaskQueue(object):
         'r': Ran fine, the result is the return value of the call.
 
         'i': Ran fine, but the result is an iterable other than a
-             standard Python one. The result is an instance of
-             L{util.Deferator}, which I make into an
-             L{iteration.IterationProducer}. If a *consumer* is
-             specified, I will register it with the producer and
-             return a deferred that fires when the iteration is
-             done. Otherwise I will return the producer for you to
-             deal with.
+             standard Python one. The result is an ID string uniquely
+             identifying an iterator that remains on the worker until
+             it does a full iteration. See bottom of this docstring
+             about iteration magic.
 
         'c': Ran fine (on an AMP server), but the result was too big
              for a single return value. So the result is a deferred
@@ -393,7 +390,14 @@ class TaskQueue(object):
              magically pieced together and unpickled.
         
         't': The task timed out. I'll try to re-run it, once.
-        
+
+        When the status is 'i', I will construct an instance of
+        L{util.Deferator} that calls me to get iterations from the
+        worker and an L{iteration.IterationProducer} based on it. If a
+        *consumer* is specified, I will register it with the producer
+        and return a deferred that fires when the iteration is
+        done. Otherwise I will return the producer for you to deal
+        with.
         """
         status, result = statusResult
         if status == 'e':

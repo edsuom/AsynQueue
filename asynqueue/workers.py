@@ -31,6 +31,10 @@ from interfaces import IWorker
 import errors, util, iteration, pserver
 
 
+# Make all our workers importable from this module
+from process import ProcessWorker
+
+
 class ThreadWorker(object):
     """
     I implement an L{IWorker} that runs tasks in a dedicated worker
@@ -67,10 +71,14 @@ class ThreadWorker(object):
         in front of any existing call with *doNext* set. So use
         judiciously.
         """
-        def done(result):
+        def done(statusResult):
             if task in self.tasks:
                 self.tasks.remove(task)
-            task.d.callback(result)
+            if statusResult[0] == 'i':
+                # What we get is a prefetcherator, but we need to give
+                # the task an iterationProducer.
+                statusResult = ('i', self.t.pf2ip(statusResult[1]))
+            task.d.callback(statusResult)
         
         self.tasks.append(task)
         f, args, kw = task.callTuple
@@ -78,7 +86,7 @@ class ThreadWorker(object):
             kw['doNext'] = True
         # TODO: Have thread run with self.profiler.runcall if profiler present
         return self.t.call(f, *args, **kw).addCallback(done)
-    
+
     def stop(self):
         """
         The returned deferred fires when the task loop has ended and its thread
@@ -135,6 +143,8 @@ class AsyncWorker(object):
                 if pf.setup(result):
                     # OK, we can iterate this
                     status = 'i'
+                    # It's all in the same thread, so we can go
+                    # straight from iterator to deferator
                     result = iteration.Deferator(repr(result), pf.getNext)
                 else:
                     status = 'e'
@@ -154,13 +164,12 @@ class AsyncWorker(object):
         if self.profiler:
             args = [f] + list(args)
             f = self.profiler.runcall
-        consumer = kw.pop('consumer', None)
         if kw.pop('doNext', False) or task.priority <= -20:
             d = self.dLock.acquireNext()
         else:
             d = self.dLock.acquire()
         return d.addCallback(ready)
-    
+
     def stop(self):
         return self.dLock.stop()
 
@@ -169,105 +178,6 @@ class AsyncWorker(object):
         There's no point to implementing this because the Twisted main
         loop will block along with any task you give this worker.
         """
-
-        
-class ProcessWorker(object):
-    """
-    I implement an L{IWorker} that runs tasks in a dedicated worker
-    process.
-
-    You can also supply a series keyword containing a list of one or
-    more task series that I am qualified to handle.
-
-    All my tasks are run in a single instance of
-    L{util.ThreadLoop}. Block away!
-    """
-    pollInterval = 0.01
-    backOff = 1.04
-    
-    implements(IWorker)
-    cQualified = ['process', 'local']
-
-    def __init__(self, series=[], profiler=None):
-        self.tasks = []
-        self.iQualified = series
-        self.profiler = profiler
-        self.dLock = util.DeferredLock()
-        # Multiprocessing with (Gasp! Twisted heresy!) standard lib Python
-        import multiprocessing as mp
-        self.cMain, cProcess = mp.Pipe()
-        pu = util.ProcessUniverse()
-        self.process = mp.Process(target=pu.loop, args=(cProcess,))
-        self.process.start()
-
-    def _killProcess(self):
-        self.cMain.close()
-        self.process.terminate()
-        
-    # Implementation methods
-    # -------------------------------------------------------------------------
-        
-    def setResignator(self, callableObject):
-        self.dLock.addStopper(callableObject)
-
-    @defer.inlineCallbacks
-    def run(self, task):
-        """
-        Sends the task callable and args, kw to the process (must all be
-        picklable) and polls the interprocess connection for a result,
-        with exponential backoff.
-        """
-        if task is None:
-            # A termination task, do after pending tasks are done
-            yield self.dLock.acquire()
-            self.cMain.send(None)
-            # Wait (a very short amount of time) for the process loop
-            # to exit
-            self.process.join()
-        else:
-            self.tasks.append(task)
-            if task.priority > -20:
-                # Wait in line behind all pending tasks
-                yield self.dLock.acquire()
-            else:
-                # This is high priority; cut in line just behind the
-                # current pending task
-                yield self.dLock.acquireNext()
-            # Our turn!
-            self.cMain.send(task.callTuple)
-            # "wait" here (in Twisted-friendly fashion) for a response
-            # from the process
-            delay = self.pollInterval
-            while True:
-                if self.cMain.poll():
-                    # Got a result!
-                    if task in self.tasks:
-                        self.tasks.remove(task)
-                    task.callback(self.cMain.recv())
-                    break
-                else:
-                    # Not yet, check again after the poll interval,
-                    # which increases exponentially so that each
-                    # incremental delay is somewhat proportional to
-                    # the amount of time spent waiting thus far.
-                    yield iteration.deferToDelay(delay)
-                    delay *= self.backOff
-        # Ready for another task or shutdown
-        self.dLock.release()
-    
-    def stop(self):
-        """
-        The returned deferred fires when the task loop has ended and its
-        process terminated.
-        """
-        def terminationTaskDone(null):
-            self._killProcess()
-            return self.dLock.stop()            
-        return self.run(None).addCallback(terminationTaskDone)
-
-    def crash(self):
-        self._killProcess()
-        return self.tasks
 
                     
 class SocketWorker(object):

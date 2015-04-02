@@ -84,6 +84,12 @@ class IWorker(Interface):
 
         """
 
+    def getNext(ID):
+        """
+        Gets the next item of an iterator uniquely identified by an 'i'
+        status.
+        """
+        
     def stop():
         """
         Attempts to gracefully shut down the worker, returning a deferred that

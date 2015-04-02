@@ -20,6 +20,7 @@
 """
 Task management for the task queue workers
 """
+from contextlib import contextmanager
 
 from twisted.internet import defer, reactor
 # Use C Deferreds if possible, for efficiency
@@ -31,7 +32,7 @@ else:
     defer.Deferred = cdefer.Deferred
 
 from workers import IWorker
-from util import CallProfiler
+from util import Info, CallProfiler
 from errors import ImplementationError
 
 
@@ -52,6 +53,8 @@ class Task(object):
       is a part.
 
     """
+    info = Info()
+    
     def __init__(self, f, args, kw, priority, series, timeout=None):
         if not isinstance(args, (tuple, list)):
             raise TypeError("Second argument 'args' isn't a sequence")
@@ -97,6 +100,30 @@ class Task(object):
 
     def relax(self):
         self.priority = 1000000
+
+    @contextmanager
+    def sanitizeCall(self, raw=False):
+        """
+        Use as a context manager to set the namespace for a call before it
+        is converted internally to a string.
+
+        The context object is a 2-tuple containing the namespace
+        object's pickle or FQN (or the object itself, if raw is set
+        True) and an ID string you should use for registering the
+        namespace. The call string will have the ID prepended with a
+        period.
+
+        If no namespace is found (i.e., the call is a function, not a
+        method), no context operation will occur, and the prickle/FQN
+        of the callable (or the callable itself, if raw is set) will
+        be used instead of a call string.
+        """
+        ns, fn = self.info.setCall(self.callTuple[0]).nn(raw=raw)
+        if ns is not None:
+            ID = str(hash(ns))
+            fn = "{}.{}".format(ID, fn)
+            yield ns, ID
+        self.callTuple = (fn, self.callTuple[1], self.callTuple[2])
         
     def __repr__(self):
         """
