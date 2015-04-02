@@ -277,7 +277,7 @@ class IterationProducer(object):
                 "Object {} isn't a consumer".format(repr(consumer)))
         try:
             consumer.registerProducer(self, True)
-        except:
+        except RuntimeError:
             # Ignore any exception raised from a consumer already
             # having registered me.
             pass
@@ -336,8 +336,8 @@ def iteratorToProducer(iterator, consumer=None):
     """
     pf = Prefetcherator()
     rIterator = repr(iterator)
-    if not pf.setIterator(iterator):
-        raise ValueError(
+    if not pf.setup(iterator):
+        raise TypeError(
             "Object {} is not a suitable iterator".format(rIterator))
     dr = Deferator(rIterator, pf.getNext)
     return IterationProducer(dr, consumer)

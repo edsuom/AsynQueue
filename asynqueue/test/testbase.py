@@ -97,8 +97,13 @@ class IterationConsumer(MsgBase):
 
     def __init__(self, verbose=False):
         self.verbose = verbose
+        self.producer = None
 
     def registerProducer(self, producer, streaming):
+        if self.producer:
+            raise RuntimeError()
+        self.producer = producer
+        producer.registerConsumer(self)
         self.data = []
         self.msg(
             "Registered with producer {}. Streaming: {}",

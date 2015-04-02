@@ -26,6 +26,7 @@ import multiprocessing as mp
 import zope.interface
 from twisted.internet import defer, reactor
 
+from util import TestStuff
 from testbase import *
 
 
@@ -124,9 +125,21 @@ class TestThreadWorker(TestCase):
         return d
 
     @defer.inlineCallbacks
-    def test_iterator(self):
+    def test_iterationProducer(self):
         N1, N2 = 50, 100
-        from util import TestStuff
+        stuff = TestStuff()
+        stuff.setStuff(N1, N2)
+        consumer = IterationConsumer(self.verbose)
+        producer = yield self.queue.call(stuff.stufferator)
+        consumer.registerProducer(producer, True)
+        yield producer.run()
+        for chunk in consumer.data:
+            self.assertEqual(len(chunk), N1)
+        self.assertEqual(len(consumer.data), N2)
+
+    @defer.inlineCallbacks
+    def test_iterationProducer_supplyingConsumer(self):
+        N1, N2 = 50, 100
         stuff = TestStuff()
         stuff.setStuff(N1, N2)
         consumer = IterationConsumer(self.verbose)
@@ -175,9 +188,21 @@ class TestAsyncWorker(TestCase):
         return self.dm.addCallback(lambda _: worker.stop())
 
     @defer.inlineCallbacks
-    def test_iterator(self):
+    def test_iterationProducer(self):
         N1, N2 = 50, 100
-        from util import TestStuff
+        stuff = TestStuff()
+        stuff.setStuff(N1, N2)
+        consumer = IterationConsumer(self.verbose)
+        producer = yield self.queue.call(stuff.stufferator)
+        consumer.registerProducer(producer, True)
+        yield producer.run()
+        for chunk in consumer.data:
+            self.assertEqual(len(chunk), N1)
+        self.assertEqual(len(consumer.data), N2)
+
+    @defer.inlineCallbacks
+    def test_iterationProducer_supplyingConsumer(self):
+        N1, N2 = 50, 100
         stuff = TestStuff()
         stuff.setStuff(N1, N2)
         consumer = IterationConsumer(self.verbose)
@@ -185,7 +210,7 @@ class TestAsyncWorker(TestCase):
         for chunk in consumer.data:
             self.assertEqual(len(chunk), N1)
         self.assertEqual(len(consumer.data), N2)
-        
+
 
 def blockingTask(x, delay=None):
     if delay is None:
@@ -193,82 +218,6 @@ def blockingTask(x, delay=None):
     time.sleep(delay)
     return 2*x
         
-
-class TestProcessWorker(TestCase):
-    verbose = True
-    
-    def setUp(self):
-        self.worker = workers.ProcessWorker()
-        self.queue = base.TaskQueue()
-        self.queue.attachWorker(self.worker)
-
-    def tearDown(self):
-        return self.queue.shutdown()
-
-    def checkStopped(self, null):
-        self.failIf(self.worker.process.is_alive())
-            
-    def test_shutdown(self):
-        d = self.queue.call(blockingTask, 0, delay=0.5)
-        d.addCallback(lambda _: self.queue.shutdown())
-        d.addCallback(self.checkStopped)
-        return d
-
-    def test_shutdownWithoutRunning(self):
-        d = self.queue.shutdown()
-        d.addCallback(self.checkStopped)
-        return d
-
-    def test_stop(self):
-        d = self.queue.call(blockingTask, 0)
-        d.addCallback(lambda _: self.worker.stop())
-        d.addCallback(self.checkStopped)
-        return d
-
-    def test_oneTask(self):
-        d = self.queue.call(blockingTask, 15)
-        d.addCallback(self.failUnlessEqual, 30)
-        return d
-
-    def test_multipleWorkers(self):
-        N = 20
-        mutable = []
-
-        def gotResult(result):
-            self.msg("Task result: {}", result)
-            mutable.append(result)
-
-        def checkResults(null):
-            self.failUnlessEqual(len(mutable), N)
-            self.failUnlessEqual(
-                sum(mutable),
-                sum([2*x for x in xrange(N)]))
-
-        # Create and attach two more workers, for a total of three
-        for null in xrange(2):
-            worker = workers.ProcessWorker()
-            self.queue.attachWorker(worker)
-        dList = []
-        for x in xrange(N):
-            d = self.queue.call(blockingTask, x)
-            d.addCallback(gotResult)
-            dList.append(d)
-        d = defer.DeferredList(dList)
-        d.addCallback(checkResults)
-        return d
-
-    @defer.inlineCallbacks
-    def test_iterator(self):
-        N1, N2 = 50, 100
-        from util import TestStuff
-        stuff = TestStuff()
-        stuff.setStuff(N1, N2)
-        consumer = IterationConsumer(self.verbose)
-        yield self.queue.call(stuff.stufferator, consumer=consumer)
-        for chunk in consumer.data:
-            self.assertEqual(len(chunk), N1)
-        self.assertEqual(len(consumer.data), N2)
-
         
 class TestSocketWorker(TestCase):
     verbose = True

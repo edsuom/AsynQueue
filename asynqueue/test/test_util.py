@@ -26,7 +26,7 @@ from zope.interface import implements
 from twisted.internet import defer
 from twisted.internet.interfaces import IConsumer
 
-from testbase import TestCase, util, errors, deferToDelay
+from testbase import TestCase, errors, util, iteration, deferToDelay
 
 
 class Picklable(object):
@@ -291,7 +291,7 @@ class TestThreadLooper(TestCase):
             status, result = yield self.t.call(self.stuff.iterate, N, 0)
             self.assertEqual(status, 'i')
             resultList = []
-            for d in result:
+            for d in iteration.Deferator(result):
                 item = yield d
                 resultList.append(item)
             self.assertEqual(resultList, range(N))
@@ -302,7 +302,7 @@ class TestThreadLooper(TestCase):
         self.assertEqual(status, 'i')
         dRegular = self.t.call(self.stuff.divide, 3.0, 2.0)
         resultList = []
-        for d in result:
+        for d in iteration.Deferator(result):
             item = yield d
             resultList.append(item)
         self.assertEqual(resultList, range(10))
@@ -316,7 +316,7 @@ class TestThreadLooper(TestCase):
         self.assertEqual(status, 'i')
         dRegular = self.t.call(self.stuff.divide, 3.0, 2.0)
         resultList = []
-        for d in result:
+        for d in iteration.Deferator(result):
             item = yield d
             resultList.append(item)
         self.assertEqual(len(resultList), 5)

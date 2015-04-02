@@ -377,11 +377,13 @@ class TaskQueue(object):
 
         'r': Ran fine, the result is the return value of the call.
 
-        'i': Ran fine, but the result is an iterable other than a
-             standard Python one. The result is an ID string uniquely
-             identifying an iterator that remains on the worker until
-             it does a full iteration. See bottom of this docstring
-             about iteration magic.
+        'i': Ran fine, but the result was an iterable other than a
+             standard Python one. So my result is an iteration
+             producer that produces the worker's iterations in Twisted
+             fashion. If you specify a consumer, I will register it
+             with the producer and return a deferred that fires when
+             the iteration is done. Otherwise I will return the
+             producer for you to deal with.
 
         'c': Ran fine (on an AMP server), but the result was too big
              for a single return value. So the result is a deferred
@@ -391,13 +393,6 @@ class TaskQueue(object):
         
         't': The task timed out. I'll try to re-run it, once.
 
-        When the status is 'i', I will construct an instance of
-        L{util.Deferator} that calls me to get iterations from the
-        worker and an L{iteration.IterationProducer} based on it. If a
-        *consumer* is specified, I will register it with the producer
-        and return a deferred that fires when the iteration is
-        done. Otherwise I will return the producer for you to deal
-        with.
         """
         status, result = statusResult
         if status == 'e':
@@ -407,12 +402,11 @@ class TaskQueue(object):
             # A plain result, or a deferred to a chunked one.
             return result
         if status == 'i':
-            # Iterator
-            ip = iteration.IterationProducer(result)
+            # An IterationProducer
             if consumer:
-                ip.registerConsumer(consumer)
-                return ip.run()
-            return ip
+                result.registerConsumer(consumer)
+                return result.run()
+            return result
         if status == 't':
             # Timedout. Try again, once.
             if task in self.tasksBeingRetried:

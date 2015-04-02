@@ -127,7 +127,7 @@ class ProcessWorker(object):
 
     @defer.inlineCallbacks
     def _getNext(self, ID):
-        yield self.dLock.acquireNext()
+        yield self.dLock.acquire(vip=True)
         self.cMain.send(ID)
         response = yield self._getResponse()
         self.dLock.release()
@@ -156,13 +156,7 @@ class ProcessWorker(object):
         else:
             # A regular task
             self.tasks.append(task)
-            if task.priority > -20:
-                # Wait in line behind all pending tasks
-                yield self.dLock.acquire()
-            else:
-                # This is high priority; cut in line just behind the
-                # current pending task
-                yield self.dLock.acquireNext()
+            yield self.dLock.acquire(task.priority <= -20)
             # Our turn!
             #------------------------------------------------------------------
             # Sanitize the task's callable

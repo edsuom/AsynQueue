@@ -139,17 +139,13 @@ class AsyncWorker(object):
 
         def done(result):
             if iteration.Deferator.isIterator(result):
-                pf = iteration.Prefetcherator()
-                if pf.setup(result):
-                    # OK, we can iterate this
-                    status = 'i'
-                    # It's all in the same thread, so we can go
-                    # straight from iterator to deferator
-                    result = iteration.Deferator(repr(result), pf.getNext)
-                else:
+                try:
+                    result = iteration.iteratorToProducer(result)
+                except:
                     status = 'e'
-                    result = "Failed to iterate for call {}".format(
-                        self.info.setCall(f, args, kw).aboutCall())
+                    result = self.info.setCall(f, args, kw).aboutException()
+                else:
+                    status = 'i'
             else:
                 status = 'r'
             # Hangs if release is done after the task callback
@@ -164,11 +160,8 @@ class AsyncWorker(object):
         if self.profiler:
             args = [f] + list(args)
             f = self.profiler.runcall
-        if kw.pop('doNext', False) or task.priority <= -20:
-            d = self.dLock.acquireNext()
-        else:
-            d = self.dLock.acquire()
-        return d.addCallback(ready)
+        vip = (kw.pop('doNext', False) or task.priority <= -20)
+        return self.dLock.acquire(vip).addCallback(ready)
 
     def stop(self):
         return self.dLock.stop()
@@ -367,10 +360,7 @@ class SocketWorker(object):
 
         self.tasks.append(task)
         doNext = task.callTuple[2].pop('doNext', False)
-        if doNext:
-            yield self.dLock.acquireNext()
-        else:
-            yield self.dLock.acquire()
+        yield self.dLock.acquire(doNext)
         # Run the task on the subordinate Python interpreter
         # TODO: Have the subordinate run with its own version of
         # self.profiler.runcall if profiler present. It will need to

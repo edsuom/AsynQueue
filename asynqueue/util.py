@@ -445,31 +445,36 @@ class DeferredLock(defer.DeferredLock):
 
     """
     def __init__(self):
+        self.N_vips = 0
         self.stoppers = []
         self.running = True
         super(DeferredLock, self).__init__()
 
-    def acquireNext(self):
+    def acquire(self, vip=False):
         """
-        Like L{defer.DeferredLock.acquire} except cuts ahead of everyone
-        else in the waiting list and gets the next lock (unless
-        someone else cuts ahead again, with another call of this
-        method).
+        Like L{defer.DeferredLock.acquire} except with a vip option. That
+        lets you cut ahead of everyone in the regular waiting list and
+        gets the next lock, after anyone else in the VIP line who is
+        waiting from their own call of this method.
         """
+        def transparentCallback(result):
+            self.N_vips -= 1
+            return result
+        
         if not self.running:
             raise errors.QueueRunError
         d = defer.Deferred(canceller=self._cancelAcquire)
         if self.locked:
-            self.waiting.insert(0, d)
+            if vip:
+                d.addCallback(transparentCallback)
+                self.waiting.insert(self.N_vips, d)
+                self.N_vips += 1
+            else:
+                self.waiting.append(d)
         else:
             self.locked = True
             d.callback(self)
         return d
-
-    def acquire(self):
-        if not self.running:
-            raise errors.QueueRunError
-        return super(DeferredLock, self).acquire()
     
     def addStopper(self, f, *args, **kw):
         """
@@ -637,11 +642,8 @@ class ThreadLooper(object):
             self.dLock.release()
             return statusResult
 
-        if kw.pop('doNext', False):
-            d = self.dLock.acquireNext()
-        else:
-            d = self.dLock.acquire()
-        return d.addCallback(threadReady)
+        return self.dLock.acquire(
+            kw.pop('doNext', False)).addCallback(threadReady)
 
     def pf2ip(self, pf, consumer=None):
         """
