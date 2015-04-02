@@ -512,16 +512,8 @@ class CallRunner(object):
     'r': Ran fine, the result is the return value of the call.
 
     'i': Ran fine, but the result is an iterable other than a standard
-         Python one. The result is an instance of
-         L{iteration.Prefetcherator}.
+         Python one.
 
-    If the result is an iterable other than one of Python's built-in
-    ones, the deferred fires with an instance of
-    L{iteration.Prefetcherator} instead. Hook an instance of
-    L{iteration.Deferator} to this, via a pipe or wire if necessary.
-
-    Each of the deferator's iterations will then correspond to an
-    iteration that runs on the underlying iterable.
     """
     def __init__(self):
         self.info = Info()
@@ -535,16 +527,7 @@ class CallRunner(object):
         except Exception as e:
             return ('e', self.info.setCall(f, args, kw).aboutException())
         if iteration.Deferator.isIterator(result):
-            # An iterator
-            ID = str(hash(result))
-            pf = iteration.Prefetcherator(ID)
-            if pf.setup(result):
-                # OK, we can iterate this
-                return ('i', pf)
-            # An iterator, but not a proper one
-            return ('e', "Failed to iterate for call {}".format(
-                self.info.setCall(f, args, kw).aboutCall()))
-        # Not an iterator; we already have our result
+            return ('i', result)
         return ('r', result)
 
         
@@ -557,8 +540,8 @@ class ThreadLooper(object):
     If the result is an iterable other than one of Python's built-in
     ones, the deferred fires with an instance of
     L{iteration.Prefetcherator} instead. Couple it to your own
-    defetcherator to iterate over the underlying iterable running in
-    my thread.
+    deferator to iterate over the underlying iterable running in my
+    thread.
     """
     # My default wait timeout is one minute: This is just how long the
     # thread loop waits before checking for a pending deferred and
@@ -572,6 +555,7 @@ class ThreadLooper(object):
         # running, mostly for unit testing
         self.threadRunning = True
         # Tools
+        self.info = Info()
         self.runner = CallRunner()
         self.dLock = DeferredLock()
         self.event = threading.Event()
@@ -640,7 +624,19 @@ class ThreadLooper(object):
             # thread from setting that event before the thread loop is
             # read for that.
             self.dLock.release()
-            return statusResult
+            status, result = statusResult
+            if status == 'i':
+                # An iterator
+                ID = str(hash(result))
+                pf = iteration.Prefetcherator(ID)
+                if pf.setup(result):
+                    # OK, we can iterate this
+                    return ('i', pf)
+                # An iterator, but not a proper one
+                return ('e', "Failed to iterate for call {}".format(
+                    self.info.setCall(f, args, kw).aboutCall()))
+            # Not an iterator; we already have our result
+            return status, result
 
         return self.dLock.acquire(
             kw.pop('doNext', False)).addCallback(threadReady)

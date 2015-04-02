@@ -25,6 +25,7 @@ import multiprocessing as mp
 
 from zope.interface import implements
 from twisted.internet import defer
+from twisted.python.failure import Failure
 
 from interfaces import IWorker
 import errors, util, iteration
@@ -35,9 +36,19 @@ class ProcessUniverse(object):
     Each process for a L{ProcessWorker} lives in one of these.
     """
     def __init__(self):
-        self.pfs = {}
+        self.iterators = {}
         self.runner = util.CallRunner()
-        
+
+    def next(self, ID):
+        if ID in self.iterators:
+            try:
+                value = self.iterators[ID].next()
+            except StopIteration:
+                del self.iterators[ID]
+                return None, False
+            return value, True
+        return None, False
+    
     def loop(self, connection):
         """
         Runs a loop in a dedicated process that waits for new tasks. The
@@ -50,27 +61,18 @@ class ProcessUniverse(object):
                 # Termination call, no reply expected; just exit the
                 # loop
                 break
-            elif isinstance(callSpec, int):
-                # A getNext call, return the result of a getNext call
-                # of the specified prefetcherator
-                ID = callSpec
-                if ID in self.pfs:
-                    pf = self.pfs[ID]
-                    value, isValid, moreLeft = pf.getNext()
-                    if not moreLeft:
-                        del self.pfs[ID]
-                else:
-                    value, isValid, moreLeft = None, False, False
-                connection.send((value, isValid, moreLeft))
+            elif isinstance(callSpec, str):
+                # A next-iteration call
+                connection.send(self.next(callSpec))
             else:
                 # A task call
                 status, result = self.runner(callSpec)
                 if status == 'i':
                     # Due to the pipe between worker and process, we
-                    # hold onto the prefetcherator here and just
+                    # hold onto the iterator here and just
                     # return an ID to it
-                    ID = result.ID
-                    self.pfs[ID] = result
+                    ID = str(hash(result))
+                    self.iterators[ID] = result
                     result = ID
                 connection.send((status, result))
         # Broken out of loop, ready for the process to end
@@ -84,9 +86,6 @@ class ProcessWorker(object):
 
     You can also supply a series keyword containing a list of one or
     more task series that I am qualified to handle.
-
-    All my tasks are run in a single instance of
-    L{util.ThreadLoop}. Block away!
     """
     pollInterval = 0.01
     backOff = 1.04
@@ -99,6 +98,7 @@ class ProcessWorker(object):
         self.iQualified = series
         self.profiler = profiler
         # Tools
+        self.info = util.Info()
         self.namespaces = {}
         self.dLock = util.DeferredLock()
         # Multiprocessing with (Gasp! Twisted heresy!) standard lib Python
@@ -125,14 +125,21 @@ class ProcessWorker(object):
             yield iteration.deferToDelay(delay)
             delay *= self.backOff
 
-    @defer.inlineCallbacks
-    def _getNext(self, ID):
-        yield self.dLock.acquire(vip=True)
-        self.cMain.send(ID)
-        response = yield self._getResponse()
-        self.dLock.release()
-        defer.returnValue(response)
-            
+    def _next(self, ID):
+        """
+        Do a next call of the iterator held by my process, over the pipe
+        and in Twisted fashion.
+        """
+        def gotLock(null):
+            self.cMain.send(ID)
+            return self._getResponse().addCallback(gotResponse)
+        def gotResponse(result):
+            self.dLock.release()
+            if result[1]:
+                return result[0]
+            return Failure(StopIteration)
+        return self.dLock.acquire(vip=True).addCallback(gotLock)
+    
     # Implementation methods
     # -------------------------------------------------------------------------
         
@@ -153,6 +160,7 @@ class ProcessWorker(object):
             # Wait (a very short amount of time) for the process loop
             # to exit
             self.process.join()
+            self.dLock.release()
         else:
             # A regular task
             self.tasks.append(task)
@@ -166,19 +174,26 @@ class ProcessWorker(object):
             # "Wait" here (in Twisted-friendly fashion) for a response
             # from the process
             status, result = yield self._getResponse()
+            self.dLock.release()
             if status == 'i':
-                # What we get from the process is an ID to a
-                # prefetcherator it is holding onto, but we
-                # need to give the task an iterationProducer
-                # that hooks up to the prefetcherator.
+                # What we get from the process is an ID to an iterator
+                # it is holding onto, but we need to give the task an
+                # iterationProducer that hooks up to it.
                 ID = result
-                dr = iteration.Deferator(ID, self._getNext, ID)
-                result = iteration.IterationProducer(dr)
+                pf = iteration.Prefetcherator(ID)
+                ok = yield pf.setup(self._next, ID)
+                if ok:
+                    dr = iteration.Deferator(pf)
+                    result = iteration.IterationProducer(dr)
+                else:
+                    status = 'e'
+                    # The process may have an iterator, but it's not a
+                    # proper one
+                    result = "Failed to iterate for call {}".format(
+                        self.info.setCall(*task.callTuple).aboutCall())
             if task in self.tasks:
                 self.tasks.remove(task)
             task.callback((status, result))
-        # Now ready for another task or shutdown
-        self.dLock.release()
     
     def stop(self):
         """
