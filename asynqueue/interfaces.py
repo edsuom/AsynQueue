@@ -71,9 +71,11 @@ class IWorker(Interface):
 
     def run(task):
         """
-        Adds the task represented by the specified I{task} object to the list
-        of tasks pending for this worker, to be run however and whenever the
-        worker sees fit.
+        Adds the task represented by the specified I{task} object to the
+        list of tasks pending for this worker, to be run however and
+        whenever the worker sees fit. However, workers are expected to
+        run highest-priority tasks before anything else they have
+        lined up in their mini-queues.
 
         Make sure that any callbacks you add to the task's internal deferred
         object C{task.d} return the callback argument. Otherwise, the result of
@@ -81,7 +83,6 @@ class IWorker(Interface):
         
         @return: A deferred that fires when the worker is ready to be assigned
           another task.
-
         """
 
     def getNext(ID):

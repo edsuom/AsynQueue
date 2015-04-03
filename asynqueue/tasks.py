@@ -101,29 +101,12 @@ class Task(object):
     def relax(self):
         self.priority = 1000000
 
-    @contextmanager
-    def sanitizeCall(self, raw=False):
-        """
-        Use as a context manager to set the namespace for a call before it
-        is converted internally to a string.
-
-        The context object is a 2-tuple containing the namespace
-        object's pickle or FQN (or the object itself, if raw is set
-        True) and an ID string you should use for registering the
-        namespace. The call string will have the ID prepended with a
-        period.
-
-        If no namespace is found (i.e., the call is a function, not a
-        method), no context operation will occur, and the prickle/FQN
-        of the callable (or the callable itself, if raw is set) will
-        be used instead of a call string.
-        """
-        ns, fn = self.info.setCall(self.callTuple[0]).nn(raw=raw)
-        if ns is not None:
-            ID = str(hash(ns))
-            fn = "{}.{}".format(ID, fn)
-            yield ns, ID
-        self.callTuple = (fn, self.callTuple[1], self.callTuple[2])
+    def copy(self):
+        args = list(self.callTuple)
+        args.append(self.priority)
+        args.append(self.series)
+        args.append(self.timeout)
+        return Task(*args)
         
     def __repr__(self):
         """
@@ -162,9 +145,9 @@ class TaskFactory(object):
     I generate L{Task} instances with the right priority setting for effective
     scheduling between tasks in one or more concurrently running task series.
     """
-    def __init__(self, TaskClass=Task):
-        # Setting a non-default TaskClass is mostly for testing
-        self.TaskClass = TaskClass
+    TaskClass = Task
+    
+    def __init__(self):
         self.seriesNumbers = {}
 
     def new(self, func, args, kw, niceness, series=None, timeout=None):
@@ -339,6 +322,7 @@ class TaskHandler(object):
         self.isRunning = True
         self.workers = {}
         self.laborPools = {}
+        self.updateTasks = []
         self.profiler = CallProfiler(profile) if profile else None
         self.assignmentFactory = AssignmentFactory()
 
@@ -377,11 +361,23 @@ class TaskHandler(object):
         gives the worker an C{ID} attribute with the ID for its own reference,
         The ID is returned as well.
         """
+        @defer.inlineCallbacks
+        def readyToRun():
+            # Run any relevant update tasks
+            for task in self.updateTasks:
+                if task.series in qualifications:
+                    yield worker.run(task.copy())
+            # Now ready for assignments
+            for series in qualifications:
+                self.assignmentFactory.request(worker, series)
+                if series is not None:
+                    self.laborPools.setdefault(series, []).append(worker)
+            defer.returnValue(workerID)
+        
         if not IWorker.providedBy(worker):
             raise ImplementationError(
                 "'%s' doesn't provide the IWorker interface" % worker)
         IWorker.validateInvariants(worker)
-
         worker.hired = True
         worker.assignments = {}
         worker.profiler = self.profiler
@@ -391,10 +387,6 @@ class TaskHandler(object):
             qualifications.extend(worker.cQualified)
         if hasattr(worker, 'iQualified'):
             qualifications.extend(worker.iQualified)
-        for series in qualifications:
-            self.assignmentFactory.request(worker, series)
-            if series is not None:
-                self.laborPools.setdefault(series, []).append(worker)
         # ID Badge
         workerID = worker.ID = getattr(self, '_workerCounter', 0) + 1
         self._workerCounter = workerID
@@ -402,8 +394,8 @@ class TaskHandler(object):
         # Exit process
         worker.setResignator(
             lambda : self.terminate(worker.ID, crash=True, reassign=True))
-        # Welcome aboard!
-        return workerID
+        # Welcome aboard! Start by running any update tasks
+        return readyToRun()
     
     def terminate(self, workerID, timeout=None, crash=False, reassign=False):
         """
@@ -470,7 +462,32 @@ class TaskHandler(object):
         if series is None:
             return workers.items()
         return self.laborPools.get(series, [])
-        
+
+    def update(self, task):
+        """
+        Updates my workforce with the supplied task, calling identical
+        copies of each one directly ( I have no need of or reference
+        to TaskQueue) to all current workers who are qualified to run
+        the task. Saves the task for sending to qualified new hires as
+        well.
+
+        Returns a deferred that fires when when the task has run on
+        all current workers, with a list of the results from each
+        run. Note that there is no mechanism for obtaining such
+        results for new hires, so it's probably best not to rely too
+        much on them.
+        """
+        dList = []
+        self.updateTasks.append(task)
+        for worker in self.roster(task.series):
+            # The "ready for another assignment" deferred that's
+            # returned from calling the worker's run method is
+            # irrelevant to doing updates outside the queue. We ignore
+            # it in favor of the deferred of the task itself.
+            worker.run(task.copy())
+            dList.append(task.d)
+        return defer.gatherResults(dList)
+    
     def __call__(self, task):
         """
         Generates a new assignment for the supplied I{task}. This is the

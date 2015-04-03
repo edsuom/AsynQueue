@@ -116,7 +116,11 @@ class LoadInfoProducer(object):
         produce for it in addition to any others already registered
         with me.
         """
-        consumer.registerProducer(self, True)
+        try:
+            consumer.registerProducer(self, True)
+        except RuntimeError:
+            # I must have already been registered with this consumer
+            return
         self.consumers.append(consumer)
     
     def shutdown(self):
@@ -318,7 +322,7 @@ class TaskQueue(object):
 
         See L{WorkerManager.hire}.
         """
-        return self.th.hire(worker)
+        return self.th.hire(worker).addCallback(applyUpdates)
 
     def _getWorkerID(self, workerOrID):
         if workerOrID in self.th.workers:
@@ -368,6 +372,29 @@ class TaskQueue(object):
             return self.th.workers.values()
         return self.th.workers.get(ID, None)
 
+    def _newTask(self, func, args, kw):
+        if not self.isRunning():
+            text = self.info.setCall(func, args, kw).aboutCall()
+            text = "Queue shut down, ignoring call\n{}\n".format(text)
+            if self.warnOnly:
+                print text
+            else:
+                raise errors.QueueRunError(text)
+        # Some parameters just for me, not for the task
+        niceness = kw.pop('niceness', 0     )
+        series   = kw.pop('series',   None  )
+        timeout  = kw.pop('timeout',  None  )
+        doLast   = kw.pop('doLast',   False )
+        consumer = kw.pop('consumer', None  )
+        task = self.taskFactory.new(func, args, kw, niceness, series, timeout)
+        # Workers have to honor the doNext keyword, too
+        if kw.get('doNext', False):
+            task.rush()
+        elif doLast:
+            task.relax()
+        task.d.addCallback(self._taskDone, task, consumer)
+        return task
+        
     def _taskDone(self, statusResult, task, consumer=None):
         """
         Processes the status/result tuple from a worker running a task:
@@ -461,37 +488,23 @@ class TaskQueue(object):
           interator.
         
         """
-        if not self.isRunning():
-            text = self.info.setCall(func, args, kw).aboutCall()
-            text = "Queue shut down, ignoring call\n{}\n".format(text)
-            if self.warnOnly:
-                print text
-            else:
-                raise errors.QueueRunError(text)
-        # Some parameters just for me, not for the task
-        niceness = kw.pop('niceness', 0     )
-        series   = kw.pop('series',   None  )
-        timeout  = kw.pop('timeout',  None  )
-        doLast   = kw.pop('doLast',   False )
-        consumer = kw.pop('consumer', None  )
-        task = self.taskFactory.new(func, args, kw, niceness, series, timeout)
-        # Workers have to honor the doNext keyword, too
-        if kw.get('doNext', False):
-            task.rush()
-        elif doLast:
-            task.relax()
-        self.q.put(task)
-        task.d.addCallback(self._taskDone, task, consumer)
+        task = self._newTask(func, args, kw)
+        self.qu.put(task)
         return task.d
 
-    def callAll(self, func, *args, **kw):
+    def update(self, func, *args, **kw):
         """
-        Puts a call to I{func} with any supplied arguments and keywords into
-        the pipeline, returning a deferred to the eventual result of the call
-        when it is eventually pulled from the pipeline and run.
-
-        TODO: Not sure how I'm going to implement this without making
-        a huge mess.
+        Sets an update task from I{func} with any supplied arguments and
+        keywords to be run directly on all current and future
+        workers. Returns a deferred to the result of the call on all
+        current workers, though there is no mechanism for obtaining
+        such results for new hires, so it's probably best not to rely
+        too much on them.
         """
-        raise NotImplementedError(
-            "Broadcast assignments not yet implemented")
+        if 'consumer' in kw:
+            raise ValueError(
+                "Can't supply a consumer for an update because there "+\
+                "may be multiple iteration producers")
+        task = self._newTask(func, args, kw)
+        return self.th.update(task)
+        

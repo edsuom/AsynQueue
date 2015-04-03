@@ -328,6 +328,7 @@ class IterationProducer(object):
         if not isinstance(dr, Deferator):
             raise TypeError("Object {} is not a Deferator".format(repr(dr)))
         self.dr = dr
+        self.delay = Delay()
         if consumer is not None:
             self.setConsumer(consumer)
 
@@ -360,14 +361,14 @@ class IterationProducer(object):
             # Pause/stop opportunity before the deferred fires
             if not self.running:
                 break
-            while self.paused:
-                yield deferToDelay(self.checkInterval)
+            if self.paused:
+                yield self.delay.untilEvent(lambda: not self.paused)
             item = yield d
             # Pause/stop opportunity before the item write
             if not self.running:
                 break
-            while self.paused:
-                yield deferToDelay(self.checkInterval)
+            if self.paused:
+                yield self.delay.untilEvent(lambda: not self.paused)
             # Write the item and do the next iteration
             self.consumer.write(item)
         # Done with the iteration, and with producer/consumer
