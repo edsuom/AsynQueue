@@ -97,12 +97,14 @@ class BigObject(object):
             Nsf += N
         return self
 
-    def getNext(self):
+    def iter(self):
+        return self
+
+    def next(self):
         if self.stuff:
-            chunk = self.stuff.pop(0)
-            return (chunk, True, len(self.stuff) > 0)
-        return (None, False, False)
-        
+            return self.stuff.pop(0)
+        raise StopIteration
+
         
 class TestTaskUniverse(TestCase):
     verbose = False
@@ -113,50 +115,6 @@ class TestTaskUniverse(TestCase):
     def tearDown(self):
         return self.u.shutdown()
         
-    @defer.inlineCallbacks
-    def test_pf(self):
-        yield self.u.call(lambda x: 2*x, 0)
-        pf = self.u.pf('xyz')
-        self.assertIsInstance(pf, iteration.Prefetcherator)
-        self.assertEqual(self.u.pf('xyz'), pf)
-        self.assertNotEqual(self.u.pf('abc'), pf)
-
-    def _generatorMethod(self, x, N=7):
-        for y in xrange(N):
-            yield x*y
-        
-    def test_handleIterator(self):
-        response = {'ID': None}
-        self.u._handleIterator(self._generatorMethod(10), response)
-        self.assertEqual(response['status'], 'i')
-        ID = response['result']
-        pf = self.u.pf(ID)
-        self.assertIsInstance(pf, iteration.Prefetcherator)
-        
-    def test_handlePickle_small(self):
-        obj = [1, 2.0, "3"]
-        response = {'ID': None}
-        pr = o2p(obj)
-        self.u._handlePickle(pr, response)
-        self.assertEqual(response['status'], 'r')
-        self.assertEqual(response['result'], pr)
-
-    @defer.inlineCallbacks
-    def test_handlePickle_large(self):
-        response = {'ID': None}
-        bo = BigObject(N=200000).setContents()
-        pr = o2p(bo)
-        self.u._handlePickle(pr, response)
-        self.assertEqual(response['status'], 'c')
-        pf = self.u.pf(response['result'])
-        self.assertIsInstance(pf, iteration.Prefetcherator)
-        chunks = []
-        for d in iteration.Deferator(pf):
-            chunk = yield d
-            chunks.append(chunk)
-        reconBigObject = p2o("".join(chunks))
-        self.assertEqual(reconBigObject.stuff, bo.stuff)
-
     def _xyDivide(self, x, y=2):
         return x/y
         
@@ -198,7 +156,7 @@ class TestTaskUniverse(TestCase):
         chunks = []
         ID = "testID"
         bo = BigObject(N).setContents()
-        self.u.pfs[ID] = bo
+        self.u.iterators[ID] = bo
         while True:
             response = yield self.u.getNext(ID)
             self.assertTrue(response['isValid'])
@@ -234,7 +192,7 @@ class TestTaskServerBasics(TestCase):
 
             
 class TestTaskServerRemote(TestCase):
-    verbose = False
+    verbose = True
 
     @defer.inlineCallbacks
     def tearDown(self):

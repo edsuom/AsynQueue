@@ -22,7 +22,8 @@
 Intelligent import, Mock objects, and an improved TestCase for AsynQueue
 """
 
-import re, sys, os.path
+import re, sys, os.path, time, random
+
 from zope.interface import implements
 from twisted.internet import reactor, defer
 from twisted.internet.interfaces import IConsumer
@@ -30,6 +31,8 @@ from twisted.internet.interfaces import IConsumer
 from twisted.trial import unittest
 
 from interfaces import IWorker
+import iteration
+
 
 VERBOSE = False
 
@@ -39,6 +42,12 @@ def deferToDelay(delay):
     reactor.callLater(delay, d.callback, None)
     return d
 
+def blockingTask(x, delay=None):
+    if delay is None:
+        delay = random.uniform(0.1, 0.5)
+    time.sleep(delay)
+    return 2*x
+    
 
 class MsgBase(object):
     """
@@ -133,13 +142,14 @@ class MockTask(object):
         pass
 
 
-class MockWorker(object):
+class MockWorker(MsgBase):
     implements(IWorker)
 
     cQualified = []
 
-    def __init__(self, runDelay=0.0):
+    def __init__(self, runDelay=0.0, verbose=False):
         self.runDelay = runDelay
+        self.verbose = verbose
         self.ran = []
         self.isShutdown = False
         self.iQualified = []
@@ -153,7 +163,8 @@ class MockWorker(object):
             return result
         
         self.task = task
-        self.delayedCall = reactor.callLater(self.runDelay, self._reallyRun)
+        self.delayedCall = reactor.callLater(
+            self.runDelay, self._reallyRun)
         d = defer.Deferred()
         task.d.addCallback(ran, d)
         return d
@@ -162,15 +173,24 @@ class MockWorker(object):
         f, args, kw = self.task.callTuple
         result = f(*args, **kw)
         self.ran.append(self.task)
-        if VERBOSE:
-            ID = getattr(self, 'ID', 0)
-            print "Worker %d ran %s = %s" % (ID, str(self.task), result)
-        self.task.d.callback(result)
+        self.msg(
+            "Worker {} ran {} = {}",
+            getattr(self, 'ID', 0), str(self.task), result)
+        if iteration.Deferator.isIterator(result):
+            try:
+                result = iteration.iteratorToProducer(result)
+            except:
+                status = 'e'
+                result = self.info.setCall(f, args, kw).aboutException()
+            else:
+                status = 'i'
+        else:
+            status = 'r'
+        self.task.d.callback((status, result))
 
     def stop(self):
         self.isShutdown = True
-        if VERBOSE:
-            print "Shutting down worker %s" % self
+        self.msg("Shutting down worker {}", self)
         d = getattr(getattr(self, 'task', None), 'd', None)
         if d is None or d.called:
             d_shutdown = defer.succeed(None)

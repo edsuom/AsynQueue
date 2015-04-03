@@ -121,7 +121,8 @@ class ThreadLooper(object):
     # another minute, and it can do that forever with no problem.
     timeout = 60
     
-    def __init__(self):
+    def __init__(self, rawIterators=False):
+        self.rawIterators = rawIterators
         # Just a simple attribute to indicate if the thread loop is
         # running, mostly for unit testing
         self.threadRunning = True
@@ -198,6 +199,8 @@ class ThreadLooper(object):
             status, result = statusResult
             if status == 'i':
                 # An iterator
+                if self.rawIterators:
+                    return ('i', result)
                 ID = str(hash(result))
                 pf = iteration.Prefetcherator(ID)
                 if pf.setup(result):
@@ -247,7 +250,7 @@ class ThreadLooper(object):
             status, result = statusResult
             if status == 'e':
                 return Failure(errors.WorkerError(result))
-            if status == 'i':
+            if status == 'i' and not self.rawIterators:
                 return self.pf2ip(result)
             return result
         

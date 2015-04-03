@@ -31,6 +31,7 @@ from twisted.protocols import amp
 
 from util import o2p, p2o
 from interfaces import IWorker
+from threads import ThreadLooper
 import errors, util, iteration
 
 
@@ -148,30 +149,42 @@ class SocketWorker(object):
         possibleResignator = getattr(self, 'resignator', None)
         if callable(possibleResignator):
             possibleResignator()
-    
-    @defer.inlineCallbacks
-    def assembleChunkedResult(self, ID):
-        moreLeft = True
-        pickleString = ""
-        while moreLeft:
-            stuff = yield self.ap.callRemote(pserver.GetMore, ID=ID)
-            chunk, isValid, moreLeft = stuff
-            if not isValid:
-                raise ValueError(
-                    "Invalid result chunk with ID={}".format(ID))
-            pickleString += chunk
-        defer.returnValue(util.p2o(pickleString))
 
     @defer.inlineCallbacks
     def _stopper(self):
         self._ditchClass()
         if hasattr(self, 'ap'):
-            yield self.ap.callRemote(pserver.QuitRunning)
+            yield self.ap.callRemote(QuitRunning)
             yield self.ap.transport.loseConnection()
         if hasattr(self, 'pt'):
             yield self.pt.loseConnection()
         if hasattr(self, 'pid'):
             yield util.killProcess(self.pid)
+            
+    @defer.inlineCallbacks
+    def assembleChunkedResult(self, ID):
+        pickleString = ""
+        while True:
+            stuff = yield self.ap.callRemote(GetNext, ID=ID)
+            chunk, isValid = stuff
+            if isValid:
+                pickleString += chunk
+            else:
+                break
+        defer.returnValue(p2o(pickleString))
+
+    @defer.inlineCallbacks
+    def next(self, ID):
+        """
+        Do a next call of the iterator held by my subordinate, over the
+        wire (socket) and in Twisted fashion.
+        """
+        yield self.dLock.acquire(vip=True)
+        value, isValid = yield self.ap.callRemote(GetNext, ID=ID)
+        self.dLock.release()
+        value = result[0] if result[1] else Failure(StopIteration)
+        defer.returnValue(value)
+
             
     # Implementation methods
     # -------------------------------------------------------------------------
@@ -201,33 +214,43 @@ class SocketWorker(object):
         func = task.callTuple[0]
         for k, value in enumerate(task.callTuple):
             name = pserver.RunTask.arguments[k][0]
-            kw[name] = value if isinstance(value, str) else util.o2p(value)
+            kw[name] = value if isinstance(value, str) else o2p(value)
         # The heart of the matter
-        response = yield self.ap.callRemote(pserver.RunTask, **kw)
+        response = yield self.ap.callRemote(RunTask, **kw)
         #-----------------------------------------------------------
         # At this point, we can permit another remote call to get
         # going for a separate task.
         self.dLock.release()
         # Process the response. No lock problems even if that
-        # involves further remote calls, i.e., pserver.GetMore
+        # involves further remote calls, i.e., GetNext
         status = response['status']
+        x = response['result']
         if status == 'i':
-            # An iteratable
-            ID = response['result']
-            deferator = iteration.Deferator(
-                "Remote iterator ID={}".format(ID),
-                self.ap.callRemote, pserver.GetMore, ID=ID)
-            result(deferator)
+            # What we get from the subordinate is an ID to an iterator
+            # it is holding onto, but we need to give the task an
+            # iterationProducer that hooks up to it.
+            pf = iteration.Prefetcherator(x)
+            ok = yield pf.setup(self.next, x)
+            if ok:
+                dr = iteration.Deferator(pf)
+                returnThis = iteration.IterationProducer(dr)
+            else:
+                status = 'e'
+                # The subordinate may have an iterator, but it's not a
+                # proper one
+                returnThis = "Failed to iterate for call {}".format(
+                    self.info.setCall(*task.callTuple).aboutCall())
+            result(returnThis)
         elif status == 'c':
             # Chunked result, which will take a while
-            dResult = yield self.assembleChunkedResult(response['result'])
+            dResult = yield self.assembleChunkedResult(x)
             result(dResult)
         elif status == 'r':
-            result(util.p2o(response['result']))
+            result(p2o(x))
         elif status == 'n':
             result(None)
         elif status == 'e':
-            result(response['result'])
+            result(x)
         else:
             raise ValueError("Unknown status {}".format(status))
 
@@ -279,10 +302,10 @@ class RunTask(amp.Command):
 
     'i': Ran fine, but the result is an iterable other than a standard
          Python one. The result is an ID string to use for your
-         calls to C{GetMore}.
+         calls to C{GetNext}.
 
     'c': Ran fine, but the result is too big for a single return
-         value. So you get an ID string for calls to C{GetMore}.
+         value. So you get an ID string for calls to C{GetNext.
     """
     arguments = [
         ('fn', amp.String()),
@@ -294,16 +317,14 @@ class RunTask(amp.Command):
         ('result', amp.String()),
     ]
 
-class GetMore(amp.Command):
+class GetNext(amp.Command):
     """
     With a unique ID, get the next iteration of data from an iterator
     or a task result so big that it had to be chunked.
 
     The response has a 'value' string with the pickled iteration value
-    or a chunk of the too-big task result, an 'isValid' bool (which
-    should be True for all cases except an iterable that's empty from
-    the start), and a 'moreLeft' Bool indicating if you should call me
-    again with this ID for another iteration or chunk.
+    or a chunk of the too-big task result, and an 'isValid' bool which
+    is equivalent to a L{StopIteration}.
     """
     arguments = [
         ('ID', amp.String())
@@ -311,7 +332,6 @@ class GetMore(amp.Command):
     response = [
         ('value', amp.String()),
         ('isValid', amp.Boolean()),
-        ('moreLeft', amp.Boolean()),
     ]
 
 class QuitRunning(amp.Command):
@@ -344,7 +364,7 @@ class ProcessProtocol(object):
 
     def childDataReceived(self, childFD, data):
         data = data.strip()
-        if childFD == 1:
+        if childFD == 1 and data:
             self.d.callback(data)
         elif childFD == 2:
             self.callback("ERROR: {}".format(data))
@@ -393,130 +413,101 @@ class TaskUniverse(object):
 
     """
     def __init__(self):
-        self.pfs = {}
+        self.iterators = {}
+        self.deferators = {}
         self.info = util.Info()
         self.dt = util.DeferredTracker()
 
-    def pf(self, ID):
-        """
-        Returns the Prefetcherator of record for a particular ID,
-        constructing a new one if necessary.
-        """
-        if ID not in self.pfs:
-            self.pfs[ID] = iteration.Prefetcherator(ID)
-        return self.pfs[ID]
-    
-    def _handleIterator(self, result, response):
-        """
-        Handles a result that is an iterator.
-
-        Prefetcherators use hardly any memory, so we keep one around
-        for each f-args-kw combo resulting in calls to this method.
-        """
-        # Try the iterator on for size
-        ID = response['ID']
-        pf = self.pf(ID)
-        if pf.setup(result):
-            response['status'] = 'i'
-            response['result'] = ID
-            return
-        # Aw, can't do the iteration, try an iterator-as-list fallback
-        try:
-            pickledResult = list(result)
-        except:
-            response['status'] = 'e'
-            text = "Failed to iterate for task {}".format(
-                self.info.aboutCall(ID))
-            response['result'] = text
-        else:
-            self.pickledResult(pickledResult)
-
-    def _handlePickle(self, pickledResult, response):
-        """
-        Handles a regular result that's been pickled for transmission.
-        """
-        if len(pickledResult) > ChunkyString.chunkSize:
-            # Too big to send as a single pickled result
-            response['status'] = 'c'
-            ID = response['ID']
-            self.pf(ID).setup(ChunkyString(pickledResult))
-            response['result'] = ID
-        else:
-            # Small enough to just send
-            response['status'] = 'r'
-            response['result'] = pickledResult
-    
+    def _saveIterator(x):
+        ID = str(hash(x))
+        self.iterators[ID] = x
+        return ID
+        
+    @defer.inlineCallbacks
     def call(self, f, *args, **kw):
         """
+        Run the f-args-kw combination, in the regular thread or in a
+        thread running if I have one, returning a deferred to the
+        status and result.
         """
-        def ran(result):
-            if result is None:
-                # Result is a None object
-                response['status'] = 'n'
-                response['result'] = ""
-            elif isinstance(result, iteration.Deferator):
-                # Result is a Deferator, just tell my prefetcherator
-                # to use its getNext function.
-                df, dargs, dkw = result.callTuple
-                self.pf(ID).setup(df, *dargs, **dkw)
-            elif iteration.Deferator.isIterator(result):
-                # It's a Deferator-able iterator
-                self._handleIterator(result, response)
-            else:
-                # It's a regular result
-                self._handlePickle(o2p(result), response)
-
-        def oops(failureObj):
+        def oops(failureObj, ID):
             response['status'] = 'e'
-            response['result'] = self.info.aboutFailure(
-                failureObj, response['ID'])
+            response['result'] = self.info.aboutFailure(failureObj, ID)
 
-        def done(null):
-            self.info.forgetID(response.pop('ID'))
-            return response
-            
-        response = {'ID': str(self.info.setCall(f, args, kw).getID())}
+        response = {}
         if kw.pop('thread', False):
             if not hasattr(self, 't'):
-                self.t = util.ThreadLooper()
-            d = self.t.deferToThread(f, *args, **kw)
+                self.t = ThreadLooper(rawIterators=True)
+            status, result = yield self.t.call(f, *args, **kw)
         else:
-            d = defer.maybeDeferred(f, *args, **kw)
-        self.dt.put(d)
-        d.addCallbacks(ran, oops)
-        d.addCallback(done)
-        return d
-
+            status = None
+            self.info.setCall(f, args, kw)
+            ID = self.info.getID()
+            result = yield defer.maybeDeferred(
+                f, *args, **kw).addErrback(oops, ID)
+            self.info.forgetID(ID)
+        if result is None:
+            # This might be from a failure, in which case our
+            # response is ready
+            if not response:
+                # No, result really is a None object
+                status = 'n'
+                result = ""
+        else:
+            # A real result needs further processing
+            if iteration.Deferator.isIterator(result):
+                status = 'i'
+                result = self._saveIterator(result)
+            else:
+                status = 'r'
+                result = o2p(result)
+                if len(result) > ChunkyString.chunkSize:
+                    # Too big to send as a single pickled string
+                    status = 'c'
+                    result = self._saveIterator(ChunkyString(result))
+        # At this point, we have our result (blank string for C{None},
+        # an ID for an iterator, or a pickled string
+        response['status'] = status
+        response['result'] = result
+        defer.returnValue(response)
+    
+    @defer.inlineCallbacks
     def getNext(self, ID):
         """
-        Gets the next item for the specified prefetcherator, returning a
+        Gets the next item for the specified iterator, returning a
         deferred that fires with a response containing the pickled
-        item, the isValid status indicating if the item is legit, and
-        the moreLeft status indicating that at least one more item is
-        left.
+        item and the isValid status indicating if the item is legit
+        (False = StopIteration).
         """
-        def bogusResponse(messageProto, *args):
-            response['value'] = messageProto.format(*args)
+        def oops(failureObj, ID):
+            del self.iterators[ID]
             response['isValid'] = False
-            response['moreLeft'] = False
-        
-        def done(result):
-            response['value'] = o2p(result[0])
-            response['isValid'] = result[1]
-            response['moreLeft'] = result[2]
+            if failureObj.type != StopIteration:
+                response['value'] = self.info.setCall(
+                    "getNext", [ID]).aboutFailure(failureObj)
 
-        def oops(failureObj):
-            bogusResponse(
-                self.info.setCall(
-                    "Prefetcherator.getNext", [ID]).aboutFailure(failureObj))
-        
-        response = {}
-        if ID not in self.pfs:
-            bogusResponse("No Prefetcherator '{}'", ID)
-        d = defer.maybeDeferred(self.pfs[ID].getNext)
-        d.addCallbacks(done, oops)
-        d.addCallback(lambda _: response)
-        return d
+        def bogusResponse():
+            response['value'] = None
+            response['isValid'] = False
+            
+        response = {'isValid': True}
+        if ID in self.iterators:
+            # Iterator
+            if hasattr(self, 't'):
+                # Get next iteration in a thread
+                response['value'] = yield self.t.deferToThread(
+                    self.iterators[ID].next).addErrback(oops, ID)
+            else:
+                # Get next iteration in main loop
+                try:
+                    response['value'] = self.iterators[ID].next()
+                except StopIteration:
+                    del self.iterators[ID]
+                    bogusResponse()
+        else:
+            # No iterator, at least not anymore
+            bogusResponse()
+        defer.returnValue(response)
     
     def shutdown(self):
         if hasattr(self, 't'):
@@ -602,13 +593,13 @@ class TaskServer(amp.AMP):
     RunTask.responder(runTask)
 
     #------------------------------------------------------------------
-    def getMore(self, ID):
+    def getNext(self, ID):
         """
-        Responder for L{GetMore}
+        Responder for L{GetNext}
         """
         return self.u.getNext(ID)
     #------------------------------------------------------------------
-    GetMore.responder(getMore)
+    GetNext.responder(getNext)
 
     #------------------------------------------------------------------
     def quitRunning(self):
@@ -625,7 +616,7 @@ class TaskServer(amp.AMP):
     QuitRunning.responder(quitRunning)
 
 
-class TaskFactory(Factory):
+class TaskServerFactory(Factory):
     """
     I am a factory for a L{TaskServer} protocol, sending a handshaking
     code on stdout when a new AMP connection is made.
@@ -646,7 +637,7 @@ class TaskFactory(Factory):
                  
 
 def start(address):
-    pf = TaskFactory()
+    pf = TaskServerFactory()
     # Currently the security of UNIX domain sockets is the only
     # security we have!
     port = reactor.listenUNIX(address, pf)

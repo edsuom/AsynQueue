@@ -26,7 +26,8 @@ from zope.interface import implements
 from twisted.internet import defer
 from twisted.internet.interfaces import IConsumer
 
-from testbase import deferToDelay, TestCase, errors, util, iteration
+import util
+from testbase import deferToDelay, blockingTask, TestCase
 
 
 class Picklable(object):
@@ -104,7 +105,6 @@ class TestInfo(TestCase):
         self.assertEqual(ns, None)
         self.assertEqual(fn, None)
         # Module-level function
-        from test_workers import blockingTask
         ns, fn = self.info.setCall(blockingTask).nn()
         self.assertEqual(ns, None)
         self.assertEqual(util.p2o(fn), blockingTask)

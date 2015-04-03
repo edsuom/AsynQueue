@@ -21,18 +21,16 @@
 Unit tests for asynqueue.base
 """
 
-import time, random, threading
 from twisted.internet import defer
-from twisted.trial.unittest import TestCase
 
-from testbase import base
-from testbase import MockWorker
+import base
+from testbase import MockWorker, TestCase
 
 
 VERBOSE = False
 
 
-class Test_Priority(TestCase):
+class TestPriority(TestCase):
     def setUp(self):
         self.heap = base.Priority()
 
@@ -70,7 +68,7 @@ class Test_Priority(TestCase):
             lambda _: self.failUnlessEqual(items, [0,1,3,4]))
 
 
-class Test_TaskQueue_Generic(TestCase):
+class TestTaskQueue(TestCase):
     def setUp(self):
         self.queue = base.TaskQueue()
 

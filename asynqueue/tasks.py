@@ -463,7 +463,7 @@ class TaskHandler(object):
             return workers.items()
         return self.laborPools.get(series, [])
 
-    def update(self, task):
+    def update(self, task, ephemeral=False):
         """
         Updates my workforce with the supplied task, calling identical
         copies of each one directly ( I have no need of or reference
@@ -476,9 +476,13 @@ class TaskHandler(object):
         run. Note that there is no mechanism for obtaining such
         results for new hires, so it's probably best not to rely too
         much on them.
+
+        If you don't want the task saved to the update list, but only
+        run on my current workers, set the ephemeral to C{True}.
         """
         dList = []
-        self.updateTasks.append(task)
+        if not ephemeral:
+            self.updateTasks.append(task)
         for worker in self.roster(task.series):
             # The "ready for another assignment" deferred that's
             # returned from calling the worker's run method is

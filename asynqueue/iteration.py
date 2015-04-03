@@ -185,8 +185,6 @@ class Deferator(object):
     def next(self):
         def gotNext(result):
             value, isValid, self.moreLeft = result
-            # Might be nice to raise some kind of warning if isValid
-            # is False
             return value
         
         if self.moreLeft:

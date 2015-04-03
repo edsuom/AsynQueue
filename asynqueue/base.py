@@ -322,7 +322,7 @@ class TaskQueue(object):
 
         See L{WorkerManager.hire}.
         """
-        return self.th.hire(worker).addCallback(applyUpdates)
+        return self.th.hire(worker)
 
     def _getWorkerID(self, workerOrID):
         if workerOrID in self.th.workers:
@@ -489,7 +489,7 @@ class TaskQueue(object):
         
         """
         task = self._newTask(func, args, kw)
-        self.qu.put(task)
+        self.q.put(task)
         return task.d
 
     def update(self, func, *args, **kw):
@@ -500,11 +500,23 @@ class TaskQueue(object):
         current workers, though there is no mechanism for obtaining
         such results for new hires, so it's probably best not to rely
         too much on them.
+
+        The updates are run via a direct remoteCall to each worker,
+        not through the queue. Because of the disconnect between
+        queued and direct calls, it is likely but not guaranteed that
+        any jobs you have queued when this method is called will run
+        on a particular worker B{after} this update is run. Wait for
+        the deferred from this method to fire before queuing any jobs
+        that need the update to be in place before running.
+
+        If you don't want the task saved to the update list, but only
+        run on the workers currently attached, set the I{ephemeral}
+        keyword C{True}.
         """
         if 'consumer' in kw:
             raise ValueError(
                 "Can't supply a consumer for an update because there "+\
                 "may be multiple iteration producers")
+        ephemeral = kw.pop('ephemeral', False)
         task = self._newTask(func, args, kw)
-        return self.th.update(task)
-        
+        return self.th.update(task, ephemeral)
