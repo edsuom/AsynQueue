@@ -21,7 +21,7 @@
 Iteration, Twisted style
 """
 
-import inspect
+import time, inspect
 
 from zope.interface import implements
 from twisted.internet import defer, reactor
@@ -31,9 +31,72 @@ import errors
 
 
 def deferToDelay(delay):
-    d = defer.Deferred()
-    reactor.callLater(delay, d.callback, None)
-    return d
+    return Delay(delay)()
+
+
+class Delay(object):
+    """
+    I let you delay things and wait for things that may take a while,
+    in Twisted fashion.
+
+    Perhaps a bit more suited to the util module, but that would
+    require this module to import it, and it imports this module.
+    """
+    interval = 0.01
+    backoff = 1.04
+
+    def __init__(self, interval=None, backoff=None, timeout=None):
+        if interval:
+            self.interval = interval
+        if backoff:
+            self.backoff = backoof
+        if timeout:
+            self.timeout = timeout
+        if self.backoff < 1.0 or self.backoff > 1.3:
+            raise ValueError(
+                "Unworkable backoff {:f}, keep it in 1.0-1.3 range".format(
+                    self.backoff))
+
+    def __call__(self, delay=None):
+        if delay is None:
+            delay = self.interval
+        d = defer.Deferred()
+        reactor.callLater(delay, d.callback, None)
+        return d
+
+    @defer.inlineCallbacks
+    def untilEvent(self, eventChecker):
+        """
+        Returns a deferred that fires when a call to the supplied
+        event-checking callable returns an affirmative (not C{None},
+        C{False}, etc.) result, or until the optional timeout limit is
+        reached.
+
+        The result of the deferred is C{True} if the event actually
+        happened, or C{False} if a timeout occurred.
+
+        The event checker should *not* return a deferred. Calls the
+        event checker less and less frequently as the wait goes on,
+        depending on the backoff exponent (default is 1.04).
+        """
+        if not callable(eventChecker):
+            raise TypeError("You must supply a callable event checker")
+
+        t0 = time.time()
+        interval = self.interval
+        while True:
+            if eventChecker():
+                defer.returnValue(True)
+                break
+            if hasattr(self, 'timeout') and time.time()-t0 > self.timeout:
+                defer.returnValue(False)
+                break
+            # No response yet, check again after the poll interval,
+            # which increases exponentially so that each incremental
+            # delay is somewhat proportional to the amount of time
+            # spent waiting thus far.
+            yield self(interval)
+            interval *= self.backoff
 
 
 class Deferator(object):

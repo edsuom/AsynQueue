@@ -21,12 +21,12 @@
 Unit tests for asynqueue.util
 """
 
-import time, random, threading
+import random, threading
 from zope.interface import implements
 from twisted.internet import defer
 from twisted.internet.interfaces import IConsumer
 
-from testbase import TestCase, errors, util, iteration, deferToDelay
+from testbase import deferToDelay, TestCase, errors, util, iteration
 
 
 class Picklable(object):

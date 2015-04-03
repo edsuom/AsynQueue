@@ -51,7 +51,7 @@ class ProcessWorker(object):
         self.profiler = profiler
         # Tools
         self.info = util.Info()
-        self.namespaces = {}
+        self.delay = iteration.Delay()
         self.dLock = util.DeferredLock()
         # Multiprocessing with (Gasp! Twisted heresy!) standard lib Python
         self.cMain, cProcess = mp.Pipe()
@@ -63,29 +63,20 @@ class ProcessWorker(object):
         self.cMain.close()
         self.process.terminate()
 
-    @defer.inlineCallbacks
-    def _getResponse(self):
-        delay = self.pollInterval
-        while True:
-            if self.cMain.poll():
-                defer.returnValue(self.cMain.recv())
-                break
-            # No response yet, check again after the poll interval,
-            # which increases exponentially so that each incremental
-            # delay is somewhat proportional to the amount of time
-            # spent waiting thus far.
-            yield iteration.deferToDelay(delay)
-            delay *= self.backOff
-
-    def _next(self, ID):
+    def next(self, ID):
         """
         Do a next call of the iterator held by my process, over the pipe
         and in Twisted fashion.
         """
         def gotLock(null):
             self.cMain.send(ID)
-            return self._getResponse().addCallback(gotResponse)
-        def gotResponse(result):
+            return self.delay.untilEvent(
+                self.cMain.poll).addCallback(responseReady)
+        def responseReady(waitStatus):
+            if not waitStatus:
+                raise errors.TimeoutError(
+                    "Timeout waiting for next iteration from process")
+            result = self.cMain.recv()
             self.dLock.release()
             if result[1]:
                 return result[0]
@@ -125,7 +116,8 @@ class ProcessWorker(object):
             self.cMain.send(task.callTuple)
             # "Wait" here (in Twisted-friendly fashion) for a response
             # from the process
-            status, result = yield self._getResponse()
+            yield self.delay.untilEvent(self.cMain.poll)
+            status, result = self.cMain.recv()
             self.dLock.release()
             if status == 'i':
                 # What we get from the process is an ID to an iterator
@@ -133,7 +125,7 @@ class ProcessWorker(object):
                 # iterationProducer that hooks up to it.
                 ID = result
                 pf = iteration.Prefetcherator(ID)
-                ok = yield pf.setup(self._next, ID)
+                ok = yield pf.setup(self.next, ID)
                 if ok:
                     dr = iteration.Deferator(pf)
                     result = iteration.IterationProducer(dr)

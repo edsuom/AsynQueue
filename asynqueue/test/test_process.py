@@ -33,7 +33,7 @@ def blockingTask(x, delay=None):
         delay = random.uniform(0.1, 0.5)
     time.sleep(delay)
     return 2*x
-        
+
 
 class TestProcessWorker(TestCase):
     verbose = True

@@ -313,24 +313,29 @@ class Info(object):
         text += ")"
         return self.saveInfo('aboutCall', text, ID)
     
-    def aboutException(self, ID=None):
+    def aboutException(self, ID=None, exception=None):
         """
         Returns an informative string describing an exception raised from
-        my function call or a previous one identified by ID.
+        my function call or a previous one identified by ID, or one
+        you supply (as an instance, not a class).
         """
         if ID:
             pastInfo = self.getInfo(ID, 'aboutException')
             if pastInfo:
                 return pastInfo
-        stuff = sys.exc_info()
-        lineList = ["Exception '{}'".format(stuff[1])]
+        if exception:
+            lineList = ["Exception '{}'".format(repr(exception))]
+        else:
+            stuff = sys.exc_info()
+            lineList = ["Exception '{}'".format(stuff[1])]
         callInfo = self.aboutCall()
         if callInfo:
             lineList.append(
                 " doing call '{}':".format(callInfo))
         self._divider(lineList)
-        lineList.append("".join(traceback.format_tb(stuff[2])))
-        del stuff
+        if not exception:
+            lineList.append("".join(traceback.format_tb(stuff[2])))
+            del stuff
         text = "\n".join(lineList)
         return self.saveInfo('aboutException', text, ID)
 
