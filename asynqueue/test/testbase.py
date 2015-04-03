@@ -25,16 +25,11 @@ Intelligent import, Mock objects, and an improved TestCase for AsynQueue
 import re, sys, os.path
 from zope.interface import implements
 from twisted.internet import reactor, defer
+from twisted.internet.interfaces import IConsumer
 
 from twisted.trial import unittest
 
-# Intelligent import of the modules under test
-testPath = os.path.dirname(os.path.dirname(__file__))
-sys.path.insert(0, testPath)
-# The modules under test
-import errors, util, iteration, tasks, \
-    base, interfaces, process, workers, pserver
-
+from interfaces import IWorker
 
 VERBOSE = False
 
@@ -93,7 +88,7 @@ class ProcessProtocol(MsgBase):
 
 
 class IterationConsumer(MsgBase):
-    implements(interfaces.IConsumer)
+    implements(IConsumer)
 
     def __init__(self, verbose=False):
         self.verbose = verbose
@@ -110,6 +105,7 @@ class IterationConsumer(MsgBase):
             repr(producer), repr(streaming))
 
     def unregisterProducer(self):
+        self.producer = None
         self.msg("Producer unregistered")
 
     def write(self, data):
@@ -138,7 +134,7 @@ class MockTask(object):
 
 
 class MockWorker(object):
-    implements(workers.IWorker)
+    implements(IWorker)
 
     cQualified = []
 

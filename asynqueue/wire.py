@@ -18,19 +18,228 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
 
 """
-This module is imported by a subordinate Python process to service
-a ProcessWorker.
+SocketWorker and its support staff.
 """
 
-import sys, traceback
+import sys, os.path, tempfile, shutil
 
+from zope.interface import implements
 from twisted.internet import reactor, defer
 from twisted.internet.protocol import Factory
 from twisted.python import reflect
 from twisted.protocols import amp
 
-import errors, util, iteration
 from util import o2p, p2o
+from interfaces import IWorker
+import errors, util, iteration
+
+
+@defer.inlineCallbacks
+def killProcess(pid):
+    """
+    Kills the process with the supplied PID, returning a deferred that
+    fires when it's no longer running. The return value is C{True} if
+    the process was alive and had to be killed, C{False} if it was
+    already dead.
+    """
+    pidString = str(pid)
+    pp = ProcessProtocol()
+    args = ("/bin/ps", '-p', pidString, '--no-headers')
+    pt = reactor.spawnProcess(pp, args[0], args)
+    stdout = yield pp.waitUntilReady()
+    pt.loseConnection()
+    if pidString in stdout:
+        os.kill(pid, signal.SIGTERM)
+        result = True
+    result = False
+    defer.returnValue(result)
+
+
+class SocketWorker(object):
+    """
+    I implement an L{IWorker} that runs tasks in a subordinate or
+    remote Python interpreter via Twisted's Asynchronous Messaging
+    Protocol.
+
+    You can also supply a series keyword containing a list of one or
+    more task series that I am qualified to handle.
+
+    When running tasks via me, don't assume that you can just call
+    blocking code because it's done remotely. The AMP server on the
+    other end runs under Twisted, too, and the result of the call may
+    be a deferred. If the call is a blocking one, set the *thread*
+    keyword C{True} for it and it will run via an instance of
+    L{util.ThreadLoop}.
+    """
+    implements(IWorker)
+    pList = []
+    tempDir = []
+    cQualified = ['process', 'network']
+    
+    def __init__(self, series=[], sFile=None, reconnect=False, profiler=None):
+        self.tasks = []
+        self.iQualified = series
+        self.profiler = profiler
+        # TODO: Implement reconnect option?
+        self.reconnect = reconnect
+        # Acquire lock until subordinate spawning and AMP connection
+        self.dLock = util.DeferredLock()
+        self._spawnAndConnect(sFile)
+        
+    def _newSocketFile(self):
+        """
+        Assigns a unique name to a socket file in a temporary directory
+        common to all instances of me, which will be removed with all
+        socket files after reactor shutdown. Doesn't actually create
+        the socket file; the server does that.
+        """
+        # The process name
+        pName = "worker-{:03d}".format(len(self.pList))
+        # A unique temp directory for all instances' socket files
+        if self.tempDir:
+            tempDir = self.tempDir[0]
+        else:
+            tempDir = tempfile.mkdtemp()
+            reactor.addSystemEventTrigger(
+                'after', 'shutdown',
+                shutil.rmtree, tempDir, ignore_errors=True)
+            self.tempDir.append(tempDir)
+        return os.path.join(tempDir, "{}.sock".format(pName))
+    
+    def _spawnAndConnect(self, sFile=None):
+        """
+        Spawn a subordinate Python interpreter and connects to it via the
+        AMP protocol and a unique UNIX socket address.
+        """
+        def ready(null):
+            # Now connect to the pserver via the UNIX socket
+            dest = endpoints.UNIXClientEndpoint(reactor, sFile)
+            return endpoints.connectProtocol(
+                dest, amp.AMP()).addCallback(connected)
+
+        def connected(ap):
+            self.ap = ap
+            self.dLock.release()
+            self.pList.append(self.ap)
+
+        if sFile is None:
+            sFile = self._newSocketFile()
+        if hasattr(self, 'ap'):
+            # We already have a connection
+            return defer.succeed(None)
+        self.dLock.acquire()
+        # Spawn the pserver and "wait" for it to indicate it's OK
+        args = [sys.executable, "-m", "asynqueue.pserver", sFile]
+        pp = ProcessProtocol(self._disconnected)
+        self.pt = reactor.spawnProcess(pp, sys.executable, args)
+        self.pid = self.pt.pid
+        return pp.waitUntilReady().addCallback(ready)
+        
+    def _ditchClass(self):
+        if hasattr(self, 'ap'):
+            if self.ap in self.pList:
+                self.pList.remove(self.ap)
+            del self.ap
+
+    def _disconnected(self, reason):
+        self._ditchClass()
+        if getattr(self, '_ignoreDisconnection', False):
+            return
+        possibleResignator = getattr(self, 'resignator', None)
+        if callable(possibleResignator):
+            possibleResignator()
+    
+    @defer.inlineCallbacks
+    def assembleChunkedResult(self, ID):
+        moreLeft = True
+        pickleString = ""
+        while moreLeft:
+            stuff = yield self.ap.callRemote(pserver.GetMore, ID=ID)
+            chunk, isValid, moreLeft = stuff
+            if not isValid:
+                raise ValueError(
+                    "Invalid result chunk with ID={}".format(ID))
+            pickleString += chunk
+        defer.returnValue(util.p2o(pickleString))
+
+    @defer.inlineCallbacks
+    def _stopper(self):
+        self._ditchClass()
+        if hasattr(self, 'ap'):
+            yield self.ap.callRemote(pserver.QuitRunning)
+            yield self.ap.transport.loseConnection()
+        if hasattr(self, 'pt'):
+            yield self.pt.loseConnection()
+        if hasattr(self, 'pid'):
+            yield util.killProcess(self.pid)
+            
+    # Implementation methods
+    # -------------------------------------------------------------------------
+
+    def setResignator(self, callableObject):
+        self.resignator = callableObject
+    
+    @defer.inlineCallbacks
+    def run(self, task):
+        """
+        Sends the task callable, args, kw to the process and returns a
+        deferred to the eventual result.
+        """
+        def result(value):
+            task.callback((status, value))
+            self.tasks.remove(task)
+
+        self.tasks.append(task)
+        doNext = task.callTuple[2].pop('doNext', False)
+        yield self.dLock.acquire(doNext)
+        # Run the task on the subordinate Python interpreter
+        # TODO: Have the subordinate run with its own version of
+        # self.profiler.runcall if profiler present. It will need to
+        # return its own Stats object when we call pserver.QuitRunning
+        #-----------------------------------------------------------
+        kw = {}
+        func = task.callTuple[0]
+        for k, value in enumerate(task.callTuple):
+            name = pserver.RunTask.arguments[k][0]
+            kw[name] = value if isinstance(value, str) else util.o2p(value)
+        # The heart of the matter
+        response = yield self.ap.callRemote(pserver.RunTask, **kw)
+        #-----------------------------------------------------------
+        # At this point, we can permit another remote call to get
+        # going for a separate task.
+        self.dLock.release()
+        # Process the response. No lock problems even if that
+        # involves further remote calls, i.e., pserver.GetMore
+        status = response['status']
+        if status == 'i':
+            # An iteratable
+            ID = response['result']
+            deferator = iteration.Deferator(
+                "Remote iterator ID={}".format(ID),
+                self.ap.callRemote, pserver.GetMore, ID=ID)
+            result(deferator)
+        elif status == 'c':
+            # Chunked result, which will take a while
+            dResult = yield self.assembleChunkedResult(response['result'])
+            result(dResult)
+        elif status == 'r':
+            result(util.p2o(response['result']))
+        elif status == 'n':
+            result(None)
+        elif status == 'e':
+            result(response['result'])
+        else:
+            raise ValueError("Unknown status {}".format(status))
+
+    def stop(self):
+        self._ignoreDisconnection = True
+        self.dLock.addStopper(self._stopper)
+        return self.dLock.stop()
+
+    def crash(self):
+        if hasattr(self, 'ap') and self.ap in self.pList:
+            self._stopper()
+        return self.tasks
 
 
 class SetNamespace(amp.Command):
@@ -47,7 +256,6 @@ class SetNamespace(amp.Command):
     response = [
         ('status', amp.String())
     ]
-
 
 class RunTask(amp.Command):
     """
@@ -86,7 +294,6 @@ class RunTask(amp.Command):
         ('result', amp.String()),
     ]
 
-
 class GetMore(amp.Command):
     """
     With a unique ID, get the next iteration of data from an iterator
@@ -107,13 +314,49 @@ class GetMore(amp.Command):
         ('moreLeft', amp.Boolean()),
     ]
 
-
 class QuitRunning(amp.Command):
     """
     Shutdown the reactor (after I'm done responding) and exit.
     """
     arguments = []
     response = []
+
+
+class ProcessProtocol(object):
+    """
+    I am a simple protocol for a master Python interpreter to spawn
+    and communicate with a subordinate Python. This protocol is used
+    by the master (client).
+    """
+    def __init__(self, disconnectCallback=None):
+        self.d = defer.Deferred()
+        self.disconnectCallback = disconnectCallback
+
+    def callback(self, text):
+        if callable(self.disconnectCallback):
+            self.disconnectCallback(text)
+        
+    def waitUntilReady(self):
+        return self.d
+
+    def makeConnection(self, process):
+        pass
+
+    def childDataReceived(self, childFD, data):
+        data = data.strip()
+        if childFD == 1:
+            self.d.callback(data)
+        elif childFD == 2:
+            self.callback("ERROR: {}".format(data))
+
+    def childConnectionLost(self, childFD):
+        self.callback("CONNECTION LOST!")
+
+    def processExited(self, reason):
+        self.callback(reason)
+
+    def processEnded(self, reason):
+        self.callback(reason)
 
 
 class ChunkyString(object):
