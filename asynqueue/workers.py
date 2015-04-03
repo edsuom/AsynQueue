@@ -32,7 +32,7 @@ import errors, util, iteration
 # Make all our workers importable from this module
 from threads import ThreadWorker
 from process import ProcessWorker
-from socket import SocketWorker
+from wire import SocketWorker
 
 
 class AsyncWorker(object):

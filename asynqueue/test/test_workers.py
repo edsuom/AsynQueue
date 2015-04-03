@@ -25,12 +25,12 @@ import time, random
 from twisted.internet import defer
 
 from util import TestStuff
-import base, workers
-from testbase import TestCase
+import base, tasks, workers
+from testbase import deferToDelay, TestCase, IterationConsumer
 
 
 class TestAsyncWorker(TestCase):
-    verbose = True
+    verbose = False
     
     def setUp(self):
         self.worker = workers.AsyncWorker()
@@ -90,37 +90,3 @@ class TestAsyncWorker(TestCase):
         for chunk in consumer.data:
             self.assertEqual(len(chunk), N1)
         self.assertEqual(len(consumer.data), N2)
-
-
-def blockingTask(x, delay=None):
-    if delay is None:
-        delay = random.uniform(0.1, 0.5)
-    time.sleep(delay)
-    return 2*x
-        
-        
-class TestSocketWorker(TestCase):
-    verbose = True
-    
-    def setUp(self):
-        from util import TestStuff
-        self.stuff = TestStuff()
-        self.worker = workers.SocketWorker()
-        self.queue = base.TaskQueue()
-        self.queue.attachWorker(self.worker)
-
-    @defer.inlineCallbacks
-    def tearDown(self):
-        yield self.queue.shutdown()
-        
-    @defer.inlineCallbacks
-    def test_basic(self):
-        result = yield self.queue.call(
-            "asynqueue.pserver.divide", 5.0, 2.0)
-        self.assertEqual(result, 2.5)
-
-    @defer.inlineCallbacks
-    def test_namespace(self):
-        result = yield self.queue.call(
-            self.stuff.blockingTask, 1, 0.5, thread=True)
-        self.assertEqual(result, 2)
