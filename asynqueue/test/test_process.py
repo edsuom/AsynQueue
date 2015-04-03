@@ -24,8 +24,8 @@ Unit tests for asynqueue.process
 import time, random
 from twisted.internet import defer
 
-
-from testbase import *
+import base, process
+from testbase import TestCase, IterationConsumer
 
 
 def blockingTask(x, delay=None):

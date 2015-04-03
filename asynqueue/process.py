@@ -31,54 +31,6 @@ from interfaces import IWorker
 import errors, util, iteration
 
 
-class ProcessUniverse(object):
-    """
-    Each process for a L{ProcessWorker} lives in one of these.
-    """
-    def __init__(self):
-        self.iterators = {}
-        self.runner = util.CallRunner()
-
-    def next(self, ID):
-        if ID in self.iterators:
-            try:
-                value = self.iterators[ID].next()
-            except StopIteration:
-                del self.iterators[ID]
-                return None, False
-            return value, True
-        return None, False
-    
-    def loop(self, connection):
-        """
-        Runs a loop in a dedicated process that waits for new tasks. The
-        loop exits when a C{None} object is supplied as a task.
-        """
-        while True:
-            # Wait here for the next call
-            callSpec = connection.recv()
-            if callSpec is None:
-                # Termination call, no reply expected; just exit the
-                # loop
-                break
-            elif isinstance(callSpec, str):
-                # A next-iteration call
-                connection.send(self.next(callSpec))
-            else:
-                # A task call
-                status, result = self.runner(callSpec)
-                if status == 'i':
-                    # Due to the pipe between worker and process, we
-                    # hold onto the iterator here and just
-                    # return an ID to it
-                    ID = str(hash(result))
-                    self.iterators[ID] = result
-                    result = ID
-                connection.send((status, result))
-        # Broken out of loop, ready for the process to end
-        connection.close()
-
-
 class ProcessWorker(object):
     """
     I implement an L{IWorker} that runs tasks in a dedicated worker
@@ -208,3 +160,52 @@ class ProcessWorker(object):
     def crash(self):
         self._killProcess()
         return self.tasks
+
+
+class ProcessUniverse(object):
+    """
+    Each process for a L{ProcessWorker} lives in one of these.
+    """
+    def __init__(self):
+        self.iterators = {}
+        self.runner = util.CallRunner()
+
+    def next(self, ID):
+        if ID in self.iterators:
+            try:
+                value = self.iterators[ID].next()
+            except StopIteration:
+                del self.iterators[ID]
+                return None, False
+            return value, True
+        return None, False
+    
+    def loop(self, connection):
+        """
+        Runs a loop in a dedicated process that waits for new tasks. The
+        loop exits when a C{None} object is supplied as a task.
+        """
+        while True:
+            # Wait here for the next call
+            callSpec = connection.recv()
+            if callSpec is None:
+                # Termination call, no reply expected; just exit the
+                # loop
+                break
+            elif isinstance(callSpec, str):
+                # A next-iteration call
+                connection.send(self.next(callSpec))
+            else:
+                # A task call
+                status, result = self.runner(callSpec)
+                if status == 'i':
+                    # Due to the pipe between worker and process, we
+                    # hold onto the iterator here and just
+                    # return an ID to it
+                    ID = str(hash(result))
+                    self.iterators[ID] = result
+                    result = ID
+                connection.send((status, result))
+        # Broken out of loop, ready for the process to end
+        connection.close()
+
