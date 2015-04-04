@@ -147,6 +147,19 @@ class TestThreadWorker(TestCase):
             self.assertEqual(len(chunk), N1)
         self.assertEqual(len(consumer.data), N2)
 
+    @defer.inlineCallbacks
+    def test_iteration_raw(self):
+        N1, N2 = 5, 10
+        stuff = TestStuff()
+        stuff.setStuff(N1, N2)
+        result = yield self.queue.call(stuff.stufferator, raw=True)
+        count = 0
+        for chunk in stuff.stufferator():
+            self.assertEqual(len(chunk), N1)
+            count += 1
+        self.assertEqual(count, N2)
+
+
 
 class Stuff(object):
     def divide(self, x, y, delay=0.2):

@@ -24,6 +24,7 @@ Priority queueing of tasks to one or more threaded or asynchronous workers.
 from workers import *
 from base import TaskQueue
 from util import DeferredTracker
+from iteration import isIterator, iteratorToProducer
 
 
 class ThreadQueue(TaskQueue):
@@ -32,8 +33,9 @@ class ThreadQueue(TaskQueue):
     a single worker thread.
     """
     def __init__(self, **kw):
+        raw = kw.pop('raw', False)
         TaskQueue.__init__(self, **kw)
-        worker = ThreadWorker()
+        worker = ThreadWorker(raw=raw)
         self.attachWorker(worker)
 
 
@@ -49,4 +51,3 @@ class ProcessQueue(TaskQueue):
         for null in xrange(N):
             worker = ProcessWorker()
             self.attachWorker(worker)
-    

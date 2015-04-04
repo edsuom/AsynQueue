@@ -33,6 +33,9 @@ import errors
 def deferToDelay(delay):
     return Delay(delay)()
 
+def isIterator(x):
+    return Deferator.isIterator(x)
+
 
 class Delay(object):
     """
@@ -320,15 +323,13 @@ class IterationProducer(object):
     """
     implements(IPushProducer)
 
-    checkInterval = 0.1
-
     def __init__(self, dr, consumer=None):
         if not isinstance(dr, Deferator):
             raise TypeError("Object {} is not a Deferator".format(repr(dr)))
         self.dr = dr
         self.delay = Delay()
         if consumer is not None:
-            self.setConsumer(consumer)
+            self.registerConsumer(consumer)
 
     def registerConsumer(self, consumer):
         """
@@ -383,10 +384,11 @@ class IterationProducer(object):
         self.running = False
 
 
-def iteratorToProducer(iterator, consumer=None):
+def iteratorToProducer(iterator, consumer=None, wrapper=None):
     """
     Converts a possibly slow-running iterator into a Twisted-friendly
-    producer.
+    producer. If the the supplied object is not a suitable iterator,
+    C{None} will be returned.
 
     If a consumer is not supplied, whatever consumer gets this must
     register with the returned producer by calling its non-interface
@@ -394,14 +396,20 @@ def iteratorToProducer(iterator, consumer=None):
 
     In any case, the iterations/production starts with a call to its
     L{IterationProducer.run} method.
-    
     """
+    if not Deferator.isIterator(iterator):
+        return
     pf = Prefetcherator()
-    rIterator = repr(iterator)
     if not pf.setup(iterator):
-        raise TypeError(
-            "Object {} is not a suitable iterator".format(rIterator))
-    dr = Deferator(rIterator, pf.getNext)
+        return
+    if wrapper:
+        if not callable(wrapper):
+            raise TypeError(
+                "Wrapper '{}' is not a callable".format(repr(wrapper)))
+        args = (wrapper, pf.getNext)
+    else:
+        args = (pf.getNext,)
+    dr = Deferator(repr(iterator), *args)
     return IterationProducer(dr, consumer)
 
 
@@ -412,5 +420,9 @@ def consumeIterations(iterator, consumer):
     done.
     """
     producer = iteratorToProducer(iterator, consumer)
+    if producer is None:
+        raise TypeError(
+            "Object {} is not a suitable iterator".format(
+                repr(iterator)))
     return producer.run()
     

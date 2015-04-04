@@ -68,14 +68,13 @@ class AsyncWorker(object):
                 f, *args, **kw).addCallbacks(done, oops)
 
         def done(result):
-            if iteration.Deferator.isIterator(result):
-                try:
-                    result = iteration.iteratorToProducer(result)
-                except:
+            if iteration.isIterator(result):
+                result = iteration.iteratorToProducer(result)
+                if result:
+                    status = 'i'                    
+                else:
                     status = 'e'
                     result = self.info.setCall(f, args, kw).aboutException()
-                else:
-                    status = 'i'
             else:
                 status = 'r'
             # Hangs if release is done after the task callback

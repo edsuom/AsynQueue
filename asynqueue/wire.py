@@ -24,7 +24,7 @@ SocketWorker and its support staff.
 import sys, os.path, tempfile, shutil
 
 from zope.interface import implements
-from twisted.internet import reactor, defer
+from twisted.internet import reactor, defer, endpoints
 from twisted.internet.protocol import Factory
 from twisted.python import reflect
 from twisted.protocols import amp

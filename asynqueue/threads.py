@@ -38,16 +38,18 @@ class ThreadWorker(object):
     thread.
 
     You can supply a series keyword containing a list of one or more
-    task series that I am qualified to handle.
+    task series that I am qualified to handle, and raw=True if you
+    want raw iterators to be returned instead of prefetcherators
+    unless otherwise specified in a call.
     """
     implements(IWorker)
     cQualified = ['thread', 'local']
 
-    def __init__(self, series=[], profiler=None):
+    def __init__(self, series=[], profiler=None, raw=False):
         self.tasks = []
         self.iQualified = series
         self.profiler = profiler
-        self.t = ThreadLooper()
+        self.t = ThreadLooper(rawIterators=raw)
 
     def setResignator(self, callableObject):
         self.t.dLock.addStopper(callableObject)
@@ -113,7 +115,9 @@ class ThreadLooper(object):
     ones, the deferred fires with an instance of
     L{iteration.Prefetcherator} instead. Couple it to your own
     deferator to iterate over the underlying iterable running in my
-    thread.
+    thread. You can disable this behavior by setting rawIterators=True
+    in the constructor, or enable/disable it on an individual call by
+    setting raw=True/False.
     """
     # My default wait timeout is one minute: This is just how long the
     # thread loop waits before checking for a pending deferred and
@@ -178,7 +182,11 @@ class ThreadLooper(object):
         status/result tuple.
 
         Calls are done in the order received, unless you set doNext=True.
-        
+
+        Set raw=True to have a raw iterator returned instead of a
+        prefetcherator, or raw=False to have a prefetcherator returned
+        instead of a raw iterator, contrary to the instance-wide
+        default set with the constructor keyword rawIterators.
         """
         def threadReady(null):
             self.callTuple = f, args, kw
@@ -199,19 +207,26 @@ class ThreadLooper(object):
             status, result = statusResult
             if status == 'i':
                 # An iterator
-                if self.rawIterators:
-                    return ('i', result)
-                ID = str(hash(result))
-                pf = iteration.Prefetcherator(ID)
-                if pf.setup(result):
-                    # OK, we can iterate this
-                    return ('i', pf)
-                # An iterator, but not a proper one
-                return ('e', "Failed to iterate for call {}".format(
-                    self.info.setCall(f, args, kw).aboutCall()))
-            # Not an iterator; we already have our result
+                if raw:
+                    # ...but no special processing
+                    status = 'r'
+                else:
+                    # ...with special processing
+                    ID = str(hash(result))
+                    pf = iteration.Prefetcherator(ID)
+                    if pf.setup(result):
+                        # OK, we can iterate this
+                        return ('i', pf)
+                    # An iterator, but not a proper one
+                    return ('e', "Failed to iterate for call {}".format(
+                        self.info.setCall(f, args, kw).aboutCall()))
+            # Not an iterator, at least not one being specially
+            # processed; we already have our result
             return status, result
 
+        raw = kw.pop('raw', None)
+        if raw is None:
+            raw = self.rawIterators
         return self.dLock.acquire(
             kw.pop('doNext', False)).addCallback(threadReady)
 
@@ -250,10 +265,13 @@ class ThreadLooper(object):
             status, result = statusResult
             if status == 'e':
                 return Failure(errors.WorkerError(result))
-            if status == 'i' and not self.rawIterators:
-                return self.pf2ip(result)
+            if status == 'i' and not raw:
+                return self.pf2ip(result, consumer)
             return result
-        
+
+        raw = kw.pop('raw', None)
+        if raw is None:
+            raw = self.rawIterators
         consumer = kw.pop('consumer', None)
         return self.call(f, *args, **kw).addCallback(done)
 
