@@ -23,19 +23,18 @@ Priority queueing of tasks to one or more threaded or asynchronous workers.
 
 from workers import *
 from base import TaskQueue
+from util import DeferredTracker
 
 
 class ThreadQueue(TaskQueue):
     """
-    I am a task queue for dispatching arbitrary callables to be run by workers
-    from a pool of I{N} worker threads, the number I{N} being specified as the
-    sole argument of my constructor.
+    I am a task queue for dispatching arbitrary callables to be run by
+    a single worker thread.
     """
-    def __init__(self, N, **kw):
+    def __init__(self, **kw):
         TaskQueue.__init__(self, **kw)
-        for null in xrange(N):
-            worker = ThreadWorker()
-            self.attachWorker(worker)
+        worker = ThreadWorker()
+        self.attachWorker(worker)
 
 
 class ProcessQueue(TaskQueue):
@@ -44,32 +43,10 @@ class ProcessQueue(TaskQueue):
     callables to be run by workers from a pool of I{N} worker
     processes, the number I{N} being specified as the sole argument of
     my constructor.
-
-    Besides the reserved keywords 'timeout' and 'warn' that you can
-    supply for my underlying TaskQueue constructor, you can supply
-    local callable objects to the constructor with keywords and then
-    supply only the keyword strings as callables for your tasks.
-
     """
     def __init__(self, N, **kw):
         TaskQueue.__init__(self, **kw)
-        for reservedKW in ('timeout', 'warn', 'profile'):
-            kw.pop(reservedKW, None)
         for null in xrange(N):
-            worker = ProcessWorker(**kw)
+            worker = ProcessWorker()
             self.attachWorker(worker)
-
-    
-class BogusQueue(TaskQueue):
-    """
-    I am a stand-in for a real task queue, running all tasks
-    immediately in the same thread
-    """
-    def __init__(self, **kw):
-        TaskQueue.__init__(self, **kw)
-        self.attachWorker(BogusWorker())
-        for reservedKW in ('timeout', 'warn', 'profile'):
-            kw.pop(reservedKW, None)
-        worker = BogusWorker(**kw)
-        self.attachWorker(worker)
     

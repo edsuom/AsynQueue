@@ -18,16 +18,15 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
 
 """
-Unit tests for asynqueue.workers
+Unit tests for asynqueue.interfaces
 """
 
-import time, random, threading
 import multiprocessing as mp
 import zope.interface
 from twisted.internet import defer
-from twisted.trial.unittest import TestCase
 
-from testbase import interfaces, errors
+import errors, interfaces
+from testbase import TestCase
 
 
 VERBOSE = True
