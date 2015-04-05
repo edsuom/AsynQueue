@@ -197,6 +197,7 @@ class Deferator(object):
             f, args, kw = self.callTuple
             self.d = f(*args, **kw).addCallback(gotNext)
             return self.d
+        del self.d
         raise StopIteration
 
 

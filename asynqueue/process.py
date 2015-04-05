@@ -45,6 +45,10 @@ class ProcessWorker(object):
     implements(IWorker)
     cQualified = ['process', 'local']
 
+    @staticmethod
+    def cores():
+        return mp.cpu_count()
+    
     def __init__(self, series=[], profiler=None):
         self.tasks = []
         self.iQualified = series

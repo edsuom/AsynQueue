@@ -46,8 +46,13 @@ class ProcessQueue(TaskQueue):
     processes, the number I{N} being specified as the sole argument of
     my constructor.
     """
+    @staticmethod
+    def cores():
+        return ProcessWorker.cores()
+
     def __init__(self, N, **kw):
         TaskQueue.__init__(self, **kw)
         for null in xrange(N):
             worker = ProcessWorker()
             self.attachWorker(worker)
+

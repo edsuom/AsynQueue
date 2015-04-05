@@ -22,7 +22,8 @@ Unit tests for asynqueue.workers
 """
 
 import sys, os.path, time, random
-from twisted.internet import defer, reactor
+from twisted.internet import defer, reactor, endpoints
+from twisted.protocols import amp
 
 from util import TestStuff, o2p, p2o
 import base, iteration, util, wire

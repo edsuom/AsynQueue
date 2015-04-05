@@ -78,6 +78,7 @@ class SocketWorker(object):
     cQualified = ['process', 'network']
     
     def __init__(self, series=[], sFile=None, reconnect=False, profiler=None):
+        self.ap = None
         self.tasks = []
         self.iQualified = series
         self.profiler = profiler
@@ -113,13 +114,15 @@ class SocketWorker(object):
         AMP protocol and a unique UNIX socket address.
         """
         def ready(null):
-            # Now connect to the pserver via the UNIX socket
+            # Now connect to the AMP server via the UNIX socket
             dest = endpoints.UNIXClientEndpoint(reactor, sFile)
             return endpoints.connectProtocol(
                 dest, amp.AMP()).addCallback(connected)
 
         def connected(ap):
             self.ap = ap
+            # We finally have an AMP protocol object, ready for
+            # callers to use, so release the lock
             self.dLock.release()
             self.pList.append(self.ap)
 
@@ -129,8 +132,8 @@ class SocketWorker(object):
             # We already have a connection
             return defer.succeed(None)
         self.dLock.acquire()
-        # Spawn the pserver and "wait" for it to indicate it's OK
-        args = [sys.executable, "-m", "asynqueue.pserver", sFile]
+        # Spawn the AMP server and "wait" for it to indicate it's OK
+        args = [sys.executable, "-m", "asynqueue.wire", sFile]
         pp = ProcessProtocol(self._disconnected)
         self.pt = reactor.spawnProcess(pp, sys.executable, args)
         self.pid = self.pt.pid
@@ -208,12 +211,12 @@ class SocketWorker(object):
         # Run the task on the subordinate Python interpreter
         # TODO: Have the subordinate run with its own version of
         # self.profiler.runcall if profiler present. It will need to
-        # return its own Stats object when we call pserver.QuitRunning
+        # return its own Stats object when we call QuitRunning
         #-----------------------------------------------------------
         kw = {}
         func = task.callTuple[0]
         for k, value in enumerate(task.callTuple):
-            name = pserver.RunTask.arguments[k][0]
+            name = RunTask.arguments[k][0]
             kw[name] = value if isinstance(value, str) else o2p(value)
         # The heart of the matter
         response = yield self.ap.callRemote(RunTask, **kw)
