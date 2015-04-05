@@ -142,8 +142,8 @@ class Deferator(object):
     for informative purposes in case an error gets propagated back
     somewhere. You can cheat and just use C{None} for the first
     constructor argument. Or you can supply a Prefetcherator as the
-    first and sole argument.
-    
+    first and sole argument, or an iterator for which a Prefetcherator
+    will be constructed internally.
     """
     builtIns = (
         str, unicode,
@@ -170,13 +170,26 @@ class Deferator(object):
     def __init__(self, objOrRep, *args, **kw):
         self.moreLeft = True
         if isinstance(objOrRep, (str, unicode)):
+            # String representation
             self.representation = objOrRep.strip('<>')
         else:
             self.representation = repr(objOrRep)
-            if isinstance(objOrRep, Prefetcherator):
-                self.callTuple = (objOrRep.getNext, [], {})
+        if args:
+            self.callTuple = args[0], args[1:], kw
+            return
+        if isinstance(objOrRep, Prefetcherator):
+            # A Prefetcherator
+            self.callTuple = (objOrRep.getNext, [], {})
+            return
+        if self.isIterator(objOrRep):
+            # An iterator for which I will make my own Prefetcherator
+            pf = Prefetcherator()
+            if pf.setup(objOrRep):
+                self.callTuple = (pf.getNext, [], {})
                 return
-        self.callTuple = args[0], args[1:], kw 
+        raise TypeError(
+            "Object '{}' unsuitable for Deferator wrapping".format(
+                self.representation))
 
     def __repr__(self):
         return "<Deferator wrapping of\n  <{}>,\nat 0x{}>".format(

@@ -24,7 +24,8 @@ Priority queueing of tasks to one or more threaded or asynchronous workers.
 from workers import *
 from base import TaskQueue
 from util import DeferredTracker
-from iteration import isIterator, iteratorToProducer
+from iteration import \
+    isIterator, Deferator, Prefetcherator, iteratorToProducer
 
 
 class ThreadQueue(TaskQueue):
@@ -35,8 +36,16 @@ class ThreadQueue(TaskQueue):
     def __init__(self, **kw):
         raw = kw.pop('raw', False)
         TaskQueue.__init__(self, **kw)
-        worker = ThreadWorker(raw=raw)
-        self.attachWorker(worker)
+        self.worker = ThreadWorker(raw=raw)
+        self.attachWorker(self.worker)
+
+    def deferToThread(f, *args, **kw):
+        """
+        Runs the f-args-kw call in my dedicated worker thread, skipping
+        past the queue. As with a regular TaskQueue.call, returns a
+        deferred that fires with the result and deals with iterators.
+        """
+        return self.worker.t.deferToThread(f, *args, **kw)
 
 
 class ProcessQueue(TaskQueue):
