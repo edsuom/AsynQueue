@@ -357,13 +357,14 @@ class IterationProducer(object):
         self.paused = False
         self.running = True
         for d in self.dr:
-            # Pause/stop opportunity before the deferred fires
+            # Pause/stop opportunity after the last item write (if
+            # any) and before the deferred fires
             if not self.running:
                 break
             if self.paused:
                 yield self.delay.untilEvent(lambda: not self.paused)
             item = yield d
-            # Pause/stop opportunity before the item write
+            # Another pause/stop opportunity before the item write
             if not self.running:
                 break
             if self.paused:
