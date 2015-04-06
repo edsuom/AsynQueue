@@ -147,8 +147,10 @@ class TaskFactory(object):
     """
     TaskClass = Task
     
-    def __init__(self):
+    def __init__(self, klass=None):
         self.seriesNumbers = {}
+        if klass:
+            self.TaskClass = klass
 
     def new(self, func, args, kw, niceness, series=None, timeout=None):
         """
@@ -353,13 +355,13 @@ class TaskHandler(object):
         """
         Adds a new worker to my work force.
 
-        Makes sure that there is an assignment request queue for each task
-        series for which the worker is qualified, then has the new worker
-        request an initial assignment from each queue.
+        Makes sure that there is an assignment request queue for each
+        task series for which the worker is qualified, then has the
+        new worker request an initial assignment from each queue.
 
-        The method generates an integer ID uniquely identifying the worker, and
-        gives the worker an C{ID} attribute with the ID for its own reference,
-        The ID is returned as well.
+        The method generates an integer ID uniquely identifying the
+        worker, and gives the worker an C{ID} attribute with the ID
+        for its own reference, The ID is returned as well.
         """
         @defer.inlineCallbacks
         def readyToRun():

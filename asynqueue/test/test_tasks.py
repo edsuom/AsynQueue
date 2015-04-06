@@ -24,10 +24,9 @@ Unit tests for asynqueue.tasks
 import copy
 import zope.interface
 from twisted.internet import defer, reactor
-from twisted.trial.unittest import TestCase
 
-from testbase import tasks, errors, workers
-from testbase import MockTask, MockWorker
+import tasks, errors, workers
+from testbase import MockTask, MockWorker, TestCase
 
 
 VERBOSE = False
@@ -146,9 +145,9 @@ class TestAssignmentFactory(TestCase):
         return d
 
 
-class TestWorkerManagerHiring(TestCase):
+class TestTaskHandlerHiring(TestCase):
     def setUp(self):
-        self.mgr = tasks.WorkerManager()
+        self.th = tasks.TaskHandler()
 
     def testHireRejectBogus(self):
         class AttrBogus(object):
@@ -156,12 +155,12 @@ class TestWorkerManagerHiring(TestCase):
             cQualified = 'foo'
 
         self.failUnlessRaises(
-            errors.ImplementationError, self.mgr.hire, None)
+            errors.ImplementationError, self.th.hire, None)
         self.failUnlessRaises(
-            errors.InvariantError, self.mgr.hire, AttrBogus())
+            errors.InvariantError, self.th.hire, AttrBogus())
 
     def _checkAssignments(self, workerID):
-        worker = self.mgr.workers[workerID]
+        worker = self.th.workers[workerID]
         assignments = getattr(worker, 'assignments', {})
         for key in assignments.iterkeys():
             self.failUnlessEqual(assignments.keys().count(key), 1)
@@ -173,7 +172,7 @@ class TestWorkerManagerHiring(TestCase):
 
     def testHireSetWorkerID(self):
         worker = MockWorker()
-        workerID = self.mgr.hire(worker)
+        workerID = self.th.hire(worker)
         self.failUnlessEqual(getattr(worker, 'ID', None), workerID)
 
     def testHireClassQualifications(self):
@@ -181,22 +180,22 @@ class TestWorkerManagerHiring(TestCase):
             cQualified = ['foo']
 
         worker = CQWorker()
-        workerID = self.mgr.hire(worker)
+        workerID = self.th.hire(worker)
         self._checkAssignments(workerID)
         
     def testHireInstanceQualifications(self):
         worker = MockWorker()
         worker.iQualified = ['bar']
-        workerID = self.mgr.hire(worker)
+        workerID = self.th.hire(worker)
         self._checkAssignments(workerID)
     
     def testHireMultipleWorkersThenShutdown(self):
-        ID_1 = self.mgr.hire(MockWorker())
-        ID_2 = self.mgr.hire(MockWorker())
+        ID_1 = self.th.hire(MockWorker())
+        ID_2 = self.th.hire(MockWorker())
         self.failIfEqual(ID_1, ID_2)
-        self.failUnlessEqual(len(self.mgr.workers), 2)
-        d = self.mgr.shutdown()
-        d.addCallback(lambda _: self.failUnlessEqual(self.mgr.workers, {}))
+        self.failUnlessEqual(len(self.th.workers), 2)
+        d = self.th.shutdown()
+        d.addCallback(lambda _: self.failUnlessEqual(self.th.workers, {}))
         return d
 
     def _callback(self, result, msg, order=None, value=None):
@@ -213,13 +212,13 @@ class TestWorkerManagerHiring(TestCase):
     def testTerminateGracefully(self):
         self._count = 0
         worker = MockWorker()
-        workerID = self.mgr.hire(worker)
+        workerID = self.th.hire(worker)
         task = MockTask(lambda x: x, ('foo',), {}, 100, None)
-        d1 = self.mgr.assignment(task)
+        d1 = self.th(task)
         d1.addCallback(self._callback, "Assignment accepted", 1)
         d2 = task.d
         d2.addCallback(self._callback, "Task done", 2)
-        d3 = self.mgr.terminate(workerID)
+        d3 = self.th.terminate(workerID)
         d3.addCallback(self._callback, "Worker terminated", 3)
         return defer.gatherResults([d1,d2,d3])
 
@@ -229,11 +228,11 @@ class TestWorkerManagerHiring(TestCase):
         
         self._count = 0
         worker = MockWorker(runDelay=2.0)
-        workerID = self.mgr.hire(worker)
+        workerID = self.th.hire(worker)
         task = MockTask(lambda x: x, ('foo',), {}, 100, None)
-        d1 = self.mgr.assignment(task)
+        d1 = self.th(task)
         d1.addCallback(self._callback, "Assignment accepted", 1)
-        d2 = self.mgr.terminate(workerID, timeout=1.0)
+        d2 = self.th.terminate(workerID, timeout=1.0)
         d2.addCallback(self._callback, "Worker terminated", 2, value=[task])
         return defer.gatherResults([d1,d2]).addCallback(checkTask)
 
@@ -243,11 +242,11 @@ class TestWorkerManagerHiring(TestCase):
         
         self._count = 0
         worker = MockWorker(runDelay=1.0)
-        workerID = self.mgr.hire(worker)
+        workerID = self.th.hire(worker)
         task = MockTask(lambda x: x, ('foo',), {}, 100, None)
-        d1 = self.mgr.assignment(task)
+        d1 = self.th(task)
         d1.addCallback(self._callback, "Assignment accepted", 1)
-        d2 = self.mgr.terminate(workerID, timeout=2.0)
+        d2 = self.th.terminate(workerID, timeout=2.0)
         d2.addCallback(self._callback, "Worker terminated", 2, value=[])
         return defer.gatherResults([d1,d2]).addCallback(checkTask)
 
@@ -257,21 +256,21 @@ class TestWorkerManagerHiring(TestCase):
         
         self._count = 0
         worker = MockWorker(runDelay=1.0)
-        workerID = self.mgr.hire(worker)
+        workerID = self.th.hire(worker)
         task = MockTask(lambda x: x, ('foo',), {}, 100, None)
-        d = self.mgr.assignment(task)
+        d = self.th(task)
         d.addCallback(self._callback, "Assignment accepted", 1)
-        d.addCallback(lambda _: self.mgr.terminate(workerID, crash=True))
+        d.addCallback(lambda _: self.th.terminate(workerID, crash=True))
         d.addCallback(self._callback, "Worker terminated", 2, value=[task])
         return d.addCallback(checkTask)
 
 
-class TestWorkerManagerRun(TestCase):
+class TestTaskHandlerRun(TestCase):
     def setUp(self):
-        self.mgr = tasks.WorkerManager()
+        self.th = tasks.TaskHandler()
 
     def tearDown(self):
-        return self.mgr.shutdown()
+        return self.th.shutdown()
 
     def testOneWorker(self):
         worker = MockWorker(0.2)
@@ -281,12 +280,12 @@ class TestWorkerManagerRun(TestCase):
             self.failUnlessEqual(
                 [type(x) for x in worker.ran], [MockTask]*N)
 
-        self.mgr.hire(worker)
+        self.th.hire(worker)
         dList = []
         for null in xrange(N):
             task = MockTask(lambda x: x, ('foo',), {}, 100, None)
             # For this test, we don't care about when assignments are accepted
-            self.mgr.assignment(task)
+            self.th(task)
             # We only care about when they are done
             dList.append(task.d)
         d = defer.DeferredList(dList)
@@ -304,13 +303,13 @@ class TestWorkerManagerRun(TestCase):
             self.failUnlessApproximates(
                 2*len(workerSlow.ran), len(workerFast.ran), 2)
             
-        self.mgr.hire(workerFast)
-        self.mgr.hire(workerSlow)
+        self.th.hire(workerFast)
+        self.th.hire(workerSlow)
         dList = []
         for null in xrange(N):
             task = MockTask(lambda : mutable.append(None), (), {}, 100, None)
             # For this test, we don't care about when assignments are accepted
-            self.mgr.assignment(task)
+            self.th(task)
             # We only care about when they are done
             dList.append(task.d)
         d = defer.DeferredList(dList)

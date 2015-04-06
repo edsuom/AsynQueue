@@ -170,19 +170,22 @@ class Deferator(object):
     def __init__(self, objOrRep, *args, **kw):
         self.moreLeft = True
         if isinstance(objOrRep, (str, unicode)):
-            # String representation
+            # Use supplied string representation
             self.representation = objOrRep.strip('<>')
         else:
+            # Use repr of the object itself
             self.representation = repr(objOrRep)
         if args:
+            # A callTuple was supplied
             self.callTuple = args[0], args[1:], kw
             return
         if isinstance(objOrRep, Prefetcherator):
-            # A Prefetcherator
+            # A Prefetcherator was supplied
             self.callTuple = (objOrRep.getNext, [], {})
             return
         if self.isIterator(objOrRep):
-            # An iterator for which I will make my own Prefetcherator
+            # An iterator was supplied for which I will make my own
+            # Prefetcherator
             pf = Prefetcherator()
             if pf.setup(objOrRep):
                 self.callTuple = (pf.getNext, [], {})
