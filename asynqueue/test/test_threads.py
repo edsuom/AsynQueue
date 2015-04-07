@@ -29,7 +29,55 @@ import base, tasks, iteration, threads
 from testbase import deferToDelay, IterationConsumer, TestCase
 
 
-class TestThreadWorker(TestCase):
+class TaskMixin:
+    def _blockingTask(self, x):
+        delay = random.uniform(0.0, 0.2)
+        self.msg(
+            "Running {:f} sec. task in thread {}",
+            delay, threading.currentThread().getName())
+        time.sleep(delay)
+        return 2*x
+
+    def _producterator(self, x, N=7):
+        for y in xrange(N):
+            yield x*y
+
+
+class TestThreadQueue(TaskMixin, TestCase):
+    verbose = False
+
+    def tearDown(self):
+        if hasattr(self, 'q'):
+            return self.q.shutdown()
+
+    @defer.inlineCallbacks
+    def test_basic(self):
+        for raw in (True, False):
+            q = threads.ThreadQueue(raw=raw)
+            y = yield q.call(self._blockingTask, 1.5)
+            self.assertEqual(y, 3.0)
+            yield q.shutdown()
+
+    @defer.inlineCallbacks
+    def test_iteration_raw(self):
+        q = threads.ThreadQueue(raw=True)
+        iterator = yield q.call(self._producterator, 2.0)
+        for k, y in enumerate(iterator):
+            self.assertEqual(y, 2.0*k)
+        yield q.shutdown()
+
+    @defer.inlineCallbacks
+    def test_iteration(self):
+        q = threads.ThreadQueue()
+        dr = yield q.call(self._producterator, 2.0)
+        self.assertIsInstance(dr, iteration.Deferator)
+        for k, d in enumerate(dr):
+            y = yield d
+            self.assertEqual(y, 2.0*k)
+        yield q.shutdown()
+
+        
+class TestThreadWorker(TaskMixin, TestCase):
     verbose = False
     
     def setUp(self):
@@ -39,14 +87,6 @@ class TestThreadWorker(TestCase):
 
     def tearDown(self):
         return self.queue.shutdown()
-
-    def _blockingTask(self, x):
-        delay = random.uniform(0.1, 0.5)
-        self.msg(
-            "Running {:f} sec. task in thread {}",
-            delay, threading.currentThread().getName())
-        time.sleep(delay)
-        return 2*x
 
     def test_shutdown(self):
         def checkStopped(null):
@@ -124,21 +164,23 @@ class TestThreadWorker(TestCase):
         return d
 
     @defer.inlineCallbacks
-    def test_iterationProducer(self):
-        N1, N2 = 50, 100
+    def test_iteration(self):
+        N1, N2 = 20, 50
         stuff = TestStuff()
         stuff.setStuff(N1, N2)
-        consumer = IterationConsumer(self.verbose)
-        producer = yield self.queue.call(stuff.stufferator)
-        consumer.registerProducer(producer, True)
-        yield producer.run()
-        for chunk in consumer.data:
+        dr = yield self.queue.call(stuff.stufferator)
+        self.assertIsInstance(dr, iteration.Deferator)
+        chunks = []
+        for k, d in enumerate(dr):
+            chunk = yield d
+            self.msg("Chunk #{:d}: '{}'", k+1, chunk)
             self.assertEqual(len(chunk), N1)
-        self.assertEqual(len(consumer.data), N2)
+            chunks.append(chunk)
+        self.assertEqual(len(chunks), N2)
 
     @defer.inlineCallbacks
-    def test_iterationProducer_supplyingConsumer(self):
-        N1, N2 = 50, 100
+    def test_iterationProducer(self):
+        N1, N2 = 20, 50
         stuff = TestStuff()
         stuff.setStuff(N1, N2)
         consumer = IterationConsumer(self.verbose)
@@ -160,7 +202,6 @@ class TestThreadWorker(TestCase):
         self.assertEqual(count, N2)
 
 
-
 class Stuff(object):
     def divide(self, x, y, delay=0.2):
         time.sleep(delay)
@@ -173,14 +214,14 @@ class Stuff(object):
             yield k
 
     def stringerator(self):
-        def oneSecond():
+        def wait():
             t0 = time.time()
             while time.time() - t0 < 0.2:
                 time.sleep(0.05)
             return time.time() - t0
         for k in xrange(5):
             time.sleep(0.02)
-            yield str(oneSecond())
+            yield wait()
 
 
 class TestThreadLooper(TestCase):
@@ -203,7 +244,8 @@ class TestThreadLooper(TestCase):
             
     @defer.inlineCallbacks
     def test_call_OK_once(self):
-        status, result = yield self.t.call(self.stuff.divide, 10, 2, delay=0.3)
+        status, result = yield self.t.call(
+            self.stuff.divide, 10, 2, delay=0.3)
         self.assertEqual(status, 'r')
         self.assertEqual(result, 5)
 
@@ -217,7 +259,8 @@ class TestThreadLooper(TestCase):
     def test_call_multi_OK(self):
         dList = []
         for x in (2, 4, 8, 10):
-            d = self.t.call(self.stuff.divide, x, 2, delay=0.2*random.random())
+            d = self.t.call(
+                self.stuff.divide, x, 2, delay=0.2*random.random())
             d.addCallback(self._gotOne)
             dList.append(d)
         return defer.DeferredList(dList).addCallback(
@@ -251,7 +294,7 @@ class TestThreadLooper(TestCase):
             status, result = yield self.t.call(self.stuff.iterate, N, 0)
             self.assertEqual(status, 'i')
             resultList = []
-            for d in iteration.Deferator(result):
+            for d in result:
                 item = yield d
                 resultList.append(item)
             self.assertEqual(resultList, range(N))
@@ -262,7 +305,7 @@ class TestThreadLooper(TestCase):
         self.assertEqual(status, 'i')
         dRegular = self.t.call(self.stuff.divide, 3.0, 2.0)
         resultList = []
-        for d in iteration.Deferator(result):
+        for d in result:
             item = yield d
             resultList.append(item)
         self.assertEqual(resultList, range(10))
@@ -276,11 +319,12 @@ class TestThreadLooper(TestCase):
         self.assertEqual(status, 'i')
         dRegular = self.t.call(self.stuff.divide, 3.0, 2.0)
         resultList = []
-        for d in iteration.Deferator(result):
+        for d in result:
             item = yield d
             resultList.append(item)
         self.assertEqual(len(resultList), 5)
-        self.assertApproximates(sum([float(x) for x in resultList]), 1.0, 0.1)
+        self.assertApproximates(
+            sum(resultList), 1.0, 0.05)
         status, result = yield dRegular
         self.assertEqual(status, 'r')
         self.assertEqual(result, 1.5)
@@ -300,19 +344,17 @@ class TestThreadLooper(TestCase):
             self.assertPattern(r'[dD]ivi', failureObj.getErrorMessage())
         return self.t.deferToThread(
             self.stuff.divide, 1, 0).addCallbacks(done, oops)
-    
-    def test_deferToThread_iterator(self):
-        @defer.inlineCallbacks
-        def done(p):
-            self.msg("Call to iterator returned: {}", repr(p))
-            c = IterationConsumer(self.verbose)
-            p.registerConsumer(c)
-            self.assertEqual(c.producer, p)
-            yield p.run()
-            self.assertEqual(len(c.data), 5)
-            self.assertApproximates(sum([float(x) for x in c.data]), 1.0, 0.1)
-            self.assertEqual(c.producer, None)
 
-        return self.t.deferToThread(
-            self.stuff.stringerator).addCallback(done)
+    @defer.inlineCallbacks
+    def test_deferToThread_iterator(self):
+        dr = yield self.t.deferToThread(self.stuff.stringerator)
+        self.msg("Call to iterator returned: {}", repr(dr))
+        valueList = []
+        for d in dr:
+            value = yield d
+            self.assertApproximates(value, 0.2, 0.05)
+            valueList.append(value)
+        self.assertEqual(len(valueList), 5)
+
+
         

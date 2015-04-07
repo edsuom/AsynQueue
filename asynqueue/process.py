@@ -27,8 +27,27 @@ from zope.interface import implements
 from twisted.internet import defer
 from twisted.python.failure import Failure
 
+from base import TaskQueue
 from interfaces import IWorker
 import errors, util, iteration
+
+
+class ProcessQueue(TaskQueue):
+    """
+    I am a task queue for dispatching picklable or keyword-supplied
+    callables to be run by workers from a pool of I{N} worker
+    processes, the number I{N} being specified as the sole argument of
+    my constructor.
+    """
+    @staticmethod
+    def cores():
+        return ProcessWorker.cores()
+
+    def __init__(self, N, **kw):
+        TaskQueue.__init__(self, **kw)
+        for null in xrange(N):
+            worker = ProcessWorker()
+            self.attachWorker(worker)
 
 
 class ProcessWorker(object):
@@ -114,9 +133,7 @@ class ProcessWorker(object):
             yield self.dLock.acquire(task.priority <= -20)
             # Our turn!
             #------------------------------------------------------------------
-            # Sanitize the task's callable
-            #with task.sanitizeCall(raw=True) as ns:
-            #    self.cMain.send(())
+            consumer = task.callTuple[2].pop('consumer', None)
             self.cMain.send(task.callTuple)
             # "Wait" here (in Twisted-friendly fashion) for a response
             # from the process
@@ -125,14 +142,17 @@ class ProcessWorker(object):
             self.dLock.release()
             if status == 'i':
                 # What we get from the process is an ID to an iterator
-                # it is holding onto, but we need to give the task an
-                # iterationProducer that hooks up to it.
+                # it is holding onto, but we need to hook up to it
+                # with a Prefetcherator and then make a Deferator,
+                # which we will either return to the caller or couple
+                # to a consumer provided by the caller.
                 ID = result
                 pf = iteration.Prefetcherator(ID)
                 ok = yield pf.setup(self.next, ID)
                 if ok:
-                    dr = iteration.Deferator(pf)
-                    result = iteration.IterationProducer(dr)
+                    result = iteration.Deferator(pf)
+                    if consumer:
+                        result = iteration.IterationProducer(result, consumer)
                 else:
                     status = 'e'
                     # The process may have an iterator, but it's not a

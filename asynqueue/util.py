@@ -54,10 +54,33 @@ def p2o(pickledString, defaultObj=None):
         return defaultObj
     return pickle.loads(pickledString)
 
+def callAfterDeferred(namespace, dName, f, *args, **kw):
+    """
+    Looks for a deferred namespace.dName and does the f-args-kw call,
+    chaining its call to the deferred if necessary. Note that the
+    original deferred's value is swallowed when it calls the new
+    deferred's callback; the original deferred must be for signalling
+    readiness only and its return value not relied upon.
+    """
+    def call(discarded):
+        delattr(namespace, dName)
+        return defer.maybeDeferred(f, *args, **kw)        
+    
+    d = getattr(namespace, dName, None)
+    if d is None:
+        return defer.maybeDeferred(f, *args, **kw)
+    if d.called:
+        delattr(namespace, dName)
+        return defer.maybeDeferred(f, *args, **kw)
+    d2 = defer.Deferred().addCallback(call)
+    d.chainDeferred(d2)
+    return d2
 
+
+# For Testing
+# ----------------------------------------------------------------------------
 def testFunction(x):
     return 2*x
-
 class TestStuff(object):
     @staticmethod
     def divide(x, y):
@@ -77,7 +100,7 @@ class TestStuff(object):
         import time
         time.sleep(delay)
         return 2*x
-
+# ----------------------------------------------------------------------------
     
 class CallProfiler(profile.Profile):
     def __init__(self, filename):

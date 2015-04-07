@@ -28,6 +28,8 @@ from twisted.internet import defer, reactor
 from twisted.internet.interfaces import IPushProducer, IConsumer
 
 import errors
+# Almost everybody in the package imports this module, so it can
+# import very little from the package.
 
 
 def deferToDelay(delay):
@@ -236,7 +238,7 @@ class Prefetcherator(object):
 
     def __repr__(self):
         text = "<Prefetcherator instance '{}'".format(self.ID)
-        if self.isBusy:
+        if self.isBusy():
             text += " with nextCallTuple '{}'>".format(
                 repr(self.nextCallTuple))
         else:
@@ -257,7 +259,14 @@ class Prefetcherator(object):
             if not args:
                 return False
             if Deferator.isIterator(args[0]):
-                self.nextCallTuple = (args[0].next, [], {})
+                iterator = args[0]
+                if not hasattr(iterator, 'next'):
+                    iterator = iter(iterator)
+                if not hasattr(iterator, 'next'):
+                    raise AttributeError(
+                        "Can't get a nextCallTuple from so-called "+\
+                        "iterator '{}'".format(repr(args[0])))
+                self.nextCallTuple = (iterator.next, [], {})
                 return True
             if callable(args[0]):
                 self.nextCallTuple = (args[0], args[1:], kw)
@@ -345,9 +354,19 @@ class IterationProducer(object):
             raise TypeError("Object {} is not a Deferator".format(repr(dr)))
         self.dr = dr
         self.delay = Delay()
+        # NOT the one in util; we don't need its features and we can't
+        # import util from this module because util imports us
+        self.lock = defer.DeferredLock()
+        self.lock.acquire()
         if consumer is not None:
             self.registerConsumer(consumer)
 
+    def deferUntilDone(self):
+        """
+        Returns a deferred that fires when I am done producing iterations.
+        """
+        return self.lock.acquire().addCallback(lambda _: self.lock.release())
+            
     def registerConsumer(self, consumer):
         """
         How could we push to a consumer without knowing what it is?
@@ -362,11 +381,11 @@ class IterationProducer(object):
             # having registered me.
             pass
         self.consumer = consumer
-    
+
     @defer.inlineCallbacks
     def run(self):
         """
-        Produces the iterations, returning a deferred that fires when the
+        Produces the iterations, returning a deferred that fires and when the
         iterations are done.
         """
         if not hasattr(self, 'consumer'):
@@ -391,6 +410,7 @@ class IterationProducer(object):
         # Done with the iteration, and with producer/consumer
         # interaction
         self.consumer.unregisterProducer()
+        self.lock.release()
             
     def pauseProducing(self):
         self.paused = True

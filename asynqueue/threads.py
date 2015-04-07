@@ -28,8 +28,30 @@ from zope.interface import implements
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 
+from base import TaskQueue
 from interfaces import IWorker
 import errors, util, iteration
+
+
+class ThreadQueue(TaskQueue):
+    """
+    I am a task queue for dispatching arbitrary callables to be run by
+    a single worker thread.
+    """
+    def __init__(self, **kw):
+        raw = kw.pop('raw', False)
+        TaskQueue.__init__(self, **kw)
+        self.worker = ThreadWorker(raw=raw)
+        self.d = self.attachWorker(self.worker)
+
+    def deferToThread(self, f, *args, **kw):
+        """
+        Runs the f-args-kw call in my dedicated worker thread, skipping
+        past the queue. As with a regular TaskQueue.call, returns a
+        deferred that fires with the result and deals with iterators.
+        """
+        return util.callAfterDeferred(
+            self, 'd', self.worker.t.deferToThread, f, *args, **kw)
 
 
 class ThreadWorker(object):
@@ -49,7 +71,7 @@ class ThreadWorker(object):
         self.tasks = []
         self.iQualified = series
         self.profiler = profiler
-        self.t = ThreadLooper(rawIterators=raw)
+        self.t = ThreadLooper(raw=raw)
 
     def setResignator(self, callableObject):
         self.t.dLock.addStopper(callableObject)
@@ -74,13 +96,19 @@ class ThreadWorker(object):
             if task in self.tasks:
                 self.tasks.remove(task)
             if statusResult[0] == 'i':
-                # What we get is a prefetcherator, but we need to give
-                # the task an iterationProducer.
-                statusResult = ('i', self.t.pf2ip(statusResult[1]))
+                # What we got is a Deferator, but if a consumer was
+                # supplied, we need to couple an IterationProducer to
+                # it and fire the task callback with the deferred from
+                # running the producer.
+                if consumer:
+                    dr = statusResult[1]
+                    ip = iteration.IterationProducer(dr, consumer)
+                    statusResult = ('i', ip)
             task.d.callback(statusResult)
         
         self.tasks.append(task)
         f, args, kw = task.callTuple
+        consumer = kw.pop('consumer', None)
         if task.priority <= -20:
             kw['doNext'] = True
         # TODO: Have thread run with self.profiler.runcall if profiler present
@@ -88,8 +116,8 @@ class ThreadWorker(object):
 
     def stop(self):
         """
-        The returned deferred fires when the task loop has ended and its thread
-        terminated.
+        The returned deferred fires when the task loop has ended and its
+        thread terminated.
         """
         return self.t.stop()
 
@@ -115,9 +143,9 @@ class ThreadLooper(object):
     ones, the deferred fires with an instance of
     L{iteration.Prefetcherator} instead. Couple it to your own
     deferator to iterate over the underlying iterable running in my
-    thread. You can disable this behavior by setting rawIterators=True
-    in the constructor, or enable/disable it on an individual call by
-    setting raw=True/False.
+    thread. You can disable this behavior by setting raw=True in the
+    constructor, or enable/disable it on an individual call by setting
+    raw=True/False.
     """
     # My default wait timeout is one minute: This is just how long the
     # thread loop waits before checking for a pending deferred and
@@ -125,8 +153,8 @@ class ThreadLooper(object):
     # another minute, and it can do that forever with no problem.
     timeout = 60
     
-    def __init__(self, rawIterators=False):
-        self.rawIterators = rawIterators
+    def __init__(self, raw=False):
+        self.raw = raw
         # Just a simple attribute to indicate if the thread loop is
         # running, mostly for unit testing
         self.threadRunning = True
@@ -181,12 +209,13 @@ class ThreadLooper(object):
         a dedicated thread, returning a deferred that fires with a
         status/result tuple.
 
-        Calls are done in the order received, unless you set doNext=True.
+        Calls are done in the order received, unless you set
+        doNext=True.
 
         Set raw=True to have a raw iterator returned instead of a
-        prefetcherator, or raw=False to have a prefetcherator returned
+        Deferator, or raw=False to have a Deferator returned
         instead of a raw iterator, contrary to the instance-wide
-        default set with the constructor keyword rawIterators.
+        default set with the constructor keyword 'raw'.
         """
         def threadReady(null):
             self.callTuple = f, args, kw
@@ -216,7 +245,8 @@ class ThreadLooper(object):
                     pf = iteration.Prefetcherator(ID)
                     if pf.setup(result):
                         # OK, we can iterate this
-                        return ('i', pf)
+                        return ('i', iteration.Deferator(
+                            repr(pf), self.deferToThread, pf.getNext))
                     # An iterator, but not a proper one
                     return ('e', "Failed to iterate for call {}".format(
                         self.info.setCall(f, args, kw).aboutCall()))
@@ -226,21 +256,19 @@ class ThreadLooper(object):
 
         raw = kw.pop('raw', None)
         if raw is None:
-            raw = self.rawIterators
+            raw = self.raw
         return self.dLock.acquire(
             kw.pop('doNext', False)).addCallback(threadReady)
 
-    def pf2ip(self, pf, consumer=None):
+    def dr2ip(self, dr, consumer=None):
         """
-        Converts a prefetcherator into an iterationProducer, with a
+        Converts a Deferator into an iterationProducer, with a
         consumer registered if you supply one. Then each iteration
         will be written to your consumer, and the deferred returned
         will fire when the iterations are done. Otherwise, the
         deferred will fire with an L{iteration.IterationProducer} and
         you will have to register with and run it yourself.
         """
-        dr = iteration.Deferator(
-            repr(pf), self.deferToThread, pf.getNext)
         ip = iteration.IterationProducer(dr)
         if consumer:
             ip.registerConsumer(consumer)
@@ -257,21 +285,22 @@ class ThreadLooper(object):
         via the consumer keyword. Each iteration will be written to
         it, and the deferred will fire when the iterations are
         done. Otherwise, the deferred will fire with an
-        L{iteration.iteration.IterationProducer} and you will have to
-        register with and run it yourself.
-        
+        L{iteration.Deferator}.
         """
         def done(statusResult):
             status, result = statusResult
             if status == 'e':
                 return Failure(errors.WorkerError(result))
             if status == 'i' and not raw:
-                return self.pf2ip(result, consumer)
+                if consumer:
+                    ip = iteration.IterationProducer(dr, consumer)
+                    return ip.run()
+                return result
             return result
 
         raw = kw.pop('raw', None)
         if raw is None:
-            raw = self.rawIterators
+            raw = self.raw
         consumer = kw.pop('consumer', None)
         return self.call(f, *args, **kw).addCallback(done)
 

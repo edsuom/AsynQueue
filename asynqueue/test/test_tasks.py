@@ -36,7 +36,7 @@ class TestTask(TestCase):
     def taskFactory(self, priority, series=0):
         return tasks.Task(lambda _: None, (None,), {}, priority, series)
 
-    def testConstructorWithValidArgs(self):
+    def test_constructorWithValidArgs(self):
         func = lambda : None
         task = tasks.Task(func, (1,), {2:3}, 100, None)
         self.failUnlessEqual(task.callTuple, (func, (1,), {2:3}))
@@ -44,13 +44,13 @@ class TestTask(TestCase):
         self.failUnlessEqual(task.series, None)
         self.failUnless(isinstance(task.d, defer.Deferred))
 
-    def testConstructorWithBogusArgs(self):
+    def test_constructorWithBogusArgs(self):
         self.failUnlessRaises(
             TypeError, tasks.Task, lambda : None, 1, {2:3}, 100, None)
         self.failUnlessRaises(
             TypeError, tasks.Task, lambda : None, (1,), 2, 100, None)
 
-    def testPriorityOtherTask(self):
+    def test_priorityOtherTask(self):
         taskA = self.taskFactory(0)
         taskB = self.taskFactory(1)
         taskC = self.taskFactory(1.1)
@@ -58,24 +58,26 @@ class TestTask(TestCase):
         self.failUnless(taskB < taskC)
         self.failUnless(taskA < taskC)
     
-    def testPriorityOtherNone(self):
+    def test_priorityOtherNone(self):
         taskA = self.taskFactory(10000)
         self.failUnless(taskA < None)
 
 
 class TestTaskFactory(TestCase):
+    verbose = False
+    
     def setUp(self):
         self.tf = tasks.TaskFactory(MockTask)
 
     def listInOrder(self, theList):
-        if VERBOSE:
-            strList = [str(x) for x in theList]
-            print "\nSerial Numbers:\n%s\n" % ", ".join(strList)
+        self.msg(
+            "Serial Numbers:\n{}\n",
+            ", ".join([str(x) for x in theList]))
         unsorted = copy.copy(theList)
         theList.sort()
         self.failUnlessEqual(theList, unsorted)
 
-    def testSerialOneSeries(self):
+    def test_serialOneSeries(self):
         serialNumbers = []
         for null in xrange(5):
             this = self.tf._serial(None)
@@ -84,7 +86,7 @@ class TestTaskFactory(TestCase):
             serialNumbers.append(this)
         self.listInOrder(serialNumbers)
 
-    def testSerialMultipleSeriesConcurrently(self):
+    def test_serialMultipleSeriesConcurrently(self):
         serialNumbers = []
         for null in xrange(5):
             x = self.tf._serial(1)
@@ -95,7 +97,7 @@ class TestTaskFactory(TestCase):
             [1, 2, 2, 3, 3, 4, 4, 5, 5, 6 ])
         #    x0 y0 x1 y1 x2 y2 x3 y3 x4 y4
         
-    def testSerialAnotherSeriesComingLate(self):
+    def test_serialAnotherSeriesComingLate(self):
         serialNumbers = []
         for null in xrange(5):
             x = self.tf._serial(1)
@@ -110,7 +112,7 @@ class TestAssignmentFactory(TestCase):
     def setUp(self):
         self.af = tasks.AssignmentFactory()
     
-    def testRequestBasic(self):
+    def test_requestBasic(self):
         OriginalAssignment = tasks.Assignment
         
         class ModifiedAssignment(tasks.Assignment):
@@ -135,7 +137,7 @@ class TestAssignmentFactory(TestCase):
         d.addCallback(finishUp, worker)
         return d
 
-    def testRequestAndAccept(self):
+    def test_requestAndAccept(self):
         task = MockTask(lambda x: 10*x, (2,), {}, 100, None)
         worker = MockWorker()
         worker.hired = False
@@ -149,7 +151,10 @@ class TestTaskHandlerHiring(TestCase):
     def setUp(self):
         self.th = tasks.TaskHandler()
 
-    def testHireRejectBogus(self):
+    def tearDown(self):
+        return self.th.shutdown()
+        
+    def test_hireRejectBogus(self):
         class AttrBogus(object):
             zope.interface.implements(workers.IWorker)
             cQualified = 'foo'
@@ -170,46 +175,50 @@ class TestTaskHandlerHiring(TestCase):
                 [True for x in assignment
                  if isinstance(x, defer.Deferred)], [True])
 
-    def testHireSetWorkerID(self):
+    @defer.inlineCallbacks
+    def test_hireSetWorkerID(self):
         worker = MockWorker()
-        workerID = self.th.hire(worker)
+        workerID = yield self.th.hire(worker)
         self.failUnlessEqual(getattr(worker, 'ID', None), workerID)
 
-    def testHireClassQualifications(self):
+    @defer.inlineCallbacks
+    def test_hireClassQualifications(self):
         class CQWorker(MockWorker):
             cQualified = ['foo']
 
         worker = CQWorker()
-        workerID = self.th.hire(worker)
+        workerID = yield self.th.hire(worker)
         self._checkAssignments(workerID)
-        
-    def testHireInstanceQualifications(self):
+
+    @defer.inlineCallbacks
+    def test_hireInstanceQualifications(self):
         worker = MockWorker()
         worker.iQualified = ['bar']
-        workerID = self.th.hire(worker)
+        workerID = yield self.th.hire(worker)
         self._checkAssignments(workerID)
-    
-    def testHireMultipleWorkersThenShutdown(self):
-        ID_1 = self.th.hire(MockWorker())
-        ID_2 = self.th.hire(MockWorker())
+
+    @defer.inlineCallbacks
+    def test_hireMultipleWorkersThenShutdown(self):
+        ID_1 = yield self.th.hire(MockWorker())
+        ID_2 = yield self.th.hire(MockWorker())
         self.failIfEqual(ID_1, ID_2)
         self.failUnlessEqual(len(self.th.workers), 2)
         d = self.th.shutdown()
         d.addCallback(lambda _: self.failUnlessEqual(self.th.workers, {}))
-        return d
 
     def _callback(self, result, msg, order=None, value=None):
         self._count += 1
-        if VERBOSE:
-            if self._count == 1:
-                print "\n"
-            print "#%d: %s -> %s" % (self._count, msg, str(result))
+        if self._count == 1:
+            self.msg("#{:d}: {} -> {}", self._count, msg, str(result))
         if order is not None:
-            self.failUnlessEqual(self._count, order)
+            self.failUnlessEqual(
+                self._count, order,
+                "Call '{}' was #{:}, expected it to be #{:d}".format(
+                    msg, self._count, order))
         if value is not None:
             self.failUnlessEqual(result, value)
 
-    def testTerminateGracefully(self):
+    def test_terminateGracefully(self):
         self._count = 0
         worker = MockWorker()
         workerID = self.th.hire(worker)
@@ -222,7 +231,7 @@ class TestTaskHandlerHiring(TestCase):
         d3.addCallback(self._callback, "Worker terminated", 3)
         return defer.gatherResults([d1,d2,d3])
 
-    def testTerminateAfterTimeout(self):
+    def test_terminateAfterTimeout(self):
         def checkTask(null):
             self.failIf(task.d.called)
         
@@ -236,7 +245,7 @@ class TestTaskHandlerHiring(TestCase):
         d2.addCallback(self._callback, "Worker terminated", 2, value=[task])
         return defer.gatherResults([d1,d2]).addCallback(checkTask)
 
-    def testTerminateBeforeTimeout(self):
+    def test_terminateBeforeTimeout(self):
         def checkTask(null):
             self.failUnless(task.d.called)
         
@@ -250,7 +259,7 @@ class TestTaskHandlerHiring(TestCase):
         d2.addCallback(self._callback, "Worker terminated", 2, value=[])
         return defer.gatherResults([d1,d2]).addCallback(checkTask)
 
-    def testTerminateByCrashing(self):
+    def test_terminateByCrashing(self):
         def checkTask(null):
             self.failIf(task.d.called)
         
@@ -272,7 +281,7 @@ class TestTaskHandlerRun(TestCase):
     def tearDown(self):
         return self.th.shutdown()
 
-    def testOneWorker(self):
+    def test_oneWorker(self):
         worker = MockWorker(0.2)
         N = 10
 
@@ -292,7 +301,7 @@ class TestTaskHandlerRun(TestCase):
         d.addCallback(completed)
         return d
 
-    def testMultipleWorkers(self):
+    def test_multipleWorkers(self):
         N = 50
         mutable = []
         workerFast = MockWorker(0.1)

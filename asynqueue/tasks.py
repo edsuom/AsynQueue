@@ -344,7 +344,7 @@ class TaskHandler(object):
                 unfinishedTasks.extend(result)
             self.isRunning = False
             return unfinishedTasks
-        
+
         dList = []
         for workerID in self.workers.keys():
             d = self.terminate(workerID, timeout=timeout)

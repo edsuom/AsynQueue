@@ -32,24 +32,23 @@ class IWorker(Interface):
     Provided by worker objects that can have tasks assigned to them for
     processing.
 
-    All worker objects are considered qualified to run tasks of the default
-    C{None} series. To indicate that subclasses or subclass instances are
-    qualified to run tasks of user-defined series in addition to the default,
-    the hashable object that identifies the additional series must be listed in
-    the C{cQualified} or C{iQualified} class or instance attributes,
-    respectively.
-        
+    All worker objects are considered qualified to run tasks of the
+    default C{None} series. To indicate that subclasses or subclass
+    instances are qualified to run tasks of user-defined series in
+    addition to the default, the hashable object that identifies the
+    additional series must be listed in the C{cQualified} or C{iQualified}
+    class or instance attributes, respectively.
     """
     cQualified = Attribute(
         """
-        A class-attribute list containing all series for which all instances of
-        the subclass are qualified to run tasks.
+        A class-attribute list containing all series for which all instances
+        of the subclass are qualified to run tasks.
         """)
 
     iQualified = Attribute(
         """
-        An instance-attribute list containing all series for which the subclass
-        instance is qualified to run tasks.
+        An instance-attribute list containing all series for which the
+        subclass instance is qualified to run tasks.
         """)
 
     def _check_qualifications(ob):
@@ -71,39 +70,45 @@ class IWorker(Interface):
 
     def run(task):
         """
-        Adds the task represented by the specified I{task} object to the
-        list of tasks pending for this worker, to be run however and
-        whenever the worker sees fit. However, workers are expected to
-        run highest-priority tasks before anything else they have
-        lined up in their mini-queues.
+        Adds the task represented by the specified I{task} object to the list
+        of tasks pending for this worker, to be run however and whenever
+        the worker sees fit. However, workers are expected to run
+        highest-priority tasks before anything else they have lined up in
+        their mini-queues.
 
-        Make sure that any callbacks you add to the task's internal deferred
-        object C{task.d} return the callback argument. Otherwise, the result of
-        your task will be lost in the callback chain.
+        Unless the worker is constructed with a raw=True keyword or the
+        task includes raw=True, an iterator resulting from the task is
+        converted into an instance of L{iteration.Deferator}. The
+        underlying iteration (possibly across a pipe or wire) must be
+        handled transparently to the user. If the task has a 'consumer'
+        keyword set to an implementor of IConsumer}, an
+        L{iteration.IterationProducer} coupled to that consumer will be
+        the end result instead.
+
+        Make sure that any callbacks you add to the task's internal
+        deferred object C{task.d} return the callback argument. Otherwise,
+        the result of your task will be lost in the callback chain.
         
-        @return: A deferred that fires when the worker is ready to be assigned
-          another task.
-        """
-
-    def getNext(ID):
-        """
-        Gets the next item of an iterator uniquely identified by an 'i'
-        status.
+        @return: A deferred that fires when the worker is ready to be
+          assigned another task.
+        
         """
         
     def stop():
         """
         Attempts to gracefully shut down the worker, returning a deferred that
         fires when the worker is done with all assigned tasks and will not
-        cause any errors if the reactor is stopped or its object is deleted.
+        cause any errors if the reactor is stopped or its object is
+        deleted.
 
-        The deferred returned by your implementation of this method must not
-        fire until B{after} the results of all pending tasks have been
-        obtained. Thus the deferred must be chained to each C{task.d} somehow.
+        The deferred returned by your implementation of this method must
+        not fire until B{after} the results of all pending tasks have been
+        obtained. Thus the deferred must be chained to each C{task.d}
+        somehow.
 
-        Make sure that any callbacks you add to the task's internal deferred
-        object C{task.d} return the callback argument. Otherwise, the result of
-        your task will be lost in the callback chain.
+        Make sure that any callbacks you add to the task's internal
+        deferred object C{task.d} return the callback argument. Otherwise,
+        the result of your task will be lost in the callback chain.
         """
 
     def crash():

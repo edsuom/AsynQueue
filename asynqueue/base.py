@@ -316,9 +316,9 @@ class TaskQueue(object):
         
     def attachWorker(self, worker):
         """
-        Registers a new provider of IWorker for working on tasks from
-        the queue, returning an integer ID that uniquely identifies
-        the worker.
+        Registers a new provider of IWorker for working on tasks from the
+        queue, returning a deferred that fires with an integer ID
+        uniquely identifying the worker.
 
         See L{WorkerManager.hire}.
         """
@@ -371,29 +371,6 @@ class TaskQueue(object):
         if ID is None:
             return self.th.workers.values()
         return self.th.workers.get(ID, None)
-
-    def _newTask(self, func, args, kw):
-        if not self.isRunning():
-            text = self.info.setCall(func, args, kw).aboutCall()
-            text = "Queue shut down, ignoring call\n{}\n".format(text)
-            if self.warnOnly:
-                print text
-            else:
-                raise errors.QueueRunError(text)
-        # Some parameters just for me, not for the task
-        niceness = kw.pop('niceness', 0     )
-        series   = kw.pop('series',   None  )
-        timeout  = kw.pop('timeout',  None  )
-        doLast   = kw.pop('doLast',   False )
-        consumer = kw.pop('consumer', None  )
-        task = self.taskFactory.new(func, args, kw, niceness, series, timeout)
-        # Workers have to honor the doNext keyword, too
-        if kw.get('doNext', False):
-            task.rush()
-        elif doLast:
-            task.relax()
-        task.d.addCallback(self._taskDone, task, consumer)
-        return task
         
     def _taskDone(self, statusResult, task, consumer=None):
         """
@@ -405,12 +382,11 @@ class TaskQueue(object):
         'r': Ran fine, the result is the return value of the call.
 
         'i': Ran fine, but the result was an iterable other than a
-             standard Python one. So my result is an iteration
-             producer that produces the worker's iterations in Twisted
-             fashion. If you specify a consumer, I will register it
-             with the producer and return a deferred that fires when
-             the iteration is done. Otherwise I will return the
-             producer for you to deal with.
+             standard Python one. So my result is a Deferator that
+             yields deferreds to the worker's iterations, or, if you
+             specified a consumer, an IterationProducer registered
+             with the consumer that needs to get running to write
+             iterations to it.
 
         'c': Ran fine (on an AMP server), but the result was too big
              for a single return value. So the result is a deferred
@@ -419,19 +395,18 @@ class TaskQueue(object):
              magically pieced together and unpickled.
         
         't': The task timed out. I'll try to re-run it, once.
-
         """
         status, result = statusResult
         if status == 'e':
             # Error
             return Failure(errors.WorkerError(result))
         if status in "rc":
-            # A plain result, or a deferred to a chunked one.
+            # A plain result, a deferred to a chunked one
             return result
         if status == 'i':
-            # An IterationProducer
+            # An iteration, possibly an IterationConsumer that we need
+            # to run now
             if consumer:
-                result.registerConsumer(consumer)
                 return result.run()
             return result
         if status == 't':
@@ -446,6 +421,29 @@ class TaskQueue(object):
             return task.reset().addCallback(self._taskDone)
         return Failure(
             errors.QueueRunError("Unknown status '{}'".format(status)))
+
+    def _newTask(self, func, args, kw):
+        if not self.isRunning():
+            text = self.info.setCall(func, args, kw).aboutCall()
+            text = "Queue shut down, ignoring call\n{}\n".format(text)
+            if self.warnOnly:
+                print text
+            else:
+                raise errors.QueueRunError(text)
+        # Some parameters just for me, not for the task
+        niceness = kw.pop('niceness', 0     )
+        series   = kw.pop('series',   None  )
+        timeout  = kw.pop('timeout',  None  )
+        doLast   = kw.pop('doLast',   False )
+        task = self.taskFactory.new(func, args, kw, niceness, series, timeout)
+        # Workers have to honor the consumer and doNext keywords, too
+        consumer = kw.get('consumer', None)
+        if kw.get('doNext', False):
+            task.rush()
+        elif doLast:
+            task.relax()
+        task.d.addCallback(self._taskDone, task, consumer)
+        return task
         
     def call(self, func, *args, **kw):
         """
@@ -485,7 +483,8 @@ class TaskQueue(object):
 
         @keyword consumer: An implementor of L{interfaces.IConsumer}
           that will receive iterations if the result of the call is an
-          interator.
+          interator. In such case, the returned result is a deferred
+          that fires when the iterations have all been produced.
         
         """
         task = self._newTask(func, args, kw)

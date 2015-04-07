@@ -68,20 +68,20 @@ class TestAsyncWorker(TestCase):
         return self.dm.addCallback(lambda _: worker.stop())
 
     @defer.inlineCallbacks
-    def test_iterationProducer(self):
+    def test_iteration(self):
         N1, N2 = 50, 100
         stuff = TestStuff()
         stuff.setStuff(N1, N2)
-        consumer = IterationConsumer(self.verbose)
-        producer = yield self.queue.call(stuff.stufferator)
-        consumer.registerProducer(producer, True)
-        yield producer.run()
-        for chunk in consumer.data:
+        dr = yield self.queue.call(stuff.stufferator)
+        chunks = []
+        for d in dr:
+            chunk = yield d
             self.assertEqual(len(chunk), N1)
-        self.assertEqual(len(consumer.data), N2)
+            chunks.append(chunk)
+        self.assertEqual(len(chunks), N2)
 
     @defer.inlineCallbacks
-    def test_iterationProducer_supplyingConsumer(self):
+    def test_iterationProducer(self):
         N1, N2 = 50, 100
         stuff = TestStuff()
         stuff.setStuff(N1, N2)
