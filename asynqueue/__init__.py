@@ -21,8 +21,8 @@
 Priority queueing of tasks to one or more threaded or asynchronous workers.
 """
 
-import iteration
 from workers import *
 from base import TaskQueue
+from info import showResult, Info
 from util import DeferredTracker, DeferredLock
 

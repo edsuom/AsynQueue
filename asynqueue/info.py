@@ -269,9 +269,20 @@ class Info(object):
         return self.saveInfo('wireVersion', result, ID)        
     
     def _divider(self, lineList):
-        lineList.append(
-            "-" * (max([len(x) for x in lineList]) + 1))
+        N_dashes = max([len(x) for x in lineList]) + 1
+        if N_dashes > 79:
+            N_dashes = 79
+        lineList.append("-" * N_dashes)
 
+    def _formatList(self, lineList):
+        lines = []
+        for line in lineList:
+            newLines = line.split(':')
+            for newLine in newLines:
+                for reallyNewLine in newLine.split('\\n'):
+                    lines.append(reallyNewLine)
+        return "\n".join(lines)
+    
     def _funcText(self, func):
         if isinstance(func, (str, unicode)):
             return func
@@ -335,7 +346,7 @@ class Info(object):
         if not exception:
             lineList.append("".join(traceback.format_tb(stuff[2])))
             del stuff
-        text = "\n".join(lineList)
+        text = self._formatList(lineList)
         return self.saveInfo('aboutException', text, ID)
 
     def aboutFailure(self, failureObj, ID=None):
@@ -355,5 +366,5 @@ class Info(object):
                 " doing call '{}':".format(callInfo))
         self._divider(lineList)
         lineList.append(failureObj.getTraceback(detail='verbose'))
-        text = "\n".join(lineList)
+        text = self._formatList(lineList)
         return self.saveInfo('aboutFailure', text, ID)

@@ -57,7 +57,7 @@ class Delay(object):
         if interval:
             self.interval = interval
         if backoff:
-            self.backoff = backoof
+            self.backoff = backoff
         if timeout:
             self.timeout = timeout
         if self.backoff < 1.0 or self.backoff > 1.3:
