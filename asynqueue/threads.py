@@ -30,7 +30,7 @@ from twisted.python.failure import Failure
 
 from base import TaskQueue
 from interfaces import IWorker
-import errors, util, iteration
+import errors, info, util, iteration
 
 
 class ThreadQueue(TaskQueue):
@@ -159,7 +159,7 @@ class ThreadLooper(object):
         # running, mostly for unit testing
         self.threadRunning = True
         # Tools
-        self.info = util.Info()
+        self.info = info.Info()
         self.runner = util.CallRunner()
         self.dLock = util.DeferredLock()
         self.event = threading.Event()

@@ -27,24 +27,7 @@ from twisted.internet import defer
 from twisted.internet.interfaces import IConsumer
 
 import util
-from testbase import deferToDelay, blockingTask, TestCase
-
-
-class Picklable(object):
-    classValue = 1.2
-
-    def __init__(self):
-        self.x = 0
-
-    def foo(self, y):
-        self.x += y
-
-    def __eq__(self, other):
-        return (
-            self.classValue == other.classValue
-            and
-            self.x == other.x
-        )
+from testbase import deferToDelay, blockingTask, Picklable, TestCase
 
 
 class TestFunctions(TestCase):
@@ -61,90 +44,6 @@ class TestFunctions(TestCase):
             roundTrip = util.p2o(pickleString)
             self.assertEqual(obj, roundTrip)
         self.assertEqual(roundTrip.x, 4.4)
-
-
-class TestInfo(TestCase):
-    verbose = False
-
-    def setUp(self):
-        self.p = Picklable()
-        self.info = util.Info(remember=True)
-
-    def _foo(self, x):
-        return 2*x
-
-    def _bar(self, x, y=0):
-        return x+y
-        
-    def test_getID(self):
-        IDs = []
-        fakList = [
-            (self._foo, (1,), {}),
-            (self._foo, (2,), {}),
-            (self._bar, (3,), {}),
-            (self._bar, (3,), {'y': 1}),
-        ]
-        for fak in fakList:
-            ID = self.info.setCall(*fak).getID()
-            self.assertNotIn(ID, IDs)
-            IDs.append(ID)
-        for k, ID in enumerate(IDs):
-            self.assertEqual(
-                self.info.getInfo(ID, 'callTuple'),
-                fakList[k])
-        
-    def _divide(self, x, y):
-        return x/y
-
-    def test_nn(self):
-        def bogus():
-            pass
-        
-        # Bogus
-        ns, fn = self.info.setCall(bogus).nn()
-        self.assertEqual(ns, None)
-        self.assertEqual(fn, None)
-        # Module-level function
-        ns, fn = self.info.setCall(blockingTask).nn()
-        self.assertEqual(ns, None)
-        self.assertEqual(util.p2o(fn), blockingTask)
-        # Method, pickled
-        stuff = util.TestStuff()
-        ns, fn = self.info.setCall(stuff.accumulate).nn()
-        self.assertIsInstance(util.p2o(ns), util.TestStuff)
-        self.assertEqual(fn, 'accumulate')
-        # Method by fqn string
-        ns, fn = self.info.setCall("util.testFunction").nn()
-        self.assertEqual(ns, None)
-        self.assertEqual(fn, "util.testFunction")
-        
-    def test_aboutCall(self):
-        IDs = []
-        pastInfo = []
-        for pattern, f, args, kw in (
-                ('[cC]allable!', None, (), {}),
-                ('\.foo\(1\)', self.p.foo, (1,), {}),
-                ('\.foo\(2\)', self.p.foo, (2,), {}),
-                ('\._bar\(1, y=2\)', self._bar, (1,), {'y':2}),
-        ):
-            ID = self.info.setCall(f, args, kw).getID()
-            self.assertNotIn(ID, IDs)
-            IDs.append(ID)
-            text = self.info.aboutCall()
-            pastInfo.append(text)
-            self.assertPattern(pattern, text)
-        # Check that the old info is still there
-        for k, ID in enumerate(IDs):
-            self.assertEqual(self.info.aboutCall(ID), pastInfo[k])
-
-    def test_aboutException(self):
-        try:
-            self._divide(1, 0)
-        except Exception as e:
-            text = self.info.aboutException()
-        self.msg(text)
-        self.assertPattern('Exception ', text)
-        self.assertPattern('[dD]ivi.+by zero', text)
 
 
 class TestDeferredTracker(TestCase):

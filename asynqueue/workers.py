@@ -26,7 +26,7 @@ from zope.interface import implements
 from twisted.internet import defer
 
 from interfaces import IWorker
-import errors, util, iteration
+import errors, info, util, iteration
 
 
 # Make all our workers importable from this module
@@ -55,7 +55,7 @@ class AsyncWorker(object):
     def __init__(self, series=[], profiler=None):
         self.iQualified = series
         self.profiler = profiler
-        self.info = util.Info()
+        self.info = info.Info()
         self.dLock = util.DeferredLock()
 
     def setResignator(self, callableObject):

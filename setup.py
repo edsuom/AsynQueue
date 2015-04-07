@@ -29,16 +29,13 @@ from setuptools import setup, find_packages
 
 
 ### Define setup options
-kw = {'version':'0.3',
+kw = {'version':'0.5',
       'license':'GPL',
       'platforms':'OS Independent',
 
-      'url':"http://foss.eepatents.com/%s/" % NAME,
+      'url':"http://edsuom.com/foss/%s/" % NAME,
       'author':'Edwin A. Suominen',
-      'author_email':'ed@eepatents.com',
-      
       'maintainer':'Edwin A. Suominen',
-      'maintainer_email':'ed@eepatents.com',
       
       'packages':find_packages(exclude=["*.test"]),
       'zip_safe':True

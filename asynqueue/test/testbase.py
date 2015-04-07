@@ -122,6 +122,23 @@ class IterationConsumer(MsgBase):
         self.msg("Data received, len: {:d}", len(data))
 
 
+class Picklable(object):
+    classValue = 1.2
+
+    def __init__(self):
+        self.x = 0
+
+    def foo(self, y):
+        self.x += y
+
+    def __eq__(self, other):
+        return (
+            self.classValue == other.classValue
+            and
+            self.x == other.x
+        )
+
+        
 class MockTask(object):
     def __init__(self, f, args, kw, priority, series, timeout=None):
         self.ran = False

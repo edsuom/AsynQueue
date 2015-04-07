@@ -29,7 +29,7 @@ from twisted.python.failure import Failure
 
 from base import TaskQueue
 from interfaces import IWorker
-import errors, util, iteration
+import errors, info, util, iteration
 
 
 class ProcessQueue(TaskQueue):
@@ -73,7 +73,7 @@ class ProcessWorker(object):
         self.iQualified = series
         self.profiler = profiler
         # Tools
-        self.info = util.Info()
+        self.info = info.Info()
         self.delay = iteration.Delay()
         self.dLock = util.DeferredLock()
         # Multiprocessing with (Gasp! Twisted heresy!) standard lib Python

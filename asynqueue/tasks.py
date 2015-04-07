@@ -31,8 +31,9 @@ except:
 else:
     defer.Deferred = cdefer.Deferred
 
+from info import Info
+from util import CallProfiler
 from interfaces import IWorker
-from util import Info, CallProfiler
 from errors import ImplementationError
 
 

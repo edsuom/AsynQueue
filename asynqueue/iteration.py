@@ -38,30 +38,8 @@ def deferToDelay(delay):
 def isIterator(x):
     return Deferator.isIterator(x)
 
-# FOR DEBUG. Use as decorator.
-#----------------------------------------------------------------------------
-ORDER = [0]
-def showResult(f):
-    def substitute(self, *args, **kw):
-        def msg(result, callInfo):
-            resultInfo = str(result)
-            if len(callInfo) + len(resultInfo) > 70:
-                callInfo += "\n"
-            print "\n{} -> {}".format(callInfo, resultInfo)
-            return result
-
-        ORDER[0] += 1
-        from util import Info
-        # How did THAT work? Doesn't util import my module???
-        callInfo = "{:03d}: {}".format(
-            ORDER[0], Info().setCall(f, args, kw).aboutCall())
-        result = f(self, *args, **kw)
-        if isinstance(result, defer.Deferred):
-            return result.addBoth(msg, callInfo)
-        return msg(result, callInfo)
-    substitute.func_name = f.func_name
-    return substitute
-#----------------------------------------------------------------------------
+# Debug
+from info import showResult
 
     
 class Delay(object):
@@ -316,7 +294,6 @@ class Prefetcherator(object):
         def done(value):
             return value, True
         def oops(failureObj):
-            print "TRYNEXT: SI"
             del self.nextCallTuple
             return None, False
         if not hasattr(self, 'nextCallTuple'):
@@ -329,7 +306,6 @@ class Prefetcherator(object):
             self.callWhenDone()
             del self.callWhenDone
 
-    @showResult
     def getNext(self):
         """
         Gets the next value from my current iterator, or a deferred value

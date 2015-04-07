@@ -35,7 +35,7 @@ else:
     defer.Deferred = cdefer.Deferred
 
 import errors, tasks, iteration
-from util import Info
+from info import Info
 
 
 class Priority(object):
