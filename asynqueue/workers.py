@@ -106,4 +106,8 @@ class AsyncWorker(object):
         """
 
 
-__all__ = ['ThreadWorker', 'ProcessWorker', 'AsyncWorker', 'SocketWorker']
+__all__ = [
+    'ThreadQueue', 'ThreadWorker',
+    'ProcessQueue', 'ProcessWorker',
+    'AsyncWorker', 'SocketWorker'
+]
