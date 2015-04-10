@@ -25,6 +25,7 @@ import time, inspect
 
 from zope.interface import implements
 from twisted.internet import defer, reactor
+from twisted.python.failure import Failure
 from twisted.internet.interfaces import IPushProducer, IConsumer
 
 import errors
@@ -111,23 +112,39 @@ class Deferator(object):
     """
     Use an instance of me in place of a task result that is an
     iterable other than one of Python's built-in containers (list,
-    dict, etc.). I yield deferreds to the next iteration of the
-    result.
+    dict, etc.). I yield deferreds to the next iteration of the result
+    and maintain an internal deferred that fires when the iterations
+    are done or terminated cleanly with a call to my L{stop}
+    method. The deferred fires with C{True} if the iterations were
+    completed, or C{False} if not, i.e., a stop was done.
+
+    Access the done-iterating deferred via my I{d} attribute. I also
+    try to provide access to its methods attributes and attributes as
+    if they were my own.
 
     When the deferred from my first L{next} call fires, with the first
     iteration of the underlying (possibly remote) iterable, you can
     call L{next} again to get a deferred to the next one, and so on,
     until I raise L{StopIteration} just like a regular iterable.
 
-    You MUST wrap my iteration in a L{defer.inlineCallbacks} loop or
-    otherwise wait for each yielded deferred to fire before asking for
-    the next one. Something like this:
+    B{NOTE}: There are two very important rules. First, you MUST wrap
+    my iteration in a L{defer.inlineCallbacks} loop or otherwise wait
+    for each yielded deferred to fire before asking for the next
+    one. Second, you must call the 'stop' method of the Deferator (or
+    the deferreds it yields) before doing a 'stop' or 'return' to
+    prematurely terminate the loop. Good behavior looks something like
+    this:
 
     @defer.inlineCallbacks
     def printItems(self, ID):
         for d in Deferator("remoteIterator", getMore, ID):
             listItem = yield d
             print listItem
+            if listItem == "Danger Will Robinson":
+                d.stop()
+                # You still have to break out of the loop after calling
+                # the deferator's stop method
+                return
 
     Instantiate me with a string representation of the underlying
     iterable (or the object itself, if it's handy) and a function
@@ -173,6 +190,7 @@ class Deferator(object):
         return result
 
     def __init__(self, objOrRep, *args, **kw):
+        self.d = defer.Deferred()
         self.moreLeft = True
         if isinstance(objOrRep, (str, unicode)):
             # Use supplied string representation
@@ -198,29 +216,65 @@ class Deferator(object):
         # Nothing worked; make me equivalent to an empty iterator
         self.moreLeft = False
         self.representation = repr([])
-
+        # The non-existent iteration was "complete" since nothing was
+        # terminated prematurely.
+        self._callback(True)
+    
     def __repr__(self):
         return "<Deferator wrapping of\n  <{}>,\nat 0x{}>".format(
             self.representation, format(id(self), '012x'))
 
+    def __getattr__(self, name):
+        """
+        Provides access to my done-iterating deferred's attributes as if
+        they were my own.
+        """
+        if name == 'd':
+            raise AttributeError("No internal deferred is defined!")
+        return getattr(self.d, name)
+
+    def _callback(self, wasCompleteIteration):
+        if not self.d.called:
+            self.d.callback(wasCompleteIteration)
+        
+    # Iterator implementation
+    #--------------------------------------------------------------------------
+    
     def __iter__(self):
         return self
-        
+
     def next(self):
         def gotNext(result):
             value, isValid, self.moreLeft = result
             return value
         
         if self.moreLeft:
-            if hasattr(self, 'd') and not self.d.called:
+            if hasattr(self, 'dIterate') and not self.dIterate.called:
                 raise errors.NotReadyError(
                     "You didn't wait for the last deferred to fire!")
             f, args, kw = self.callTuple
-            self.d = f(*args, **kw).addCallback(gotNext)
-            return self.d
-        if hasattr(self, 'd'):
-            del self.d
+            self.dIterate = f(*args, **kw).addCallback(gotNext)
+            self.dIterate.stop = self.stop
+            return self.dIterate
+        if hasattr(self, 'dIterate'):
+            del self.dIterate
+        self._callback(True)
         raise StopIteration
+
+    def stop(self):
+        """
+        You must call this to cleanly break out of a loop of my iterations.
+
+        Not part of the official iterator implementation, but
+        necessary for a deferred way of iterating. You need a way of
+        letting whatever is producing the iterations know that there
+        won't be any more of them.
+
+        For convenience, each deferred that I yield during iteration
+        has a reference to this method via its own 'stop' attribute.
+        """
+        self.moreLeft = False
+        self._callback(False)
 
 
 class Prefetcherator(object):
@@ -358,10 +412,6 @@ class IterationProducer(object):
             raise TypeError("Object {} is not a Deferator".format(repr(dr)))
         self.dr = dr
         self.delay = Delay()
-        # NOT the one in util; we don't need its features and we can't
-        # import util from this module because util imports us
-        self.lock = defer.DeferredLock()
-        self.lock.acquire()
         if consumer is not None:
             self.registerConsumer(consumer)
 
@@ -369,7 +419,9 @@ class IterationProducer(object):
         """
         Returns a deferred that fires when I am done producing iterations.
         """
-        return self.lock.acquire().addCallback(lambda _: self.lock.release())
+        d= defer.Deferred()
+        self.dr.chainDeferred(d)
+        return d
             
     def registerConsumer(self, consumer):
         """
@@ -414,7 +466,6 @@ class IterationProducer(object):
         # Done with the iteration, and with producer/consumer
         # interaction
         self.consumer.unregisterProducer()
-        self.lock.release()
             
     def pauseProducing(self):
         self.paused = True
@@ -424,47 +475,42 @@ class IterationProducer(object):
 
     def stopProducing(self):
         self.running = False
+        self.dr.stop()
 
 
+@defer.inlineCallbacks
 def iteratorToProducer(iterator, consumer=None, wrapper=None):
     """
     Converts a possibly slow-running iterator into a Twisted-friendly
-    producer. If the the supplied object is not a suitable iterator,
-    C{None} will be returned.
+    producer, returning a deferred that fires with the producer when
+    it's ready. If the the supplied object is not a suitable iterator
+    (perhaps empty), the result will be C{None}.
 
     If a consumer is not supplied, whatever consumer gets this must
-    register with the returned producer by calling its non-interface
-    method L{IterationProducer.registerConsumer}.
+    register with the producer by calling its non-interface method
+    L{IterationProducer.registerConsumer} and then its
+    L{IterationProducer.run} method to start the iteration/production.
 
-    In any case, the iterations/production starts with a call to its
-    L{IterationProducer.run} method.
+    If you supply a consumer, those two steps will be done
+    automatically, and this method will fire with a deferred that
+    fires when the iteration/production is done.
     """
-    if not Deferator.isIterator(iterator):
-        return
-    pf = Prefetcherator()
-    if not pf.setup(iterator):
-        return
-    if wrapper:
-        if not callable(wrapper):
-            raise TypeError(
-                "Wrapper '{}' is not a callable".format(repr(wrapper)))
-        args = (wrapper, pf.getNext)
-    else:
-        args = (pf.getNext,)
-    dr = Deferator(repr(iterator), *args)
-    return IterationProducer(dr, consumer)
-
-
-def consumeIterations(iterator, consumer):
-    """
-    Has the supplied iterator write its items into the supplied
-    consumer. Returns a deferred that fires when the iterations are
-    done.
-    """
-    producer = iteratorToProducer(iterator, consumer)
-    if producer is None:
-        raise TypeError(
-            "Object {} is not a suitable iterator".format(
-                repr(iterator)))
-    return producer.run()
-    
+    result = None
+    if Deferator.isIterator(iterator):
+        pf = Prefetcherator()
+        ok = yield pf.setup(iterator)
+        if ok:
+            if wrapper:
+                if callable(wrapper):
+                    args = (wrapper, pf.getNext)
+                else:
+                    result = Failure(TypeError(
+                        "Wrapper '{}' is not a callable".format(
+                            repr(wrapper))))
+            else:
+                args = (pf.getNext,)
+            dr = Deferator(repr(iterator), *args)
+            result = IterationProducer(dr, consumer)
+            if consumer:
+                yield result.run()
+    defer.returnValue(result)

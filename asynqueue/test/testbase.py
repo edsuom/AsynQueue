@@ -118,9 +118,10 @@ class ProcessProtocol(MsgBase):
 class IterationConsumer(MsgBase):
     implements(IConsumer)
 
-    def __init__(self, verbose=False):
+    def __init__(self, verbose=False, stopAfter=None):
         self.verbose = verbose
         self.producer = None
+        self.stopAfter = stopAfter
 
     def registerProducer(self, producer, streaming):
         if self.producer:
@@ -138,7 +139,12 @@ class IterationConsumer(MsgBase):
 
     def write(self, data):
         self.data.append(data)
-        self.msg("Data received, len: {:d}", len(data))
+        if isinstance(data, (list, tuple)):
+            self.msg("Data received, len: {:d}", len(data))
+        else:
+            self.msg("Data received: '{}'", data)
+        if self.stopAfter and len(self.data) == self.stopAfter:
+            self.producer.stopProducing()
 
 
 class Picklable(object):

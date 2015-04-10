@@ -75,12 +75,31 @@ class TestDeferator(TestCase):
     def test_iterates(self):
         x = [5, 4, 3, 2, 1, 0]
         ig = IteratorGetter(x)
-        df = iteration.Deferator(repr(ig), ig.getNext, slowness=0.4)
-        for k, d in enumerate(df):
+        dr = iteration.Deferator(repr(ig), ig.getNext, slowness=0.2)
+        for k, d in enumerate(dr):
             value = yield d
             self.msg("Item #{:d}: {}", k+1, value)
             self.assertEqual(value, k)
-    
+        status = yield dr.d
+        self.assertTrue(status)
+        self.assertEqual(len(ig.x), 0)
+
+    @defer.inlineCallbacks
+    def test_iterates_and_breaks(self):
+        x = [5, 4, 3, 2, 1, 0]
+        ig = IteratorGetter(x)
+        dr = iteration.Deferator(repr(ig), ig.getNext, slowness=0.2)
+        for k, d in enumerate(dr):
+            value = yield d
+            self.msg("Item #{:d}: {}", k+1, value)
+            self.assertEqual(value, k)
+            if k == 2:
+                d.stop()
+                break
+        status = yield dr.d
+        self.assertFalse(status)
+        self.assertEqual(len(ig.x), 3)
+
 
 class TestPrefetcherator(TestCase):
     verbose = False
@@ -199,4 +218,30 @@ class TestPrefetcherator(TestCase):
             self.msg("{:2d}  {:2d}", k, value)
             self.assertEqual(value, expected[k])
         
-        
+
+class TestIterationProducer(TestCase):
+    verbose = True
+
+    @defer.inlineCallbacks
+    def test_iterates(self):
+        N = 10
+        gf = generatorFunction("x", N)
+        consumer = IterationConsumer(self.isVerbose())
+        ip = yield iteration.iteratorToProducer(gf, consumer)
+        yield ip.deferUntilDone()
+        self.assertEqual(len(consumer.data), N)
+        for k in xrange(N):
+            self.assertEqual(consumer.data[k], "x"*k)
+
+    @defer.inlineCallbacks
+    def test_iterates_and_stops(self):
+        N = 5
+        # The generator will yield twice as many values as the
+        # consumer will accept.
+        gf = generatorFunction("x", 2*N)
+        consumer = IterationConsumer(self.isVerbose(), N)
+        ip = yield iteration.iteratorToProducer(gf, consumer)
+        yield ip.deferUntilDone()
+        self.assertEqual(len(consumer.data), N)
+        for k in xrange(N):
+            self.assertEqual(consumer.data[k], "x"*k)
