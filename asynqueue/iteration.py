@@ -282,17 +282,15 @@ class Prefetcherator(object):
     I prefetch iterations from an iterator, providing a L{getNext}
     method suitable for L{Deferator}.
 
-    You can supply an ID for me and a callWhenDone function that will
-    be called when iterations are done, i.e., when the third item in
-    the L{getNext} return value is False.
+    You can supply an ID for me, purely to provide a more informative
+    representation and something you can retrieve via my I{ID}
+    attribute.
     """
     __slots__ = [
-        'ID', 'nextCallTuple', 'lastFetch', 'callWhenDone']
+        'ID', 'nextCallTuple', 'lastFetch']
 
-    def __init__(self, ID=None, callWhenDone=None):
+    def __init__(self, ID=None):
         self.ID = ID
-        if callWhenDone is not None:
-            self.callWhenDone = callWhenDone
 
     def __repr__(self):
         text = "<Prefetcherator instance '{}'".format(self.ID)
@@ -355,11 +353,6 @@ class Prefetcherator(object):
             return defer.succeed((None, False))
         f, args, kw = self.nextCallTuple
         return defer.maybeDeferred(f, *args, **kw).addCallbacks(done, oops)
-    
-    def _callCallWhenDone(self):
-        if hasattr(self, 'callWhenDone'):
-            self.callWhenDone()
-            del self.callWhenDone
 
     def getNext(self):
         """
@@ -380,7 +373,6 @@ class Prefetcherator(object):
             if not nextIsValid:
                 if hasattr(self, 'lastFetch'):
                     del self.lastFetch
-                self._callCallWhenDone()
                 # This call's value is valid, but there's no more
                 return value, True, False
             # This call's value is valid and there is more to come

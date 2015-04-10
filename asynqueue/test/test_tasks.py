@@ -148,6 +148,8 @@ class TestAssignmentFactory(TestCase):
 
 
 class TestTaskHandlerHiring(TestCase):
+    verbose = True
+    
     def setUp(self):
         self.th = tasks.TaskHandler()
 
@@ -211,17 +213,18 @@ class TestTaskHandlerHiring(TestCase):
         if self._count == 1:
             self.msg("#{:d}: {} -> {}", self._count, msg, str(result))
         if order is not None:
-            self.failUnlessEqual(
+            self.assertEqual(
                 self._count, order,
                 "Call '{}' was #{:}, expected it to be #{:d}".format(
                     msg, self._count, order))
         if value is not None:
-            self.failUnlessEqual(result, value)
+            self.assertEqual(result, value)
 
+    @defer.inlineCallbacks
     def test_terminateGracefully(self):
         self._count = 0
         worker = MockWorker()
-        workerID = self.th.hire(worker)
+        workerID = yield self.th.hire(worker)
         task = MockTask(lambda x: x, ('foo',), {}, 100, None)
         d1 = self.th(task)
         d1.addCallback(self._callback, "Assignment accepted", 1)
@@ -229,50 +232,46 @@ class TestTaskHandlerHiring(TestCase):
         d2.addCallback(self._callback, "Task done", 2)
         d3 = self.th.terminate(workerID)
         d3.addCallback(self._callback, "Worker terminated", 3)
-        return defer.gatherResults([d1,d2,d3])
+        yield defer.DeferredList([d1,d2,d3])
 
+    @defer.inlineCallbacks
     def test_terminateAfterTimeout(self):
-        def checkTask(null):
-            self.failIf(task.d.called)
-        
         self._count = 0
         worker = MockWorker(runDelay=2.0)
-        workerID = self.th.hire(worker)
+        workerID = yield self.th.hire(worker)
         task = MockTask(lambda x: x, ('foo',), {}, 100, None)
         d1 = self.th(task)
         d1.addCallback(self._callback, "Assignment accepted", 1)
         d2 = self.th.terminate(workerID, timeout=1.0)
         d2.addCallback(self._callback, "Worker terminated", 2, value=[task])
-        return defer.gatherResults([d1,d2]).addCallback(checkTask)
-
+        yield defer.DeferredList([d1,d2])
+        self.assertFalse(task.d.called)
+    
+    @defer.inlineCallbacks
     def test_terminateBeforeTimeout(self):
-        def checkTask(null):
-            self.failUnless(task.d.called)
-        
         self._count = 0
         worker = MockWorker(runDelay=1.0)
-        workerID = self.th.hire(worker)
+        workerID = yield self.th.hire(worker)
         task = MockTask(lambda x: x, ('foo',), {}, 100, None)
         d1 = self.th(task)
         d1.addCallback(self._callback, "Assignment accepted", 1)
         d2 = self.th.terminate(workerID, timeout=2.0)
         d2.addCallback(self._callback, "Worker terminated", 2, value=[])
-        return defer.gatherResults([d1,d2]).addCallback(checkTask)
+        yield defer.DeferredList([d1,d2])
+        self.assertTrue(task.d.called)
 
+    @defer.inlineCallbacks
     def test_terminateByCrashing(self):
-        def checkTask(null):
-            self.failIf(task.d.called)
-        
         self._count = 0
         worker = MockWorker(runDelay=1.0)
         workerID = self.th.hire(worker)
         task = MockTask(lambda x: x, ('foo',), {}, 100, None)
-        d = self.th(task)
-        d.addCallback(self._callback, "Assignment accepted", 1)
-        d.addCallback(lambda _: self.th.terminate(workerID, crash=True))
-        d.addCallback(self._callback, "Worker terminated", 2, value=[task])
-        return d.addCallback(checkTask)
-
+        yield self.th(task)
+        result = yield self.th.terminate(workerID, crash=True)
+        self.assertEqual(result, [task])
+        self.assertTrue(task.d.called)
+        yield d
+        
 
 class TestTaskHandlerRun(TestCase):
     def setUp(self):
