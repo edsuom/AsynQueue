@@ -30,6 +30,7 @@ from twisted.internet.interfaces import IConsumer
 
 from twisted.trial import unittest
 
+from info import Info
 from interfaces import IWorker
 import iteration
 
@@ -170,6 +171,7 @@ class MockWorker(MsgBase):
         self.ran = []
         self.isShutdown = False
         self.iQualified = []
+        self.info = Info()
 
     def setResignator(self, callableObject):
         pass
@@ -188,11 +190,14 @@ class MockWorker(MsgBase):
     
     def _reallyRun(self):
         f, args, kw = self.task.callTuple
-        result = f(*args, **kw)
+        try:
+            result = f(*args, **kw)
+        except:
+            status = 'e'
+            result = self.info.setCall(f, args, kw).aboutException()
+        else:
+            status = 'r'
         self.ran.append(self.task)
-        self.msg(
-            "Worker {} ran {} = {}",
-            getattr(self, 'ID', 0), str(self.task), result)
         if iteration.Deferator.isIterator(result):
             try:
                 result = iteration.iteratorToProducer(result)
@@ -201,8 +206,9 @@ class MockWorker(MsgBase):
                 result = self.info.setCall(f, args, kw).aboutException()
             else:
                 status = 'i'
-        else:
-            status = 'r'
+        self.msg(
+            "Worker {} ran {} ->\n {}: {}",
+            getattr(self, 'ID', 0), str(self.task), status, result)
         self.task.d.callback((status, result))
 
     def stop(self):

@@ -192,7 +192,6 @@ class ThreadLooper(object):
                 # Shutdown was requested
                 break
             status, result = self.runner(self.callTuple)
-            
             # We are about to call back the shared deferred, so clear
             # the event to force me to wait for the next call at the
             # top of the loop. The main thread will not set the event

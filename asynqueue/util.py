@@ -254,7 +254,7 @@ class CallRunner(object):
             result = f(*args, **kw)
             # If the task causes the thread to hang, the method
             # call will not reach this point.
-        except Exception as e:
+        except:
             return ('e', self.info.setCall(f, args, kw).aboutException())
         if iteration.Deferator.isIterator(result):
             return ('i', result)

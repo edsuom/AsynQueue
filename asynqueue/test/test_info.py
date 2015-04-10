@@ -21,6 +21,7 @@
 Unit tests for asynqueue.info
 """
 
+from copy import copy
 import random, threading
 from zope.interface import implements
 from twisted.internet import defer
@@ -46,31 +47,28 @@ class TestInfo(TestCase):
     def test_getID(self):
         IDs = []
         fakList = [
-            (self._foo, (1,), {}),
-            (self._foo, (2,), {}),
-            (self._bar, (3,), {}),
-            (self._bar, (3,), {'y': 1}),
+            ['_foo', (1,), {}],
+            ['_foo', (2,), {}],
+            ['_bar', (3,), {}],
+            ['_bar', (3,), {'y': 1}],
         ]
         for fak in fakList:
-            ID = self.info.setCall(*fak).getID()
+            nfak = copy(fak)
+            nfak[0] = getattr(self, fak[0])
+            ID = self.info.setCall(*nfak).ID
             self.assertNotIn(ID, IDs)
             IDs.append(ID)
         for k, ID in enumerate(IDs):
-            self.assertEqual(
-                self.info.getInfo(ID, 'callTuple'),
-                fakList[k])
+            callTuple = self.info.getInfo(ID, 'callTuple')
+            self.assertIn('test_getID', callTuple[0])
+            self.assertIn(fakList[k][0], callTuple[0])
+            for kk in xrange(1,2):
+                self.assertEqual(callTuple[kk], fakList[k][kk])
         
     def _divide(self, x, y):
         return x/y
 
     def test_nn(self):
-        def bogus():
-            pass
-        
-        # Bogus
-        ns, fn = self.info.setCall(bogus).nn()
-        self.assertEqual(ns, None)
-        self.assertEqual(fn, None)
         # Module-level function
         ns, fn = self.info.setCall(blockingTask).nn()
         self.assertEqual(ns, None)
@@ -94,7 +92,7 @@ class TestInfo(TestCase):
                 ('\.foo\(2\)', self.p.foo, (2,), {}),
                 ('\._bar\(1, y=2\)', self._bar, (1,), {'y':2}),
         ):
-            ID = self.info.setCall(f, args, kw).getID()
+            ID = self.info.setCall(f, args, kw).ID
             self.assertNotIn(ID, IDs)
             IDs.append(ID)
             text = self.info.aboutCall()

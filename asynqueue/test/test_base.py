@@ -21,7 +21,9 @@
 Unit tests for asynqueue.base
 """
 
-from twisted.internet import defer
+import logging
+
+from twisted.internet import defer, reactor
 
 import base
 from testbase import MockWorker, TestCase
@@ -126,3 +128,85 @@ class TestTaskQueue(TestCase):
         d.addCallback(checkResults)
         return d
 
+
+class TestTaskQueueErrors(TestCase):
+    verbose = False
+    
+    class TestHandler(logging.Handler):
+        def __init__(self, verbose):
+            logging.Handler.__init__(self)
+            self.verbose = verbose
+            self.records = []
+        def emit(self, record):
+            self.records.append(record)
+            if self.verbose:
+                print "LOGGED:", record.getMessage()
+    
+    def setUp(self):
+        self.handler = self.TestHandler(self.verbose)
+        logging.getLogger('asynqueue').addHandler(self.handler)
+    
+    def tearDown(self):
+        return self.queue.shutdown()
+
+    def timesTwo(self, x):
+        return 2*x
+        
+    def bogusCall(self):
+        raise Exception("Test error")
+        return
+
+    def newQueue(self, **kw):
+        #from threads import ThreadWorker
+        #worker = ThreadWorker()
+        worker = MockWorker(0.01)
+        self.queue = base.TaskQueue(**kw)
+        self.queue.attachWorker(worker)
+
+    def checkMessage(self, message):
+        self.assertIn("Exception 'Test error'", message)
+        self.assertIn("bogusCall", message)
+        self.msg("Log message:\n{}", message)
+        
+    def test_stop(self):
+        def done(text):
+            self.assertEqual(len(self.handler.records), 0)
+            self.checkMessage(text)
+            delayedCalls = reactor.getDelayedCalls()
+            # One for the reactor shutdown, and one for 
+            self.assertEqual(len(delayedCalls), 2)
+            delayedCalls[0].cancel()
+        self.newQueue()
+        return self.queue.call(self.bogusCall).addCallback(done)
+        
+    def test_warn(self):
+        def done(text):
+            self.assertEqual(len(self.handler.records), 1)
+            self.checkMessage(self.handler.records[0].getMessage())
+        self.newQueue(warn=True)
+        return self.queue.call(self.bogusCall).addCallback(done)
+
+    def test_warn_verbose(self):
+        def done(text):
+            self.assertEqual(len(self.handler.records), 1)
+            self.checkMessage(self.handler.records[0].getMessage())
+        self.newQueue(warn=True, verbose=True)
+        return self.queue.call(self.bogusCall).addCallback(done)
+
+    @defer.inlineCallbacks
+    def test_spew(self):
+        N = 10
+        self.newQueue(spew=True)
+        for x in xrange(N):
+            y = yield self.queue.call(self.timesTwo, x)
+            self.assertEqual(y, 2*x)
+        self.assertEqual(len(self.handler.records), N)
+        for x, thisRecord in enumerate(self.handler.records):
+            self.assertIn(
+                ".timesTwo({:d}) -> {:d}".format(x, 2*x),
+                thisRecord.getMessage())
+        
+            
+        
+        
+        

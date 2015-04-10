@@ -66,6 +66,7 @@ class Info(object):
     change it) later with L{setCall}.
     """
     def __init__(self, remember=False):
+        self.lastMetaArgs = None
         if remember:
             self.pastInfo = {}
 
@@ -79,7 +80,10 @@ class Info(object):
         depicting a callable.
 
         You can specify args with a second argument (as a list or
-        tuple), and kw with a third argument (as a dict).
+        tuple), and kw with a third argument (as a dict). If you are
+        only specifying a single arg, you can just provide it as your
+        second argument to this method call without wrapping it in a
+        list or tuple. I try to be flexible.
 
         If you've set a function name and want to add a sequence of
         args or a dict of keywords, you can do it by supplying the
@@ -87,9 +91,16 @@ class Info(object):
         that time with the 'instance' keyword.
         """
         if metaArgs:
+            if metaArgs == self.lastMetaArgs and not hasattr(self, 'pastInfo'):
+                # We called this already with the same metaArgs and
+                # without any pastInfo to reckon with, so there's
+                # nothing to do.
+                return self
             # Starting over with a new f
             f = self._funcText(metaArgs[0])
             args = metaArgs[1] if len(metaArgs) > 1 else []
+            if not isinstance(args, (tuple, list)):
+                args = [args]
             nkw = metaArgs[2] if len(metaArgs) > 2 else {}
             instance = None
         elif hasattr(self, 'callTuple'):
@@ -110,10 +121,14 @@ class Info(object):
         if instance:
             callList.append(instance)
         self.callTuple = tuple(callList)
-        self.getID()
+        self.ID
+        if metaArgs:
+            # Save metaArgs to ignore repeated calls with the same metaArgs
+            self.lastMetaArgs = metaArgs
         return self
-    
-    def getID(self):
+
+    @property
+    def ID(self):
         """
         Returns a unique ID for my current callable.
         """
@@ -127,13 +142,13 @@ class Info(object):
         if hasattr(self, 'currentID'):
             return self.currentID
         if hasattr(self, 'callTuple'):
-            ID = hashFAK(list(self.callTuple))
+            thisID = hashFAK(list(self.callTuple))
             if hasattr(self, 'pastInfo'):
-                self.pastInfo[ID] = {'callTuple': self.callTuple}
+                self.pastInfo[thisID] = {'callTuple': self.callTuple}
         else:
-            ID = None
-        self.currentID = ID
-        return ID
+            thisID = None
+        self.currentID = thisID
+        return thisID
 
     def forgetID(self, ID):
         """
@@ -141,7 +156,7 @@ class Info(object):
         call ID, to avoid memory leaks.
         """
         if ID in getattr(self, 'pastInfo', {}):
-            del self.pastInfo['ID']
+            del self.pastInfo[ID]
 
     def getInfo(self, ID, name):
         """
@@ -165,7 +180,7 @@ class Info(object):
     
     def saveInfo(self, name, x, ID=None):
         if ID is None:
-            ID = self.getID()
+            ID = self.ID
         if hasattr(self, 'pastInfo'):
             self.pastInfo.setdefault(ID, {})[name] = x
         return x

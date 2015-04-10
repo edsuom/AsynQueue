@@ -242,7 +242,7 @@ class Prefetcherator(object):
     def __repr__(self):
         text = "<Prefetcherator instance '{}'".format(self.ID)
         if self.isBusy():
-            text += " with nextCallTuple '{}'>".format(
+            text += "\n with nextCallTuple '{}'>".format(
                 repr(self.nextCallTuple))
         else:
             text += ">"

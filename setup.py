@@ -27,13 +27,16 @@ import ez_setup
 ez_setup.use_setuptools()
 from setuptools import setup, find_packages
 
+### Define requirements
+required = ['Twisted']
+
 
 ### Define setup options
-kw = {'version':'0.5',
+kw = {'version':'0.8.1',
       'license':'GPL',
       'platforms':'OS Independent',
 
-      'url':"http://edsuom.com/foss/%s/" % NAME,
+      'url':"http://foss.edsuom.com/%s/" % NAME,
       'author':'Edwin A. Suominen',
       'maintainer':'Edwin A. Suominen',
       

@@ -22,7 +22,7 @@ The task queue and its immediate support staff.
 """
 
 # Imports
-import heapq
+import heapq, logging
 from zope.interface import implements
 from twisted.python.failure import Failure
 from twisted.internet import reactor, interfaces, defer
@@ -226,7 +226,8 @@ class Queue(object):
         Cancels any pending items in the specified I{series},
         unceremoniously removing them from the queue.
         """
-        self.heap.cancel(lambda item: getattr(item, 'series', None) == series)
+        self.heap.cancel(
+            lambda item: getattr(item, 'series', None) == series)
 
     def cancelAll(self):
         """
@@ -258,31 +259,42 @@ class TaskQueue(object):
     I am a task queue for dispatching arbitrary callables to be run by
     one or more worker objects.
 
-    You can construct me with one or more workers, or you can attach them later
-    with L{attachWorker}, in which you'll receive an ID that you can use to
-    detach the worker.
+    You can construct me with one or more workers, or you can attach
+    them later with L{attachWorker}, in which you'll receive an ID
+    that you can use to detach the worker.
 
-    @keyword timeout: A number of seconds after which to more drastically
-      terminate my workers if they haven't gracefully shut down by that point.
+    @keyword timeout: A number of seconds after which to more
+      drastically terminate my workers if they haven't gracefully shut
+      down by that point.
 
-    @keyword warn: Set this option C{True} to only warn that a call
-      made after queue shutdown is being ignored, rather than raising
-      an exception.
+    @keyword warn: Merely log errors via an 'asynqueue' logger with
+      ERROR events. The default is to stop the reactor and raise an
+      exception when an error is encountered.
+
+    @keyword verbose: Provide detailed info about tasks that are logged
+      or result in errors.
+
+    @keyword spew: Log all task calls, whether they raise errors or
+      not. Can generate huge logs! Implies verbose=True.
 
     @keyword profile: (TODO) Set to a filename and each call will be
-        run under a profiler. The profiler stats will be dumped to the
-        filename when the queue shuts down.
-    
+      run under a profiler. The profiler stats will be dumped to the
+      filename when the queue shuts down.
     """
     def __init__(self, *args, **kw):
         # Options
         self.timeout = kw.get('timeout', None)
-        self.warnOnly = kw.get('warn', False)
+        self.spew = kw.get('spew', False)
+        if kw.get('warn', False) or self.spew:
+            self.logger = logging.getLogger('asynqueue')
+            if self.spew:
+                self.logger.setLevel(logging.INFO)
+        if kw.get('verbose', False) or self.spew:
+            self.info = Info(remember=True)
         profile = kw.get('profile', None)
         # Bookkeeping
         self.tasksBeingRetried = []
         # Tools
-        self.info = Info()
         self.th = tasks.TaskHandler(profile)
         self.taskFactory = tasks.TaskFactory()
         # Attach any workers provided now
@@ -307,12 +319,34 @@ class TaskQueue(object):
             if hasattr(self, '_triggerID'):
                 reactor.removeSystemEventTrigger(self._triggerID)
                 del self._triggerID
+            if hasattr(self, '_dc') and self._dc.active():
+                self._dc.cancel()
+            for dc in tasks.Task.timeoutCalls:
+                if dc.active():
+                    dc.cancel()
             return stuff
         
         if not self.isRunning:
             return defer.succeed(None)
         return self.th.shutdown().addCallback(
             lambda _: self.q.shutdown()).addCallback(cleanup)
+
+    def oops(self, text):
+        """
+        Use as a callback to log errors and get useful information about
+        the call if the 'warn' and 'verbose' constructor keywords were
+        set, respectively. 
+        """
+        if hasattr(self, 'logger'):
+            # Merely log the error and continue
+            self.logger.error(text)
+        else:
+            # Print the error (to stderr) and stop the reactor
+            import sys
+            sys.stderr.write("\nERROR: {}".format(text))
+            print "\nShutting down in one second!\n"
+            self._dc = reactor.callLater(1.0, reactor.stop)
+        return text
         
     def attachWorker(self, worker):
         """
@@ -322,7 +356,15 @@ class TaskQueue(object):
 
         See L{WorkerManager.hire}.
         """
-        return self.th.hire(worker)
+        def oops(failureObj, ID):
+            text = self.info.aboutFailure(failureObj, ID)
+            return self.oops(text)
+        
+        d = self.th.hire(worker)
+        if hasattr(self, 'info'):
+            ID = self.info.setCall(self.attachWorker, worker).ID
+            d.addErrback(oops, ID)
+        return d
 
     def _getWorkerID(self, workerOrID):
         if workerOrID in self.th.workers:
@@ -333,7 +375,9 @@ class TaskQueue(object):
     
     def detachWorker(self, workerOrID, reassign=False, crash=False):
         """
-        Detaches and terminates the worker supplied or specified by its ID.
+        Detaches and terminates the worker supplied or specified by its
+        ID, returning a deferred that fires with a list of tasks left
+        unfinished by the worker.
 
         If I{reassign} is set C{True}, any tasks left unfinished by
         the worker are put into new assignments for other or future
@@ -344,12 +388,10 @@ class TaskQueue(object):
         """
         ID = self._getWorkerID(workerOrID)
         if ID is None:
-            return
+            return defer.succeed([])
         if crash:
-            d = self.th.terminate(ID, crash=True, reassign=reassign)
-        else:
-            d = self.th.terminate(ID, self.timeout, reassign=reassign)
-        return d
+            return self.th.terminate(ID, crash=True, reassign=reassign)
+        return self.th.terminate(ID, self.timeout, reassign=reassign)
 
     def qualifyWorker(self, worker, series):
         """
@@ -362,17 +404,17 @@ class TaskQueue(object):
     
     def workers(self, ID=None):
         """
-        Returns the worker object specified by I{ID}, or C{None} if that worker
-        is not employed with me.
+        Returns the worker object specified by I{ID}, or C{None} if that
+        worker is not employed with me.
 
-        If no ID is specified, a list of the workers currently attached, in no
-        particular order, will be returned instead.
+        If no ID is specified, a list of the workers currently
+        attached, in no particular order, will be returned instead.
         """
         if ID is None:
             return self.th.workers.values()
         return self.th.workers.get(ID, None)
         
-    def _taskDone(self, statusResult, task, consumer=None):
+    def _taskDone(self, statusResult, task, consumer=None, ID=None):
         """
         Processes the status/result tuple from a worker running a task:
 
@@ -397,11 +439,24 @@ class TaskQueue(object):
         't': The task timed out. I'll try to re-run it, once.
         """
         status, result = statusResult
+        # Deal with any info for this task call
+        if ID:
+            if status == 'e' or self.spew:
+                taskInfo = "Task: {}".format(self.info.aboutCall(ID))
+            self.info.forgetID(ID)
+        # If we are spewing log entries, deal with that now
+        if self.spew:
+            try:
+                stringResult = str(result)
+                taskInfo += " -> {}".format(stringResult[:40])
+            except:
+                pass
+            self.logger.info(taskInfo)
+        # Now process the status/result
         if status == 'e':
-            # Error
-            return Failure(errors.WorkerError(result))
+            return self.oops(result)
         if status in "rc":
-            # A plain result, a deferred to a chunked one
+            # A plain result, or a deferred to a chunked one
             return result
         if status == 'i':
             # An iteration, possibly an IterationConsumer that we need
@@ -414,7 +469,8 @@ class TaskQueue(object):
             if task in self.tasksBeingRetried:
                 self.tasksBeingRetried.remove(task)
                 return Failure(
-                    errors.QueueRunError("Timed out after two tries, gave up"))
+                    errors.QueueRunError(
+                        "Timed out after two tries, gave up"))
             self.tasksBeingRetried.append(task)
             task.rush()
             self.q.put(task)
@@ -423,13 +479,11 @@ class TaskQueue(object):
             errors.QueueRunError("Unknown status '{}'".format(status)))
 
     def _newTask(self, func, args, kw):
+        """
+        Make a new Task object from a func-args-kw combo
+        """
         if not self.isRunning():
-            text = self.info.setCall(func, args, kw).aboutCall()
-            text = "Queue shut down, ignoring call\n{}\n".format(text)
-            if self.warnOnly:
-                print text
-            else:
-                raise errors.QueueRunError(text)
+            return self.oops("Queue not running")
         # Some parameters just for me, not for the task
         niceness = kw.pop('niceness', 0     )
         series   = kw.pop('series',   None  )
@@ -442,7 +496,11 @@ class TaskQueue(object):
             task.rush()
         elif doLast:
             task.relax()
-        task.d.addCallback(self._taskDone, task, consumer)
+        if hasattr(self, 'info'):
+            ID = self.info.setCall(func, args, kw).ID
+            task.d.addCallback(self._taskDone, task, consumer, ID)
+        else:
+            task.d.addCallback(self._taskDone, task, consumer)
         return task
         
     def call(self, func, *args, **kw):

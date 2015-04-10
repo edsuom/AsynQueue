@@ -55,6 +55,7 @@ class Task(object):
 
     """
     info = Info()
+    timeoutCalls = []
     
     def __init__(self, f, args, kw, priority, series, timeout=None):
         if not isinstance(args, (tuple, list)):
@@ -70,20 +71,25 @@ class Task(object):
     def startTimer(self):
         if self.timeout:
             self.callID = reactor.callLater(self.timeout, self.timedout)
+            self.timeoutCalls.append(self.callID)
         else:
             self.callID = None
 
-    def callback(self, result):
+    def _cancelTimeout(self):
         if getattr(self, 'callID', None):
-            self.callID.cancel()
+            if self.callID in self.timeoutCalls:
+                self.timeoutCalls.remove(self.callID)
+            if self.callID.active():
+                self.callID.cancel()
             self.callID = None
+            
+    def callback(self, result):
+        self._cancelTimeout()
         if not self.d.called:
             self.d.callback(result)
 
     def errback(self, result):
-        if getattr(self, 'callID', None):
-            self.callID.cancel()
-            self.callID = None
+        self._cancelTimeout()
         self.d.errback(result)
 
     def timedout(self):
