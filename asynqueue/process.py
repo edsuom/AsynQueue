@@ -29,7 +29,7 @@ from twisted.python.failure import Failure
 
 from base import TaskQueue
 from interfaces import IWorker
-import errors, info, util, iteration
+import errors, util, iteration
 
 
 class ProcessQueue(TaskQueue):
@@ -73,7 +73,6 @@ class ProcessWorker(object):
         self.iQualified = series
         self.profiler = profiler
         # Tools
-        self.info = info.Info()
         self.delay = iteration.Delay()
         self.dLock = util.DeferredLock()
         # Multiprocessing with (Gasp! Twisted heresy!) standard lib Python
@@ -154,11 +153,9 @@ class ProcessWorker(object):
                     if consumer:
                         result = iteration.IterationProducer(result, consumer)
                 else:
-                    status = 'e'
-                    # The process may have an iterator, but it's not a
-                    # proper one
-                    result = "Failed to iterate for call {}".format(
-                        self.info.setCall(*task.callTuple).aboutCall())
+                    # The process returned an iterator, but it's not 
+                    # one I could prefetch from. Probably empty.
+                    result = []
             if task in self.tasks:
                 self.tasks.remove(task)
             task.callback((status, result))

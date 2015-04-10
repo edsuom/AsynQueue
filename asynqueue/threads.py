@@ -30,7 +30,7 @@ from twisted.python.failure import Failure
 
 from base import TaskQueue
 from interfaces import IWorker
-import errors, info, util, iteration
+import errors, util, iteration
 
 
 class ThreadQueue(TaskQueue):
@@ -159,7 +159,6 @@ class ThreadLooper(object):
         # running, mostly for unit testing
         self.threadRunning = True
         # Tools
-        self.info = info.Info()
         self.runner = util.CallRunner()
         self.dLock = util.DeferredLock()
         self.event = threading.Event()
@@ -202,6 +201,7 @@ class ThreadLooper(object):
         # Broken out of loop, the thread now dies
         self.threadRunning = False
 
+    @defer.inlineCallbacks
     def call(self, f, *args, **kw):
         """
         Runs the supplied callable function with any args and keywords in
@@ -216,48 +216,45 @@ class ThreadLooper(object):
         instead of a raw iterator, contrary to the instance-wide
         default set with the constructor keyword 'raw'.
         """
-        def threadReady(null):
-            self.callTuple = f, args, kw
-            self.d = defer.Deferred().addCallback(threadDone)
-            # The callTuple is set for this call along with the
-            # deferred to be called back with its result, so release
-            # the thread to work on it.
-            self.event.set()
-            return self.d
-
-        def threadDone(statusResult):
-            # The deferred lock is released after the call is done so
-            # that another call can proceed. This is NOT the same as
-            # the event used as a threading lock. It keeps the main
-            # thread from setting that event before the thread loop is
-            # read for that.
-            self.dLock.release()
-            status, result = statusResult
-            if status == 'i':
-                # An iterator
-                if raw:
-                    # ...but no special processing
-                    status = 'r'
-                else:
-                    # ...with special processing
-                    ID = str(hash(result))
-                    pf = iteration.Prefetcherator(ID)
-                    if pf.setup(result):
-                        # OK, we can iterate this
-                        return ('i', iteration.Deferator(
-                            repr(pf), self.deferToThread, pf.getNext))
-                    # An iterator, but not a proper one
-                    return ('e', "Failed to iterate for call {}".format(
-                        self.info.setCall(f, args, kw).aboutCall()))
-            # Not an iterator, at least not one being specially
-            # processed; we already have our result
-            return status, result
-
         raw = kw.pop('raw', None)
         if raw is None:
             raw = self.raw
-        return self.dLock.acquire(
-            kw.pop('doNext', False)).addCallback(threadReady)
+        yield self.dLock.acquire(kw.pop('doNext', False))
+        self.callTuple = f, args, kw
+        self.d = defer.Deferred()
+        # The callTuple is set for this call along with the deferred
+        # to be called back with its result, so release the thread to
+        # work on it, firing this deferred's callback with its result.
+        self.event.set()
+        statusResult = yield self.d
+        # The deferred lock is released after the call is done so
+        # that another call can proceed. This is NOT the same as
+        # the event used as a threading lock. It keeps the main
+        # thread from setting that event before the thread loop is
+        # ready for that.
+        self.dLock.release()
+        status, result = statusResult
+        if status == 'i':
+            # An iterator
+            if raw:
+                # ...but no special processing
+                status = 'r'
+            else:
+                # ...with special processing
+                ID = str(hash(result))
+                pf = iteration.Prefetcherator(ID)
+                ok = yield pf.setup(result)
+                if ok:
+                    # OK, we can iterate this
+                    result = iteration.Deferator(
+                        repr(pf), self.deferToThread, pf.getNext)
+                else:
+                    # An iterator, but not one we could prefetch
+                    # from. Probably empty.
+                    result = []
+        # Not an iterator, at least not one being specially
+        # processed; we already have our result
+        defer.returnValue((status, result))
 
     def dr2ip(self, dr, consumer=None):
         """

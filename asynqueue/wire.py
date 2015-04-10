@@ -238,11 +238,9 @@ class SocketWorker(object):
                 dr = iteration.Deferator(pf)
                 returnThis = iteration.IterationProducer(dr)
             else:
-                status = 'e'
-                # The subordinate may have an iterator, but it's not a
-                # proper one
-                returnThis = "Failed to iterate for call {}".format(
-                    self.info.setCall(*task.callTuple).aboutCall())
+                # The subordinate returned an iterator, but it's not 
+                # one I could prefetch from. Probably empty.
+                returnThis = []
             result(returnThis)
         elif status == 'c':
             # Chunked result, which will take a while

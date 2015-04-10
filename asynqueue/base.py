@@ -428,7 +428,8 @@ class TaskQueue(object):
              yields deferreds to the worker's iterations, or, if you
              specified a consumer, an IterationProducer registered
              with the consumer that needs to get running to write
-             iterations to it.
+             iterations to it. If the iterator was empty, the result
+             is just an empty list.
 
         'c': Ran fine (on an AMP server), but the result was too big
              for a single return value. So the result is a deferred
@@ -462,7 +463,11 @@ class TaskQueue(object):
             # An iteration, possibly an IterationConsumer that we need
             # to run now
             if consumer:
-                return result.run()
+                if hasattr(result, 'run'):
+                    return result.run()
+                # Nothing to produce from an empty iterator, consider
+                # the iterations "done" right away.
+                return defer.succeed(None)
             return result
         if status == 't':
             # Timedout. Try again, once.

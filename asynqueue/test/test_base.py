@@ -26,7 +26,7 @@ import logging
 from twisted.internet import defer, reactor
 
 import base
-from testbase import MockWorker, TestCase
+from testbase import DeferredIterable, MockWorker, TestCase
 
 
 VERBOSE = False
@@ -71,8 +71,10 @@ class TestPriority(TestCase):
 
 
 class TestTaskQueue(TestCase):
+    verbose = True
+    
     def setUp(self):
-        self.queue = base.TaskQueue()
+        self.queue = base.TaskQueue(verbose=self.isVerbose())
 
     def tearDown(self):
         return self.queue.shutdown()
@@ -128,6 +130,23 @@ class TestTaskQueue(TestCase):
         d.addCallback(checkResults)
         return d
 
+    @defer.inlineCallbacks
+    def test_iteration(self):
+        # MockWorker doesn't work for this
+        import threads
+        worker = threads.ThreadWorker()
+        self.queue.attachWorker(worker)
+        for N in (0, 1, 10):
+            dr = yield self.queue.call(xrange, N)
+            count = 0
+            for k, d in enumerate(dr):
+                x = yield d
+                self.assertEqual(x, k, "For k={:d}, N={:d}".format(k, N))
+                count += 1
+            self.assertEqual(
+                count, N,
+                "Expected {:d} iterations, got {:d}".format(N, count))
+
 
 class TestTaskQueueErrors(TestCase):
     verbose = False
@@ -176,6 +195,7 @@ class TestTaskQueueErrors(TestCase):
             # One for the reactor shutdown, and one for 
             self.assertEqual(len(delayedCalls), 2)
             delayedCalls[0].cancel()
+        # TODO: Redirect stdout, stderr for duration of test
         self.newQueue()
         return self.queue.call(self.bogusCall).addCallback(done)
         

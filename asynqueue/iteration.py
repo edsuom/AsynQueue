@@ -195,9 +195,9 @@ class Deferator(object):
             if pf.setup(objOrRep):
                 self.callTuple = (pf.getNext, [], {})
                 return
-        raise TypeError(
-            "Object '{}' unsuitable for Deferator wrapping".format(
-                self.representation))
+        # Nothing worked; make me equivalent to an empty iterator
+        self.moreLeft = False
+        self.representation = repr([])
 
     def __repr__(self):
         return "<Deferator wrapping of\n  <{}>,\nat 0x{}>".format(
@@ -218,7 +218,8 @@ class Deferator(object):
             f, args, kw = self.callTuple
             self.d = f(*args, **kw).addCallback(gotNext)
             return self.d
-        del self.d
+        if hasattr(self, 'd'):
+            del self.d
         raise StopIteration
 
 

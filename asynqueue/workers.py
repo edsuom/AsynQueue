@@ -68,16 +68,15 @@ class AsyncWorker(object):
                 f, *args, **kw).addCallbacks(done, oops)
 
         def done(result):
-            if iteration.isIterator(result):
+            if not raw and iteration.isIterator(result):
                 try:
                     result = iteration.Deferator(result)
                 except:
-                    status = 'e'
-                    result = self.info.setCall(f, args, kw).aboutException()
+                    result = []
                 else:
-                    status = 'i'
                     if consumer:
                         result = iteration.IterationProducer(result, consumer)
+                status = 'i'
             else:
                 status = 'r'
             # Hangs if release is done after the task callback
@@ -92,6 +91,7 @@ class AsyncWorker(object):
         if self.profiler:
             args = [f] + list(args)
             f = self.profiler.runcall
+        raw = kw.pop('raw', False)
         consumer = kw.pop('consumer', None)
         vip = (kw.pop('doNext', False) or task.priority <= -20)
         return self.dLock.acquire(vip).addCallback(ready)

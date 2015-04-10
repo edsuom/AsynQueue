@@ -133,10 +133,10 @@ class Info(object):
         Returns a unique ID for my current callable.
         """
         def hashFAK(fak):
-            fak[1] = tuple(fak[1])
+            fak[1] = str(fak[1])
             fak[2] = (
-                tuple(fak[2].keys()),
-                tuple(fak[2].values())) if fak[2] else None
+                str(fak[2].keys()),
+                str(fak[2].values())) if fak[2] else None
             return hash(tuple(fak))
 
         if hasattr(self, 'currentID'):

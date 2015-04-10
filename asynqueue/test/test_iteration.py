@@ -27,7 +27,7 @@ from copy import copy
 from twisted.internet import defer
 
 import errors, iteration
-from testbase import TestCase, IterationConsumer
+from testbase import TestCase, DeferredIterable, IterationConsumer
 
 
 generator = (2*x for x in range(10))
@@ -36,16 +36,6 @@ def generatorFunction(x, N=7):
     for y in xrange(N):
         yield x*y
 
-
-class DeferredIterable(object):
-    def __init__(self, x):
-        self.x = x
-
-    def next(self):
-        d = iteration.deferToDelay(0.3*random.random())
-        d.addCallback(lambda _: self.x.pop(0))
-        return d
-        
 
 class IteratorGetter(object):
     def __init__(self, x):

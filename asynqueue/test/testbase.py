@@ -54,14 +54,19 @@ class MsgBase(object):
     """
     A mixin for providing a convenient message method.
     """
-    def msg(self, proto, *args):
+    def isVerbose(self):
         if hasattr(self, 'verbose'):
-            verbose = self.verbose
-        elif 'VERBOSE' in globals():
-            verbose = VERBOSE
-        else:
-            verbose = False
-        if verbose:
+            return self.verbose
+        if 'VERBOSE' in globals():
+            return VERBOSE
+        return False
+    
+    def verboserator(self):
+        if self.isVerbose():
+            yield None
+
+    def msg(self, proto, *args):
+        for null in self.verboserator():
             if not hasattr(self, 'msgAlready'):
                 proto = "\n" + proto
                 self.msgAlready = True
@@ -69,6 +74,19 @@ class MsgBase(object):
                 args = args[:-1]
                 proto += "\n{}".format("-"*40)
             print proto.format(*args)
+
+
+class DeferredIterable(object):
+    def __init__(self, x):
+        self.x = x
+
+    def __iter__(self):
+        return self
+        
+    def next(self):
+        d = iteration.deferToDelay(0.3*random.random())
+        d.addCallback(lambda _: self.x.pop(0))
+        return d
 
 
 class ProcessProtocol(MsgBase):
@@ -190,6 +208,7 @@ class MockWorker(MsgBase):
     
     def _reallyRun(self):
         f, args, kw = self.task.callTuple
+        consumer = kw.pop('consumer', None)
         try:
             result = f(*args, **kw)
         except:
@@ -199,13 +218,14 @@ class MockWorker(MsgBase):
             status = 'r'
         self.ran.append(self.task)
         if iteration.Deferator.isIterator(result):
+            status = 'i'
             try:
-                result = iteration.iteratorToProducer(result)
+                result = iteration.Deferator(result)
             except:
-                status = 'e'
-                result = self.info.setCall(f, args, kw).aboutException()
+                result = []
             else:
-                status = 'i'
+                if consumer:
+                    result = iteration.IterationProducer(result, consumer)
         self.msg(
             "Worker {} ran {} ->\n {}: {}",
             getattr(self, 'ID', 0), str(self.task), status, result)
