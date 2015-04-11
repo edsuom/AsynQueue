@@ -21,8 +21,9 @@
 The task queue and its immediate support staff.
 """
 
-# Imports
 import heapq, logging
+from contextlib import contextmanager
+
 from zope.interface import implements
 from twisted.python.failure import Failure
 from twisted.internet import reactor, interfaces, defer
@@ -284,9 +285,10 @@ class TaskQueue(object):
     def __init__(self, *args, **kw):
         # Options
         self.timeout = kw.get('timeout', None)
+        self.warn = kw.get('warn', False)
         self.spew = kw.get('spew', False)
         self.returnFailure = kw.get('returnFailure', False)
-        if kw.get('warn', False) or self.spew:
+        if self.warn or self.spew:
             self.logger = logging.getLogger('asynqueue')
             if self.spew:
                 self.logger.setLevel(logging.INFO)
@@ -340,18 +342,6 @@ class TaskQueue(object):
         If the result is a failure object for some reason, it is
         passed through unchanged so it triggers the task's errback.
         """
-        if isinstance(result, Failure):
-            return result
-        if hasattr(self, 'logger'):
-            # Merely log the error and continue
-            self.logger.error(result)
-        else:
-            # Print the error (to stderr) and stop the reactor
-            import sys
-            sys.stderr.write("\nERROR: {}".format(result))
-            print "\nShutting down in one second!\n"
-            self._dc = reactor.callLater(1.0, reactor.stop)
-        return result
         
     def attachWorker(self, worker):
         """
@@ -361,15 +351,7 @@ class TaskQueue(object):
 
         See L{WorkerManager.hire}.
         """
-        def oops(failureObj, ID):
-            text = self.info.aboutFailure(failureObj, ID)
-            return self.oops(text)
-        
-        d = self.th.hire(worker)
-        if hasattr(self, 'info'):
-            ID = self.info.setCall(self.attachWorker, worker).ID
-            d.addErrback(oops, ID)
-        return d
+        return self.th.hire(worker)
 
     def _getWorkerID(self, workerOrID):
         if workerOrID in self.th.workers:
@@ -446,25 +428,38 @@ class TaskQueue(object):
         
         't': The task timed out. I'll try to re-run it, once.
         """
+        @contextmanager
+        def taskInfo(ID):
+            if ID:
+                taskInfo = self.info.aboutCall(ID)
+                self.info.forgetID(ID)
+                yield taskInfo
+            elif hasattr(self, 'logger'):
+                yield "TASK"
+            else:
+                yield None
+            if self.spew:
+                taskInfo += " -> {}".format(result)
+                self.logger.info(taskInfo)
+        
         status, result = statusResult
         # Deal with any info for this task call
-        ID = kw.get('ID', None)
-        if ID:
-            taskInfo = "Task: {}".format(self.info.aboutCall(ID))
-            self.info.forgetID(ID)
-        # If we are spewing log entries, deal with that now
-        if self.spew:
-            try:
-                stringResult = str(result)
-                taskInfo += " -> {}".format(stringResult)
-            except:
-                pass
-            self.logger.info(taskInfo)
-        # Now process the status/result
-        if status == 'e':
-            if kw.get('rf', False):
-                result = Failure(errors.WorkerError(result))
-            return self.oops(result)
+        with taskInfo(kw.get('ID', None)) as prefix:
+            if status == 'e':
+                # There was an error...
+                if prefix:
+                    # ...log it
+                    self.logger.error("{}: {}".format(prefix, result))
+                if kw.get('rf', False):
+                    # ...just return the Failure
+                    result = Failure(errors.WorkerError(result))
+                elif not self.warn:
+                    # ...stop the reactor
+                    import sys
+                    sys.stderr.write("\nERROR: {}".format(result))
+                    print "\nShutting down in one second!\n"
+                    self._dc = reactor.callLater(1.0, reactor.stop)
+                return result
         if status in "rc":
             # A plain result, or a deferred to a chunked one
             return result

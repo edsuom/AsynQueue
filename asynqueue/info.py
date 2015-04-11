@@ -158,22 +158,34 @@ class Info(object):
         if ID in getattr(self, 'pastInfo', {}):
             del self.pastInfo[ID]
 
-    def getInfo(self, ID, name):
+    def getInfo(self, ID, name, nowForget=False):
         """
         If the supplied name is 'callTuple', returns the f-args-kw tuple
         for my current callable. The value of ID is ignored in such
-        case.
+        case. Otherwise, returns the named information attribute for
+        the previous call identified with the supplied ID.
 
-        Otherwise, returns the named information attribute for the
-        previous call identified with the supplied ID.
+        Set 'nowForget' to remove any reference to this ID or
+        callTuple after the info is obtained.
         """
         def getCallTuple():
-            return getattr(self, 'callTuple', None)
+            if hasattr(self, 'callTuple'):
+                result = self.callTuple
+                if nowForget:
+                    del self.callTuple
+            else:
+                result = None
+            return result
         
         if hasattr(self, 'pastInfo'):
             if ID is None and name == 'callTuple':
                 return getCallTuple()
-            return self.pastInfo.get(ID, {}).get(name, None)
+            if hasattr(self, 'pastInfo'):
+                x = self.pastInfo[ID]
+                if nowForget:
+                    del self.pastInfo[ID]
+                return x.get(name, None)
+            return None
         if name == 'callTuple':
             return getCallTuple()
         return None
@@ -312,13 +324,13 @@ class Info(object):
             func = repr(func)
         return "{}[Not Callable!]".format(func)
         
-    def aboutCall(self, ID=None):
+    def aboutCall(self, ID=None, nowForget=False):
         """
         Returns an informative string describing my current function call
         or a previous one identified by ID.
         """
         if ID:
-            pastInfo = self.getInfo(ID, 'aboutCall')
+            pastInfo = self.getInfo(ID, 'aboutCall', nowForget)
             if pastInfo:
                 return pastInfo
         callTuple = self.getInfo(ID, 'callTuple')
@@ -338,14 +350,14 @@ class Info(object):
         text += ")"
         return self.saveInfo('aboutCall', text, ID)
     
-    def aboutException(self, ID=None, exception=None):
+    def aboutException(self, ID=None, exception=None, nowForget=False):
         """
         Returns an informative string describing an exception raised from
         my function call or a previous one identified by ID, or one
         you supply (as an instance, not a class).
         """
         if ID:
-            pastInfo = self.getInfo(ID, 'aboutException')
+            pastInfo = self.getInfo(ID, 'aboutException', nowForget)
             if pastInfo:
                 return pastInfo
         if exception:
@@ -364,14 +376,14 @@ class Info(object):
         text = self._formatList(lineList)
         return self.saveInfo('aboutException', text, ID)
 
-    def aboutFailure(self, failureObj, ID=None):
+    def aboutFailure(self, failureObj, ID=None, nowForget=False):
         """
         Returns an informative string describing a Twisted failure raised
         from my function call or a previous one identified by ID. You
         can use this as an errback.
         """
         if ID:
-            pastInfo = self.getInfo(ID, 'aboutFailure')
+            pastInfo = self.getInfo(ID, 'aboutFailure', nowForget)
             if pastInfo:
                 return pastInfo
         lineList = ["Failure '{}'".format(failureObj.getErrorMessage())]
