@@ -193,7 +193,8 @@ class DeferredLock(defer.DeferredLock):
             return result
         
         if not self.running:
-            raise errors.QueueRunError
+            raise errors.QueueRunError(
+                "Can't acquire from a stopped DeferredLock")
         d = defer.Deferred(canceller=self._cancelAcquire)
         if self.locked:
             if vip:

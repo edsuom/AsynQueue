@@ -212,8 +212,11 @@ class Queue(object):
         """
         if self.isRunning():
             self.heap.put(None)
-            return self._d
-        return defer.succeed([])
+            d = self._d
+        else:
+            d = defer.succeed([])
+        self._runFlag = False
+        return d
 
     def put(self, item):
         """
@@ -328,7 +331,7 @@ class TaskQueue(object):
                     dc.cancel()
             return stuff
         
-        if not self.isRunning:
+        if not self.isRunning():
             return defer.succeed(None)
         return self.th.shutdown().addCallback(
             lambda _: self.q.shutdown()).addCallback(cleanup)
@@ -432,7 +435,7 @@ class TaskQueue(object):
         def taskInfo(ID):
             if ID:
                 taskInfo = self.info.aboutCall(ID)
-                self.info.forgetID(ID)
+                #self.info.forgetID(ID)
                 yield taskInfo
             elif hasattr(self, 'logger'):
                 yield "TASK"
@@ -445,6 +448,7 @@ class TaskQueue(object):
         status, result = statusResult
         # Deal with any info for this task call
         with taskInfo(kw.get('ID', None)) as prefix:
+            print "TI-Y", status, prefix
             if status == 'e':
                 # There was an error...
                 if prefix:

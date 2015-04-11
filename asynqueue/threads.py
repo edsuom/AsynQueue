@@ -303,6 +303,8 @@ class ThreadLooper(object):
         The returned deferred fires when the task loop has ended and its
         thread terminated.
         """
+        if not self.threadRunning:
+            return defer.succeed(None)
         # Tell the thread to quit with a null task
         self.callTuple = None
         self.event.set()

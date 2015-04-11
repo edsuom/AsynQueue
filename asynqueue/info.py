@@ -180,7 +180,7 @@ class Info(object):
         if hasattr(self, 'pastInfo'):
             if ID is None and name == 'callTuple':
                 return getCallTuple()
-            if hasattr(self, 'pastInfo'):
+            if ID in self.pastInfo:
                 x = self.pastInfo[ID]
                 if nowForget:
                     del self.pastInfo[ID]
