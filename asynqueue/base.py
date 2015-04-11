@@ -277,25 +277,25 @@ class TaskQueue(object):
     @keyword spew: Log all task calls, whether they raise errors or
       not. Can generate huge logs! Implies verbose=True.
 
-    @keyword profile: (TODO) Set to a filename and each call will be
-      run under a profiler. The profiler stats will be dumped to the
-      filename when the queue shuts down.
+    @keyword returnFailure: If a task raises an exception, call its
+      errback with a Failure. Default is to either log an error (if
+      'warn' is set) or stop the queue.
     """
     def __init__(self, *args, **kw):
         # Options
         self.timeout = kw.get('timeout', None)
         self.spew = kw.get('spew', False)
+        self.returnFailure = kw.get('returnFailure', False)
         if kw.get('warn', False) or self.spew:
             self.logger = logging.getLogger('asynqueue')
             if self.spew:
                 self.logger.setLevel(logging.INFO)
         if kw.get('verbose', False) or self.spew:
             self.info = Info(remember=True)
-        profile = kw.get('profile', None)
         # Bookkeeping
         self.tasksBeingRetried = []
         # Tools
-        self.th = tasks.TaskHandler(profile)
+        self.th = tasks.TaskHandler()
         self.taskFactory = tasks.TaskFactory()
         # Attach any workers provided now
         for worker in args:
@@ -331,22 +331,27 @@ class TaskQueue(object):
         return self.th.shutdown().addCallback(
             lambda _: self.q.shutdown()).addCallback(cleanup)
 
-    def oops(self, text):
+    def oops(self, result):
         """
         Use as a callback to log errors and get useful information about
         the call if the 'warn' and 'verbose' constructor keywords were
-        set, respectively. 
+        set, respectively.
+
+        If the result is a failure object for some reason, it is
+        passed through unchanged so it triggers the task's errback.
         """
+        if isinstance(result, Failure):
+            return result
         if hasattr(self, 'logger'):
             # Merely log the error and continue
-            self.logger.error(text)
+            self.logger.error(result)
         else:
             # Print the error (to stderr) and stop the reactor
             import sys
-            sys.stderr.write("\nERROR: {}".format(text))
+            sys.stderr.write("\nERROR: {}".format(result))
             print "\nShutting down in one second!\n"
             self._dc = reactor.callLater(1.0, reactor.stop)
-        return text
+        return result
         
     def attachWorker(self, worker):
         """
@@ -414,12 +419,14 @@ class TaskQueue(object):
             return self.th.workers.values()
         return self.th.workers.get(ID, None)
         
-    def _taskDone(self, statusResult, task, consumer=None, ID=None):
+    def _taskDone(self, statusResult, task, **kw):
         """
         Processes the status/result tuple from a worker running a task:
 
         'e': An exception was raised; the result is a pretty-printed
-             traceback string.
+             traceback string. If the keyword 'returnFailure' was set
+             for my constructor or this task, I will make it into a
+             failure so the task's errback is triggered.
 
         'r': Ran fine, the result is the return value of the call.
 
@@ -441,20 +448,22 @@ class TaskQueue(object):
         """
         status, result = statusResult
         # Deal with any info for this task call
+        ID = kw.get('ID', None)
         if ID:
-            if status == 'e' or self.spew:
-                taskInfo = "Task: {}".format(self.info.aboutCall(ID))
+            taskInfo = "Task: {}".format(self.info.aboutCall(ID))
             self.info.forgetID(ID)
         # If we are spewing log entries, deal with that now
         if self.spew:
             try:
                 stringResult = str(result)
-                taskInfo += " -> {}".format(stringResult[:40])
+                taskInfo += " -> {}".format(stringResult)
             except:
                 pass
             self.logger.info(taskInfo)
         # Now process the status/result
         if status == 'e':
+            if kw.get('rf', False):
+                result = Failure(errors.WorkerError(result))
             return self.oops(result)
         if status in "rc":
             # A plain result, or a deferred to a chunked one
@@ -462,7 +471,7 @@ class TaskQueue(object):
         if status == 'i':
             # An iteration, possibly an IterationConsumer that we need
             # to run now
-            if consumer:
+            if kw.get('consumer', None):
                 if hasattr(result, 'run'):
                     return result.run()
                 # Nothing to produce from an empty iterator, consider
@@ -474,14 +483,14 @@ class TaskQueue(object):
             if task in self.tasksBeingRetried:
                 self.tasksBeingRetried.remove(task)
                 return Failure(
-                    errors.QueueRunError(
+                    errors.TimeoutError(
                         "Timed out after two tries, gave up"))
             self.tasksBeingRetried.append(task)
             task.rush()
             self.q.put(task)
-            return task.reset().addCallback(self._taskDone)
+            return task.reset().addCallback(self._taskDone, **kw)
         return Failure(
-            errors.QueueRunError("Unknown status '{}'".format(status)))
+            errors.WorkerError("Unknown status '{}'".format(status)))
 
     def _newTask(self, func, args, kw):
         """
@@ -490,65 +499,71 @@ class TaskQueue(object):
         if not self.isRunning():
             return self.oops("Queue not running")
         # Some parameters just for me, not for the task
-        niceness = kw.pop('niceness', 0     )
-        series   = kw.pop('series',   None  )
-        timeout  = kw.pop('timeout',  None  )
-        doLast   = kw.pop('doLast',   False )
+        niceness = kw.pop('niceness',      0     )
+        series   = kw.pop('series',        None  )
+        timeout  = kw.pop('timeout',       None  )
+        doLast   = kw.pop('doLast',        False )
+        rf       = kw.pop('returnFailure', self.returnFailure )
         task = self.taskFactory.new(func, args, kw, niceness, series, timeout)
         # Workers have to honor the consumer and doNext keywords, too
-        consumer = kw.get('consumer', None)
         if kw.get('doNext', False):
             task.rush()
         elif doLast:
             task.relax()
+        kwTD = { 'rf': rf, 'consumer': kw.get('consumer', None) }
         if hasattr(self, 'info'):
-            ID = self.info.setCall(func, args, kw).ID
-            task.d.addCallback(self._taskDone, task, consumer, ID)
-        else:
-            task.d.addCallback(self._taskDone, task, consumer)
+            kwTD['ID'] = self.info.setCall(func, args, kw).ID
+        task.d.addCallback(self._taskDone, task, **kwTD)
         return task
         
     def call(self, func, *args, **kw):
         """
-        Puts a call to I{func} with any supplied arguments and keywords into
-        the pipeline, returning a deferred to the eventual result of the call
-        when it is eventually pulled from the pipeline and run.
+        Puts a call to I{func} with any supplied arguments and keywords
+        into the pipeline, returning a deferred to the eventual result
+        of the call when it is eventually pulled from the pipeline and
+        run.
 
-        Scheduling of the call is impacted by the I{niceness} keyword that can
-        be included in addition to any keywords for the call. As with UNIX
-        niceness, the value should be an integer where 0 is normal scheduling,
-        negative numbers are higher priority, and positive numbers are lower
-        priority.
+        Scheduling of the call is impacted by the I{niceness} keyword
+        that can be included in addition to any keywords for the
+        call. As with UNIX niceness, the value should be an integer
+        where 0 is normal scheduling, negative numbers are higher
+        priority, and positive numbers are lower priority.
 
-        Tasks in a series of tasks all having niceness N+10 are dequeued and
-        run at approximately half the rate of tasks in another series with
-        niceness N.
+        Tasks in a series of tasks all having niceness N+10 are
+        dequeued and run at approximately half the rate of tasks in
+        another series with niceness N.
         
-        @keyword niceness: Scheduling niceness, an integer between -20 and 20,
-          with lower numbers having higher scheduling priority as in UNIX
-          C{nice} and C{renice}.
+        @keyword niceness: Scheduling niceness, an integer between -20
+          and 20, with lower numbers having higher scheduling priority
+          as in UNIX C{nice} and C{renice}.
 
-        @keyword series: A hashable object uniquely identifying a series for
-          this task. Tasks of multiple different series will be run with
-          somewhat concurrent scheduling between the series even if they are
-          dumped into the queue in big batches, whereas tasks within a single
-          series will always run in sequence (except for niceness adjustments).
+        @keyword series: A hashable object uniquely identifying a
+          series for this task. Tasks of multiple different series
+          will be run with somewhat concurrent scheduling between the
+          series even if they are dumped into the queue in big
+          batches, whereas tasks within a single series will always
+          run in sequence (except for niceness adjustments).
         
-        @keyword doNext: Set C{True} to assign highest possible priority, even
-          higher than a deeply queued task with niceness = -20.
+        @keyword doNext: Set C{True} to assign highest possible
+          priority, even higher than a deeply queued task with
+          niceness = -20.
         
-        @keyword doLast: Set C{True} to assign priority so low that any
-          other-priority task gets run before this one, no matter how long this
-          task has been queued up.
+        @keyword doLast: Set C{True} to assign priority so low that
+          any other-priority task gets run before this one, no matter
+          how long this task has been queued up.
 
-        @keyword timeout: A timeout interval in seconds from when a worker gets
-          a task assignment for the call, after which the call will be retried.
+        @keyword timeout: A timeout interval in seconds from when a
+          worker gets a task assignment for the call, after which the
+          call will be retried.
 
         @keyword consumer: An implementor of L{interfaces.IConsumer}
           that will receive iterations if the result of the call is an
           interator. In such case, the returned result is a deferred
           that fires when the iterations have all been produced.
-        
+
+        @keyword returnFailure: If a task raises an exception, call
+          its errback with a Failure. Default is to either log an
+          error (if 'warn' is set) or stop the queue.
         """
         task = self._newTask(func, args, kw)
         self.q.put(task)

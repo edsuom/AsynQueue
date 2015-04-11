@@ -25,6 +25,7 @@ import cPickle as pickle
 import cProfile as profile
 
 from twisted.internet import defer
+from twisted.python.failure import Failure
 
 import errors, info, iteration
 
@@ -237,13 +238,13 @@ class CallRunner(object):
     the call and its result:
 
     'e': An exception was raised; the result is a pretty-printed
-         traceback string.
+         traceback string, unless I am constructed with
+         'returnFailures' set. Then the result is a Failure object.
 
     'r': Ran fine, the result is the return value of the call.
 
     'i': Ran fine, but the result is an iterable other than a standard
          Python one.
-
     """
     def __init__(self):
         self.info = info.Info()
@@ -255,7 +256,8 @@ class CallRunner(object):
             # If the task causes the thread to hang, the method
             # call will not reach this point.
         except:
-            return ('e', self.info.setCall(f, args, kw).aboutException())
+            result = self.info.setCall(f, args, kw).aboutException()
+            return ('e', result)
         if iteration.Deferator.isIterator(result):
             return ('i', result)
         return ('r', result)

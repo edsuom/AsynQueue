@@ -55,3 +55,8 @@ class WorkerError(Exception):
     """
     A worker ran into an exception trying to run a task.
     """
+
+class ThreadError(Exception):
+    """
+    A function call in a thread raised an exception.
+    """

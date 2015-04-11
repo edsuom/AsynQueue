@@ -24,6 +24,7 @@ Unit tests for asynqueue.base
 import logging
 
 from twisted.internet import defer, reactor
+from twisted.python.failure import Failure
 
 import base
 from testbase import DeferredIterable, MockWorker, TestCase
@@ -186,13 +187,22 @@ class TestTaskQueueErrors(TestCase):
         self.assertIn("Exception 'Test error'", message)
         self.assertIn("bogusCall", message)
         self.msg("Log message:\n{}", message)
+
+    def test_failure(self):
+        def done(result):
+            self.assertIsInstance(result, Failure)
+            self.checkMessage(result.getErrorMessage())
+            delayedCalls = reactor.getDelayedCalls()
+        self.newQueue()
+        return self.queue.call(
+            self.bogusCall, returnFailure=True).addBoth(done)
         
     def test_stop(self):
         def done(text):
             self.assertEqual(len(self.handler.records), 0)
             self.checkMessage(text)
             delayedCalls = reactor.getDelayedCalls()
-            # One for the reactor shutdown, and one for 
+            # One for the reactor shutdown, and one for the timeout
             self.assertEqual(len(delayedCalls), 2)
             delayedCalls[0].cancel()
         # TODO: Redirect stdout, stderr for duration of test

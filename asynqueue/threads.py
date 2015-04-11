@@ -67,11 +67,10 @@ class ThreadWorker(object):
     implements(IWorker)
     cQualified = ['thread', 'local']
 
-    def __init__(self, series=[], profiler=None, raw=False):
+    def __init__(self, series=[], raw=False):
         self.tasks = []
         self.iQualified = series
-        self.profiler = profiler
-        self.t = ThreadLooper(raw=raw)
+        self.t = ThreadLooper(raw)
 
     def setResignator(self, callableObject):
         self.t.dLock.addStopper(callableObject)
@@ -111,7 +110,6 @@ class ThreadWorker(object):
         consumer = kw.pop('consumer', None)
         if task.priority <= -20:
             kw['doNext'] = True
-        # TODO: Have thread run with self.profiler.runcall if profiler present
         return self.t.call(f, *args, **kw).addCallback(done)
 
     def stop(self):
@@ -286,8 +284,8 @@ class ThreadLooper(object):
         def done(statusResult):
             status, result = statusResult
             if status == 'e':
-                return Failure(errors.WorkerError(result))
-            if status == 'i' and not raw:
+                return Failure(errors.ThreadError(result))
+            elif status == 'i' and not raw:
                 if consumer:
                     ip = iteration.IterationProducer(dr, consumer)
                     return ip.run()
