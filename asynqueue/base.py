@@ -336,16 +336,6 @@ class TaskQueue(object):
         return self.th.shutdown().addCallback(
             lambda _: self.q.shutdown()).addCallback(cleanup)
 
-    def oops(self, result):
-        """
-        Use as a callback to log errors and get useful information about
-        the call if the 'warn' and 'verbose' constructor keywords were
-        set, respectively.
-
-        If the result is a failure object for some reason, it is
-        passed through unchanged so it triggers the task's errback.
-        """
-        
     def attachWorker(self, worker):
         """
         Registers a new provider of IWorker for working on tasks from the
@@ -433,12 +423,14 @@ class TaskQueue(object):
         """
         @contextmanager
         def taskInfo(ID):
-            if ID:
-                taskInfo = self.info.aboutCall(ID)
-                #self.info.forgetID(ID)
-                yield taskInfo
-            elif hasattr(self, 'logger'):
-                yield "TASK"
+            if hasattr(self, 'logger'):
+                if ID:
+                    taskInfo = self.info.aboutCall(ID)
+                    self.info.forgetID(ID)
+                    yield taskInfo
+                else:
+                    # Why do logging without an info object?
+                    yield "TASK"
             else:
                 yield None
             if self.spew:
@@ -448,7 +440,6 @@ class TaskQueue(object):
         status, result = statusResult
         # Deal with any info for this task call
         with taskInfo(kw.get('ID', None)) as prefix:
-            print "TI-Y", status, prefix
             if status == 'e':
                 # There was an error...
                 if prefix:

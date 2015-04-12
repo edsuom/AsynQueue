@@ -23,6 +23,7 @@ Miscellaneous useful stuff.
 
 import cPickle as pickle
 import cProfile as profile
+from contextlib import contextmanager
 
 from twisted.internet import defer
 from twisted.python.failure import Failure
@@ -181,6 +182,21 @@ class DeferredLock(defer.DeferredLock):
         self.running = True
         super(DeferredLock, self).__init__()
 
+    @contextmanager
+    def context(self, vip=False):
+        """
+        Usage example, inside a defer.inlineCallbacks function:
+
+        with lock.context() as d:
+            # "Wait" for the 
+            yield d
+            <Do something that requires holding onto the lock>
+        <Proceed with the lock released>
+        
+        """
+        yield self.acquire(vip)
+        self.release()
+        
     def acquire(self, vip=False):
         """
         Like L{defer.DeferredLock.acquire} except with a vip option. That
