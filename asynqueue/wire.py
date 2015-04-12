@@ -29,10 +29,11 @@ from twisted.internet.protocol import Factory
 from twisted.python import reflect
 from twisted.protocols import amp
 
+from info import Info
 from util import o2p, p2o
+import errors, util, iteration
 from interfaces import IWorker
 from threads import ThreadLooper
-import errors, util, iteration
 
 
 @defer.inlineCallbacks
@@ -416,7 +417,7 @@ class TaskUniverse(object):
     def __init__(self):
         self.iterators = {}
         self.deferators = {}
-        self.info = util.Info()
+        self.info = Info()
         self.dt = util.DeferredTracker()
 
     def _saveIterator(x):
@@ -431,32 +432,35 @@ class TaskUniverse(object):
         thread running if I have one, returning a deferred to the
         status and result.
         """
-        def oops(failureObj, ID):
-            response['status'] = 'e'
-            response['result'] = self.info.aboutFailure(failureObj, ID)
-
+        def oops(failureObj, ID=None):
+            if ID:
+                text = self.info.aboutFailure(failureObj, ID)
+                self.info.forgetID(ID)
+            else:
+                text = self.info.aboutFailure(failureObj)
+            return ('e', text)
+        
         response = {}
         if kw.pop('thread', False):
             if not hasattr(self, 't'):
                 self.t = ThreadLooper(rawIterators=True)
+            # No errback needed because L{util.CallRunner} returns an
+            # 'e' status for errors
             status, result = yield self.t.call(f, *args, **kw)
         else:
-            status = None
+            # The info object saves the call
             self.info.setCall(f, args, kw)
-            ID = self.info.getID()
+            ID = self.info.ID
             result = yield defer.maybeDeferred(
                 f, *args, **kw).addErrback(oops, ID)
             self.info.forgetID(ID)
-        if result is None:
-            # This might be from a failure, in which case our
-            # response is ready
-            if not response:
-                # No, result really is a None object
+            if isinstance(result, tuple) and result[0] == 'e':
+                status, result = result
+            elif result is None:
+                # A None object
                 status = 'n'
                 result = ""
-        else:
-            # A real result needs further processing
-            if iteration.Deferator.isIterator(result):
+            elif iteration.Deferator.isIterator(result):
                 status = 'i'
                 result = self._saveIterator(result)
             else:

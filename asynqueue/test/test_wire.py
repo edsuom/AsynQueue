@@ -160,6 +160,7 @@ class TestTaskUniverse(TestCase):
         self.u.iterators[ID] = bo
         while True:
             response = yield self.u.getNext(ID)
+            print "GM", response
             self.assertTrue(response['isValid'])
             chunks.append(p2o(response['value']))
             if not response['moreLeft']:

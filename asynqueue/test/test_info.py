@@ -31,6 +31,29 @@ import util, info
 from testbase import deferToDelay, blockingTask, Picklable, TestCase
 
 
+class TestFunctions(TestCase):
+    verbose = False
+
+    def setUp(self):
+        self.hashes = []
+
+    def checkHash(self, obj):
+        x = info.hashIt(obj)
+        self.assertNotIn(x, self.hashes)
+        self.hashes.append(x)
+    
+    def test_hashIt(self):
+        self.checkHash(None)
+        self.checkHash("abc")
+        self.checkHash("def")
+        self.checkHash(1)
+        self.checkHash(2.0)
+        self.checkHash(self.checkHash)
+        self.checkHash([1, 2])
+        self.checkHash((3, 4))
+        self.checkHash({1:2, 2:'a'})
+        
+
 class TestInfo(TestCase):
     verbose = False
 
@@ -59,11 +82,13 @@ class TestInfo(TestCase):
             self.assertNotIn(ID, IDs)
             IDs.append(ID)
         for k, ID in enumerate(IDs):
-            callTuple = self.info.getInfo(ID, 'callTuple')
-            self.assertIn('test_getID', callTuple[0])
-            self.assertIn(fakList[k][0], callTuple[0])
-            for kk in xrange(1,2):
-                self.assertEqual(callTuple[kk], fakList[k][kk])
+            callDict = self.info.getInfo(ID, 'callDict')
+            fs = callDict['fs']
+            self.assertIn('test_getID', fs)
+            self.assertIn(fakList[k][0], fs)
+            self.assertTrue(callable(callDict['f']))
+            for kk, name in enumerate(('args', 'kw')):
+                self.assertEqual(callDict[name], fakList[k][kk+1])
         
     def _divide(self, x, y):
         return x/y
@@ -110,3 +135,24 @@ class TestInfo(TestCase):
         self.msg(text)
         self.assertPattern('Exception ', text)
         self.assertPattern('[dD]ivi.+by zero', text)
+
+    def test_context(self):
+        @defer.inlineCallbacks
+        def tryInfo(null, k):
+            with self.info.context(self.p.foo, k) as x:
+                yield deferToDelay(0.1)
+                # Now get the info later, after someone else has
+                # likely done their own setCall
+                callInfo = x.aboutCall()
+                self.assertPattern("\.foo\({:d}\)".format(k), callInfo)
+        dList = []
+        for k in xrange(5):
+            dList.append(deferToDelay(
+                0.5*random.random()).addCallback(tryInfo, k))
+        return defer.DeferredList(dList).addCallback(
+            lambda _: self.assertEqual(len(self.info.pastInfo), 0))
+
+        
+        
+            
+                

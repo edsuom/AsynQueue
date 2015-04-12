@@ -21,15 +21,33 @@
 Information about callables and what happens to them.
 """
 
-import sys, traceback, inspect
 import cPickle as pickle
+import sys, traceback, inspect
+from contextlib import contextmanager
 
 from twisted.internet import defer
 from twisted.python import reflect
 
 
-SR_STUFF = [0, None]
+def hashIt(*args):
+    """
+    Returns a pretty much unique 32-bit hash for pretty much any
+    python object.
+    """
+    total = 0L
+    for x in args:
+        if isinstance(x, dict):
+            for k, key in enumerate(sorted(x.keys())):
+                total += hashIt(k, key, x[key])
+        elif isinstance(x, (list, tuple)):
+            for k, value in enumerate(x):
+                total += hashIt(k, value)
+        else:
+            total += hash(x)
+    return hash(total)
 
+
+SR_STUFF = [0, None]
 def showResult(f):
     """
     Use as a decorator to print info about the function and its
@@ -58,6 +76,79 @@ def showResult(f):
     return substitute
 
 
+class Converter(object):
+    """
+    I provide a bunch of methods for converting objects.
+    """
+    def strToFQN(self, x):
+        """
+        Returns the fully qualified name of the supplied string if it can
+        be imported and then reflected back into the FQN, or
+        C{None} if not.
+        """
+        try:
+            obj = reflect.namedObject(x)
+            fqn = reflect.fullyQualifiedName(obj)
+        except:
+            return
+        return fqn
+        
+    def objToPickle(self, x):
+        """
+        Returns a string of the pickled object or C{None} if it couldn't
+        be pickled and unpickled back again.
+        """
+        try:
+            xp = pickle.dumps(x)
+            pickle.loads(xp)
+        except:
+            return
+        return xp
+
+    def objToFQN(self, x):
+        """
+        Returns the fully qualified name of the supplied object if it can
+        be reflected into an FQN and back again, or C{None} if
+        not.
+        """
+        try:
+            fqn = reflect.fullyQualifiedName(x)
+            reflect.namedObject(fqn)
+        except:
+            return
+        return fqn
+
+    def processObject(self, x):
+        """
+        Attempts to convert the supplied object to a pickle and, failing
+        that, to a fully qualified name.
+        """
+        pickled = self.objToPickle(x)
+        if pickled:
+            return pickled
+        return self.objToFQN(x)
+
+    
+class InfoHolder(object):
+    """
+    An instance of me is yielded by L{Info.context}, for you to call
+    about info concerning a particular saved function call.
+    """
+    def __init__(self, info, ID):
+        self.info = info
+        self.ID = ID
+    def getInfo(self, name):
+        return self.info.getInfo(self.ID, name)
+    def nn(self, raw=False):
+        return self.info.nn(self.ID, raw)
+    def aboutCall(self):
+        return self.info.aboutCall(self.ID)
+    def aboutException(self, exception=None):
+        return self.info.aboutCall(self.ID, exception)
+    def aboutFailure(self, failureObj):
+        return self.info.aboutFailure(failureObj, self.ID)
+
+
 class Info(object):
     """
     I provide text (picklable) info about a call. Construct me with a
@@ -66,6 +157,7 @@ class Info(object):
     change it) later with L{setCall}.
     """
     def __init__(self, remember=False):
+        self.cv = Converter()
         self.lastMetaArgs = None
         if remember:
             self.pastInfo = {}
@@ -97,30 +189,25 @@ class Info(object):
                 # nothing to do.
                 return self
             # Starting over with a new f
-            f = self._funcText(metaArgs[0])
+            callDict = {'f': metaArgs[0], 'fs': self._funcText(metaArgs[0])}
             args = metaArgs[1] if len(metaArgs) > 1 else []
             if not isinstance(args, (tuple, list)):
                 args = [args]
-            nkw = metaArgs[2] if len(metaArgs) > 2 else {}
-            instance = None
-        elif hasattr(self, 'callTuple'):
+            callDict['args'] = args
+            callDict['kw'] = metaArgs[2] if len(metaArgs) > 2 else {}
+            callDict['instance'] = None
+            self.callDict = callDict
+        elif hasattr(self, 'callDict'):
             # Adding to an existing f
-            f, args, nkw = self.callTuple[:3]
-            if 'args' in kw:
-                args = kw['args']
-            if 'kw' in kw:
-                nkw = kw['kw']
-            instance = kw.get('instance', None)
+            for name in ('args', 'kw', 'instance'):
+                if name in kw:
+                    self.callDict[name] = kw[name]
         else:
             raise ValueError(
                 "You must supply at least a new function/string "+\
                 "or keywords adding args, kw to a previously set one")
         if hasattr(self, 'currentID'):
             del self.currentID
-        callList = [f, args, nkw]
-        if instance:
-            callList.append(instance)
-        self.callTuple = tuple(callList)
         self.ID
         if metaArgs:
             # Save metaArgs to ignore repeated calls with the same metaArgs
@@ -132,19 +219,12 @@ class Info(object):
         """
         Returns a unique ID for my current callable.
         """
-        def hashFAK(fak):
-            fak[1] = str(fak[1])
-            fak[2] = (
-                str(fak[2].keys()),
-                str(fak[2].values())) if fak[2] else None
-            return hash(tuple(fak))
-
         if hasattr(self, 'currentID'):
             return self.currentID
-        if hasattr(self, 'callTuple'):
-            thisID = hashFAK(list(self.callTuple))
+        if hasattr(self, 'callDict'):
+            thisID = hashIt(self.callDict)
             if hasattr(self, 'pastInfo'):
-                self.pastInfo[thisID] = {'callTuple': self.callTuple}
+                self.pastInfo[thisID] = {'callDict': self.callDict}
         else:
             thisID = None
         self.currentID = thisID
@@ -158,36 +238,53 @@ class Info(object):
         if ID in getattr(self, 'pastInfo', {}):
             del self.pastInfo[ID]
 
+    @contextmanager
+    def context(self, *metaArgs, **kw):
+        """
+        Call this context manager method with info about a particular call
+        (same format as L{setCall} uses) and it yields an
+        L{InfoHolder} object keyed to that call. It lets you get info
+        about the call inside the context, without worrying about the
+        ID or calling L{forgetID}, even after I have been used for
+        other calls outside the context.
+        """
+        if not hasattr(self, 'pastInfo'):
+            raise Exception(
+                "Can't use a context manager without saving call info")
+        ID = self.setCall(*metaArgs, **kw).ID
+        yield InfoHolder(self, ID)
+        self.forgetID(ID)
+            
     def getInfo(self, ID, name, nowForget=False):
         """
-        If the supplied name is 'callTuple', returns the f-args-kw tuple
-        for my current callable. The value of ID is ignored in such
-        case. Otherwise, returns the named information attribute for
-        the previous call identified with the supplied ID.
+        If the supplied name is 'callDict', returns the f-args-kw-instance
+        dict for my current callable. The value of ID is ignored in
+        such case. Otherwise, returns the named information attribute
+        for the previous call identified with the supplied ID.
 
         Set 'nowForget' to remove any reference to this ID or
-        callTuple after the info is obtained.
+        callDict after the info is obtained.
         """
-        def getCallTuple():
-            if hasattr(self, 'callTuple'):
-                result = self.callTuple
+        def getCallDict():
+            if hasattr(self, 'callDict'):
+                result = self.callDict
                 if nowForget:
-                    del self.callTuple
+                    del self.callDict
             else:
                 result = None
             return result
         
         if hasattr(self, 'pastInfo'):
-            if ID is None and name == 'callTuple':
-                return getCallTuple()
+            if ID is None and name == 'callDict':
+                return getCallDict()
             if ID in self.pastInfo:
                 x = self.pastInfo[ID]
                 if nowForget:
                     del self.pastInfo[ID]
                 return x.get(name, None)
             return None
-        if name == 'callTuple':
-            return getCallTuple()
+        if name == 'callDict':
+            return getCallDict()
         return None
     
     def saveInfo(self, name, x, ID=None):
@@ -216,69 +313,26 @@ class Info(object):
         object will be returned instead of a pickle or FQN, but all
         the type checking and round-trip testing still will be done.
         """
-        def strToFQN(x):
-            """
-            Returns the fully qualified name of the supplied string if it can
-            be imported and then reflected back into the FQN, or
-            C{None} if not.
-            """
-            try:
-                obj = reflect.namedObject(x)
-                fqn = reflect.fullyQualifiedName(obj)
-            except:
-                return
-            return fqn
-            
-        def objToPickle(x):
-            """
-            Returns a string of the pickled object or C{None} if it couldn't
-            be pickled and unpickled back again.
-            """
-            try:
-                xp = pickle.dumps(x)
-                pickle.loads(xp)
-            except:
-                return
-            return xp
-
-        def objToFQN(x):
-            """
-            Returns the fully qualified name of the supplied object if it can
-            be reflected into an FQN and back again, or C{None} if
-            not.
-            """
-            try:
-                fqn = reflect.fullyQualifiedName(x)
-                reflect.namedObject(fqn)
-            except:
-                return
-            return fqn
-
-        def processObject(x):
-            pickled = objToPickle(x)
-            if pickled:
-                return pickled
-            return objToFQN(x)
 
         if ID:
             pastInfo = self.getInfo(ID, 'wireVersion')
             if pastInfo:
                 return pastInfo
         result = None, None
-        callTuple = self.getInfo(ID, 'callTuple')
-        if not callTuple:
+        callDict = self.getInfo(ID, 'callDict')
+        if not callDict:
             # No callable set
             return result
-        func = callTuple[0]
+        func = callDict['f']
         if isinstance(func, (str, unicode)):
             # A callable defined as a string can only be a function
             # name, return its FQN or None if that doesn't work
-            result = None, strToFQN(func)
+            result = None, self.cv.strToFQN(func)
         elif inspect.ismethod(func):
             # It's a method, so get its parent
             parent = getattr(func, 'im_self', None)
             if parent:
-                processed = processObject(parent)
+                processed = self.cv.processObject(parent)
                 if processed:
                     # Pickle or FQN of parent, method name
                     if raw:
@@ -287,7 +341,7 @@ class Info(object):
         if result == (None, None):
             # Couldn't get or process a parent, try processing the
             # callable itself
-            processed = processObject(func)
+            processed = self.cv.processObject(func)
             if processed:
                 # None, pickle or FQN of callable
                 if raw:
@@ -333,12 +387,12 @@ class Info(object):
             pastInfo = self.getInfo(ID, 'aboutCall', nowForget)
             if pastInfo:
                 return pastInfo
-        callTuple = self.getInfo(ID, 'callTuple')
-        if not callTuple:
+        callDict = self.getInfo(ID, 'callDict')
+        if not callDict:
             return ""
-        func, args, kw = callTuple[:3]
-        if len(callTuple) > 3:
-            instance = callTuple[3]
+        func, args, kw = [callDict[x] for x in ('f', 'args', 'kw')]
+        if 'instance' in callDict:
+            instance = callDict['instance']
             text = repr(instance) + "."
         else:
             text = ""
