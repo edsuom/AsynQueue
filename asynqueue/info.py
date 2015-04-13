@@ -391,11 +391,8 @@ class Info(object):
         if not callDict:
             return ""
         func, args, kw = [callDict[x] for x in ('f', 'args', 'kw')]
-        if 'instance' in callDict:
-            instance = callDict['instance']
-            text = repr(instance) + "."
-        else:
-            text = ""
+        instance = callDict.get('instance', None)
+        text = repr(instance) + "." if instance else ""
         text += self._funcText(func) + "("
         if args:
             text += ", ".join([str(x) for x in args])
