@@ -433,8 +433,8 @@ class IterationProducer(object):
     @defer.inlineCallbacks
     def run(self):
         """
-        Produces the iterations, returning a deferred that fires and when
-        the iterations are done.
+        Produces my iterations, returning a deferred that fires with
+        C{None} when they are done.
         """
         if not hasattr(self, 'consumer'):
             raise AttributeError("Can't run without a consumer registered")
@@ -458,6 +458,7 @@ class IterationProducer(object):
         # Done with the iteration, and with producer/consumer
         # interaction
         self.consumer.unregisterProducer()
+        defer.returnValue(None)
             
     def pauseProducing(self):
         self.paused = True
