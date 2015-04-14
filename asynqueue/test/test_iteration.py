@@ -27,7 +27,8 @@ from copy import copy
 from twisted.internet import defer
 
 import errors, iteration
-from testbase import TestCase, DeferredIterable, IterationConsumer
+from testbase import deferToDelay, \
+    TestCase, DeferredIterable, IterationConsumer
 
 
 generator = (2*x for x in range(10))
@@ -45,7 +46,7 @@ class IteratorGetter(object):
     def getNext(self, slowness=0.5):
         if self.x:
             x = self.x.pop()
-            d = iteration.deferToDelay(slowness*random.random())
+            d = deferToDelay(slowness*random.random())
             d.addCallback(lambda _ : (x, True, len(self.x) > 0))
         else:
             d = defer.succeed((None, False, False))
@@ -220,7 +221,7 @@ class TestPrefetcherator(TestCase):
         
 
 class TestIterationProducer(TestCase):
-    verbose = True
+    verbose = False
 
     @defer.inlineCallbacks
     def test_iterates(self):
@@ -245,3 +246,25 @@ class TestIterationProducer(TestCase):
         self.assertEqual(len(consumer.data), N)
         for k in xrange(N):
             self.assertEqual(consumer.data[k], "x"*k)
+
+
+class TestListConsumer(TestCase):
+    verbose = True
+
+    class MyListConsumer(iteration.ListConsumer):
+        def processItem(self, item):
+            delay = 0.5*random.random()
+            return deferToDelay(delay).addCallback(lambda _: ['foo', item])
+
+    @defer.inlineCallbacks
+    def test_works(self):
+        N = 10
+        d = defer.Deferred()
+        gf = generatorFunction("x", N)
+        consumer = self.MyListConsumer(d.callback)
+        ip = yield iteration.iteratorToProducer(gf, consumer)
+        z = yield d
+        self.assertEqual(len(z), N)
+        for k in xrange(N):
+            self.assertEqual(z[k], ['foo', "x"*k])
+        

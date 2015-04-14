@@ -390,6 +390,54 @@ class Prefetcherator(object):
         return self._tryNext().addCallback(done)
 
 
+class ListConsumer(object):
+    """
+    I am a bare-bones iteration consumer that accumulates iterations
+    as list items and fires a callback with the underlying list when
+    the producer unregisters. If you want to do special processing on
+    each list item as it arrives, subclass me and override
+    L{processItem}.
+
+    Set any attributes you want me to have using keywords.
+    """
+    implements(IConsumer)
+
+    def __init__(self, callback, **kw):
+        self.callback = callback
+        self.dList = []
+        self.x = []
+        for name, value in kw.iteritems():
+            setattr(self, name, value)
+        
+    def registerProducer(self, producer, streaming):
+        self.producer = producer
+
+    def unregisterProducer(self):
+        def doRest(null):
+            self.callback(self.x)
+            for name in ('x', 'producer', 'callback'):
+                delattr(self, name)
+        defer.DeferredList(self.dList).addCallback(doRest)
+
+    def write(self, data):
+        def doneProcessing(result):
+            self.dList.remove(d)
+            self.x.append(result)
+            self.producer.resumeProducing()
+        self.producer.pauseProducing()
+        d = defer.maybeDeferred(
+            self.processItem, data).addCallback(doneProcessing)
+        self.dList.append(d)
+
+    def processItem(self, item):
+        """
+        Override this to do special processing on each item as it arrives,
+        returning the (possibly deferred) value of the item that
+        should actually get appended to the list.
+        """
+        return item
+
+        
 class IterationProducer(object):
     """
     I am a producer of iterations from a L{Deferator}. Get me running
