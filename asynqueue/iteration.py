@@ -393,31 +393,33 @@ class Prefetcherator(object):
 class ListConsumer(object):
     """
     I am a bare-bones iteration consumer that accumulates iterations
-    as list items and fires a callback with the underlying list when
-    the producer unregisters. If you want to do special processing on
-    each list item as it arrives, subclass me and override
-    L{processItem}.
+    as list items, processing each item by running it through
+    L{processItem}, which you of course can override in your
+    subclass. It can return a deferred.
+
+    Call my instance to get a deferred that fires with the underlying
+    list when the producer unregisters.
 
     Set any attributes you want me to have using keywords.
     """
     implements(IConsumer)
 
-    def __init__(self, callback, **kw):
-        self.callback = callback
-        self.dList = []
+    def __init__(self, **kw):
         self.x = []
+        self.dList = [defer.Deferred()]
         for name, value in kw.iteritems():
             setattr(self, name, value)
-        
+
+    def __call__(self):
+        return defer.DeferredList(self.dList).addCallback(lambda _: self.x)
+            
     def registerProducer(self, producer, streaming):
         self.producer = producer
 
     def unregisterProducer(self):
-        def doRest(null):
-            self.callback(self.x)
-            for name in ('x', 'producer', 'callback'):
-                delattr(self, name)
-        defer.DeferredList(self.dList).addCallback(doRest)
+        d = self.dList[0]
+        if not d.called:
+            d.callback(None)
 
     def write(self, data):
         def doneProcessing(result):

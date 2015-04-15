@@ -259,11 +259,10 @@ class TestListConsumer(TestCase):
     @defer.inlineCallbacks
     def test_works(self):
         N = 10
-        d = defer.Deferred()
         gf = generatorFunction("x", N)
-        consumer = self.MyListConsumer(d.callback)
+        consumer = self.MyListConsumer()
         ip = yield iteration.iteratorToProducer(gf, consumer)
-        z = yield d
+        z = yield consumer()
         self.assertEqual(len(z), N)
         for k in xrange(N):
             self.assertEqual(z[k], ['foo', "x"*k])
