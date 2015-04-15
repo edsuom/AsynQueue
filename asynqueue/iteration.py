@@ -39,9 +39,6 @@ def deferToDelay(delay):
 def isIterator(x):
     return Deferator.isIterator(x)
 
-# Debug
-from info import showResult
-
     
 class Delay(object):
     """
@@ -405,31 +402,51 @@ class ListConsumer(object):
     implements(IConsumer)
 
     def __init__(self, **kw):
-        self.x = []
-        self.dList = [defer.Deferred()]
+        self.x = {}
+        self.count = 0
+        self.dPending = []
+        self.dp = defer.Deferred()
         for name, value in kw.iteritems():
             setattr(self, name, value)
 
     def __call__(self):
-        return defer.DeferredList(self.dList).addCallback(lambda _: self.x)
+        def done(null):
+            return [self.x[key] for key in sorted(self.x.keys())]
+        
+        dList = [d for d in self.dPending if not d.called]
+        if hasattr(self, 'dp'):
+            # "Wait" for the producer to unregister and fire its
+            # deferred
+            dList.append(self.dp)
+        return defer.DeferredList(dList).addCallback(done)
             
     def registerProducer(self, producer, streaming):
+        # Create a deferred that will be fired when production is done
         self.producer = producer
 
     def unregisterProducer(self):
-        d = self.dList[0]
-        if not d.called:
-            d.callback(None)
+        if hasattr(self, 'producer'):
+            del self.producer
+        if hasattr(self, 'dp') and not self.dp.called:
+            self.dp.callback(None)
 
     def write(self, data):
-        def doneProcessing(result):
-            self.dList.remove(d)
-            self.x.append(result)
-            self.producer.resumeProducing()
+        """
+        Records data such that it will be returned in the order written,
+        even if L{processItem} takes a different amount of time for
+        each.
+        """
+        def doneProcessing(result, k):
+            if hasattr(self, 'producer'):
+                self.producer.resumeProducing()
+            self.x[k] = result
+            self.dPending.remove(d)
+
+        self.count += 1            
         self.producer.pauseProducing()
-        d = defer.maybeDeferred(
-            self.processItem, data).addCallback(doneProcessing)
-        self.dList.append(d)
+        d = defer.maybeDeferred(self.processItem, data).addCallback(
+            doneProcessing, self.count)
+        self.dPending.append(d)
 
     def processItem(self, item):
         """

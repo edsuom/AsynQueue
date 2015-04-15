@@ -22,7 +22,7 @@ Information about callables and what happens to them.
 """
 
 import cPickle as pickle
-import sys, traceback, inspect
+import sys, traceback, inspect, threading
 from contextlib import contextmanager
 
 from twisted.internet import defer
@@ -43,11 +43,15 @@ def hashIt(*args):
             for k, value in enumerate(x):
                 total += hashIt(k, value)
         else:
-            total += hash(x)
+            try:
+                thisHash = hash(x)
+            except:
+                thisHash = 0
+            total += thisHash
     return hash(total)
 
 
-SR_STUFF = [0, None]
+SR_STUFF = [0, None, False]
 def showResult(f):
     """
     Use as a decorator to print info about the function and its
@@ -71,10 +75,18 @@ def showResult(f):
             return result.addBoth(msg, callInfo)
         return msg(result, callInfo)
 
-    SR_STUFF[1] = Info().setCall(f)
+    SR_STUFF[1] = Info(whichThread=SR_STUFF[2]).setCall(f)
     substitute.func_name = f.func_name
     return substitute
 
+def whichThread(f):
+    """
+    Use as a decorator (after showResult) to include the current
+    thread in the info about the function.
+    """
+    SR_STUFF[2] = True
+    return f
+    
 
 class Converter(object):
     """
@@ -156,11 +168,12 @@ class Info(object):
     include that particular function call, or you can set it (and
     change it) later with L{setCall}.
     """
-    def __init__(self, remember=False):
+    def __init__(self, remember=False, whichThread=False):
         self.cv = Converter()
         self.lastMetaArgs = None
         if remember:
             self.pastInfo = {}
+        self.whichThread = whichThread
 
     def setCall(self, *metaArgs, **kw):
         """
@@ -196,6 +209,8 @@ class Info(object):
             callDict['args'] = args
             callDict['kw'] = metaArgs[2] if len(metaArgs) > 2 else {}
             callDict['instance'] = None
+            if self.whichThread:
+                callDict['thread'] = threading.current_thread().name
             self.callDict = callDict
         elif hasattr(self, 'callDict'):
             # Adding to an existing f
@@ -399,6 +414,8 @@ class Info(object):
         for name, value in kw.iteritems():
             text += ", {}={}".format(name, value)
         text += ")"
+        if 'thread' in callDict:
+            text += " <Thread: {}>".format(callDict['thread'])
         return self.saveInfo('aboutCall', text, ID)
     
     def aboutException(self, ID=None, exception=None, nowForget=False):

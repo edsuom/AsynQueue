@@ -160,7 +160,7 @@ class ThreadLooper(object):
         self.runner = util.CallRunner()
         self.dLock = util.DeferredLock()
         self.event = threading.Event()
-        self.thread = threading.Thread(target=self.loop)
+        self.thread = threading.Thread(name=repr(self), target=self.loop)
         self.thread.start()
         
     def loop(self):
