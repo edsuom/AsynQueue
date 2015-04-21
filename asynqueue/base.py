@@ -312,6 +312,13 @@ class TaskQueue(object):
         self._triggerID = reactor.addSystemEventTrigger(
             'before', 'shutdown', self.shutdown)
 
+    def __len__(self):
+        """
+        Returns my "length" as the number of workers currently at my
+        disposal.
+        """
+        return len(self.th.roster())
+        
     def isRunning(self):
         """
         Returns C{True} if my task handler and queue are running,
@@ -487,7 +494,8 @@ class TaskQueue(object):
         Make a new Task object from a func-args-kw combo
         """
         if not self.isRunning():
-            return self.oops("Queue not running")
+            text = Info().setCall(func, args, kw).aboutCall()
+            raise errors.QueueRunError(text)
         # Some parameters just for me, not for the task
         niceness = kw.pop('niceness',      0     )
         series   = kw.pop('series',        None  )
@@ -549,11 +557,13 @@ class TaskQueue(object):
         @keyword consumer: An implementor of L{interfaces.IConsumer}
           that will receive iterations if the result of the call is an
           interator. In such case, the returned result is a deferred
-          that fires when the iterations have all been produced.
+          that fires (with a reference to the consumer) when the
+          iterations have all been produced.
 
         @keyword returnFailure: If a task raises an exception, call
           its errback with a Failure. Default is to either log an
           error (if 'warn' is set) or stop the queue.
+
         """
         task = self._newTask(func, args, kw)
         self.q.put(task)

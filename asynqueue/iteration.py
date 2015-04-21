@@ -421,6 +421,10 @@ class ListConsumer(object):
         return defer.DeferredList(dList).addCallback(done)
             
     def registerProducer(self, producer, streaming):
+        if hasattr(self, 'producer'):
+            raise RuntimeError()
+        if not streaming:
+            raise TypeError("I only work with push producers")
         # Create a deferred that will be fired when production is done
         self.producer = producer
 
@@ -476,9 +480,11 @@ class IterationProducer(object):
 
     def deferUntilDone(self):
         """
-        Returns a deferred that fires when I am done producing iterations.
+        Returns a deferred that fires (with a reference to my consumer)
+        when I am done producing iterations.
+
         """
-        d= defer.Deferred()
+        d = defer.Deferred().addCallback(lambda _: self.consumer)
         self.dr.chainDeferred(d)
         return d
             
@@ -500,8 +506,8 @@ class IterationProducer(object):
     @defer.inlineCallbacks
     def run(self):
         """
-        Produces my iterations, returning a deferred that fires with
-        C{None} when they are done.
+        Produces my iterations, returning a deferred that fires (with a
+        reference to my consumer) when done.
         """
         if not hasattr(self, 'consumer'):
             raise AttributeError("Can't run without a consumer registered")
@@ -525,7 +531,7 @@ class IterationProducer(object):
         # Done with the iteration, and with producer/consumer
         # interaction
         self.consumer.unregisterProducer()
-        defer.returnValue(None)
+        defer.returnValue(self.consumer)
             
     def pauseProducing(self):
         self.paused = True

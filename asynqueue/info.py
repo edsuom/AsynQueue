@@ -383,10 +383,12 @@ class Info(object):
         if isinstance(func, (str, unicode)):
             return func
         if callable(func):
-            text = func.__name__
+            text = getattr(func, '__name__', None)
+            if text:
+                return text
             if inspect.ismethod(func):
                 text = "{}.{}".format(func.im_self, text)
-            return text
+                return text
         try:
             func = str(func)
         except:

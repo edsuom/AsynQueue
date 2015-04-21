@@ -229,11 +229,26 @@ class TestIterationProducer(TestCase):
         gf = generatorFunction("x", N)
         consumer = IterationConsumer(self.isVerbose())
         ip = yield iteration.iteratorToProducer(gf, consumer)
-        yield ip.deferUntilDone()
+        result = yield ip.deferUntilDone()
+        self.assertEqual(result, consumer)
         self.assertEqual(len(consumer.data), N)
         for k in xrange(N):
             self.assertEqual(consumer.data[k], "x"*k)
 
+    @defer.inlineCallbacks
+    def test_runManually(self):
+        N = 10
+        gf = generatorFunction("x", N)
+        dr = iteration.Deferator(gf)
+        ip = iteration.IterationProducer(dr)
+        consumer = IterationConsumer(self.isVerbose())
+        ip.registerConsumer(consumer)
+        result = yield ip.run()
+        self.assertEqual(result, consumer)
+        self.assertEqual(len(consumer.data), N)
+        for k in xrange(N):
+            self.assertEqual(consumer.data[k], "x"*k)
+            
     @defer.inlineCallbacks
     def test_iterates_and_stops(self):
         N = 5
@@ -242,7 +257,8 @@ class TestIterationProducer(TestCase):
         gf = generatorFunction("x", 2*N)
         consumer = IterationConsumer(self.isVerbose(), N)
         ip = yield iteration.iteratorToProducer(gf, consumer)
-        yield ip.deferUntilDone()
+        result = yield ip.deferUntilDone()
+        self.assertEqual(result, consumer)
         self.assertEqual(len(consumer.data), N)
         for k in xrange(N):
             self.assertEqual(consumer.data[k], "x"*k)
