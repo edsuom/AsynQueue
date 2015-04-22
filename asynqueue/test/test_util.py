@@ -21,7 +21,7 @@
 Unit tests for asynqueue.util
 """
 
-import random, threading
+import gc, random, threading
 from zope.interface import implements
 from twisted.internet import defer
 from twisted.internet.interfaces import IConsumer
@@ -50,15 +50,22 @@ class TestDeferredTracker(TestCase):
     verbose = False
 
     def setUp(self):
+        self._flag = False
         self.dt = util.DeferredTracker()
 
+    def _setFlag(self):
+        return defer.succeed(None).addCallback(
+            lambda _: setattr(self, '_flag', True))
+        
     def _slowStuff(self, N, delay=None, maxDelay=0.2):
+        def done(null, k):
+            self._flag = False
+            return k
         dList = []
         for k in xrange(N):
             if delay is None:
                 delay = maxDelay*random.random()
-            d = deferToDelay(delay)
-            d.addCallback(lambda _: k)
+            d = deferToDelay(delay).addCallback(done, k)
             dList.append(d)
         return dList
     
@@ -71,13 +78,38 @@ class TestDeferredTracker(TestCase):
         for d in self._slowStuff(3):
             self.dt.put(d)
         yield self.dt.deferToAll()
+        self.assertEqual(len(self.dt.dList), 0)
         # Put some in with the same delay and defer to the last one
         for d in self._slowStuff(3, delay=0.5):
             self.dt.put(d)
-        x = yield self.dt.deferToLast()
-        self.assertEqual(x, 2)
+        self.dt.put(self._setFlag())
+        yield self.dt.deferToLast()
+        self.assertTrue(self._flag)
+        self.assertGreater(len(self.dt.dList), 0)
         yield self.dt.deferToAll()
-    
+        self.assertFalse(self._flag)
+        self.assertEqual(len(self.dt.dList), 0)
+
+    def test_memory(self):
+        def doneDelaying(null, k):
+            newCounts = gc.get_count()
+            # Can't have more than 4 third-generation counts during
+            # iteration than we started with
+            self.assertTrue(newCounts[-1] < counts[-1]+5)
+        def done(null):
+            newCounts = gc.get_count()
+            # Can't have more than 9 counts left after iteration than
+            # we started with, for any generation. Should be able to
+            # repeat this test (with -u) all day.
+            for k in xrange(3):
+                self.assertTrue(newCounts[k] < counts[k]+10)
+        counts = gc.get_count()
+        for k in xrange(1000):
+            d = deferToDelay(0.1*random.random())
+            d.addCallback(doneDelaying, k)
+            self.dt.put(d)
+        return self.dt.deferToAll().addCallback(done)
+            
 
 class ToyConsumer(object):
     implements(IConsumer)

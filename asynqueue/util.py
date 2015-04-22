@@ -128,27 +128,27 @@ class DeferredTracker(object):
                 self.dList.remove(d)
             return anything
 
-        d.addBoth(transparentCallback)
         if not isinstance(d, defer.Deferred):
             raise TypeError("Object {} is not a deferred".format(repr(d)))
+        d.addBoth(transparentCallback)
         self.dList.append(d)
         return d
 
+    def _sweep(self):
+        for d in self.dList:
+            if d.called:
+                self.dList.remove(d)
+        
     def deferToAll(self):
         """
         Return a deferred that tracks all active deferreds that haven't
         yet fired. When the tracked deferreds fire, the returned
         deferred fires, too.
         """
-        if self.dList:
-            d = defer.DeferredList(self.dList)
-            self.dList = []
-        elif hasattr(self, 'd_WFA') and not self.d_WFA.called():
-            d = defer.Deferred()
-            self.d_WFA.chainDeferred(d)
-        else:
-            d = defer.succeed(None)
-        return d
+        # Sweep of already called deferreds is only done when waiting
+        # for all unfired ones
+        self._sweep()
+        return defer.DeferredList(self.dList)
 
     def deferToLast(self):
         """
@@ -156,15 +156,19 @@ class DeferredTracker(object):
         in the tracker. When the tracked deferred fires, the returned deferred
         fires, too.
         """
+        def transparentCallback(anything):
+            d.callback(None)
+            # Any already called deferreds remaining are now removed
+            self._sweep()
+            return anything
+
+        # The last-added of ALL remaining deferreds is chained to,
+        # even if already called
         if self.dList:
             d = defer.Deferred()
-            self.dList.pop().chainDeferred(d)
-        elif hasattr(self, 'd_WFL') and not self.d_WFL.called():
-            d = defer.Deferred()
-            self.d_WFL.chainDeferred(d)
-        else:
-            d = defer.succeed(None)
-        return d
+            self.dList[-1].addBoth(transparentCallback)
+            return d
+        return defer.succeed(None)
 
 
 class DeferredLock(defer.DeferredLock):
@@ -223,7 +227,10 @@ class DeferredLock(defer.DeferredLock):
             self.locked = True
             d.callback(self)
         return d
-    
+
+    def acquireAndRelease(self, vip=False):
+        return self.acquire(vip).addCallback(lambda x: x.release())
+        
     def addStopper(self, f, *args, **kw):
         """
         Add a callable (along with any args and kw) to be run when
