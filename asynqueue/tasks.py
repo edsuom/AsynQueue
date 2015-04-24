@@ -469,7 +469,7 @@ class TaskHandler(object):
         specified series, or all my workers if no series specified.
         """
         if series is None:
-            return self.workers.items()
+            return self.workers.values()
         return self.laborPools.get(series, [])
 
     def update(self, task, ephemeral=False):
