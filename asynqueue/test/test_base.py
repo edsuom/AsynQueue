@@ -72,10 +72,12 @@ class TestPriority(TestCase):
 
 
 class TestTaskQueue(TestCase):
-    verbose = True
+    verbose = False
+    spew = False
     
     def setUp(self):
-        self.queue = base.TaskQueue(verbose=self.isVerbose())
+        self.queue = base.TaskQueue(
+            spew=self.spew, verbose=self.isVerbose())
 
     def tearDown(self):
         return self.queue.shutdown()
@@ -118,10 +120,12 @@ class TestTaskQueue(TestCase):
                 sum(mutable),
                 sum([2*x for x in xrange(N)]))
 
+        IDs = []
         for runDelay in (0.05, 0.1, 0.4):
             worker = MockWorker(runDelay)
             ID = self.queue.attachWorker(worker)
-            worker.ID = ID
+            self.assertNotIn(ID, IDs)
+            IDs.append(ID)
         dList = []
         for x in xrange(N):
             d = self.queue.call(lambda y: 2*y, x)
@@ -131,6 +135,15 @@ class TestTaskQueue(TestCase):
         d.addCallback(checkResults)
         return d
 
+    def test_update(self):
+        def done(results):
+            self.assertEqual(len(results), 3)
+            self.assertEqual(results, [3.0]*3)
+        for runDelay in (0.05, 0.1, 0.4):
+            worker = MockWorker(runDelay, verbose=self.isVerbose())
+            self.queue.attachWorker(worker)
+        return self.queue.update(lambda x: 2*x, 1.5).addCallback(done)
+        
     @defer.inlineCallbacks
     def test_iteration(self):
         # MockWorker doesn't work for this
@@ -233,7 +246,7 @@ class TestTaskQueueErrors(TestCase):
         self.assertEqual(len(self.handler.records), N)
         for x, thisRecord in enumerate(self.handler.records):
             self.assertIn(
-                ".timesTwo({:d}) -> {:d}".format(x, 2*x),
+                "timesTwo({:d}) -> {:d}".format(x, 2*x),
                 thisRecord.getMessage())
         
             

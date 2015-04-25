@@ -66,6 +66,7 @@ class Task(object):
         self.priority = priority
         self.series = series
         self.d = defer.Deferred()
+        self.callbacks = []
         self.timeout = timeout
 
     def startTimer(self):
@@ -82,7 +83,12 @@ class Task(object):
             if self.callID.active():
                 self.callID.cancel()
             self.callID = None
-            
+
+    def addCallback(self, f, *args, **kw):
+        callTuple = (f, args, kw)
+        self.callbacks.append(callTuple)
+        self.d.addCallback(f, *args, **kw)
+        
     def callback(self, result):
         self._cancelTimeout()
         if not self.d.called:
@@ -109,12 +115,19 @@ class Task(object):
         self.priority = 1000000
 
     def copy(self):
+        """
+        Returns a functional copy of me with all necessary attributes and
+        callbacks pre-added.
+        """
         args = list(self.callTuple)
         args.append(self.priority)
         args.append(self.series)
         args.append(self.timeout)
-        return Task(*args)
-        
+        newTask = Task(*args)
+        for f, args, kw in self.callbacks:
+            newTask.addCallback(f, *args, **kw)
+        return newTask
+    
     def __repr__(self):
         """
         Gives me an informative string representation
@@ -475,7 +488,7 @@ class TaskHandler(object):
     def update(self, task, ephemeral=False):
         """
         Updates my workforce with the supplied task, calling identical
-        copies of each one directly ( I have no need of or reference
+        copies of each one directly (I have no need of or reference
         to TaskQueue) to all current workers who are qualified to run
         the task. Saves the task for sending to qualified new hires as
         well.
@@ -489,16 +502,18 @@ class TaskHandler(object):
         If you don't want the task saved to the update list, but only
         run on my current workers, set the ephemeral to C{True}.
         """
-        dList = []
         if not ephemeral:
             self.updateTasks.append(task)
+        dList = []
         for worker in self.roster(task.series):
             # The "ready for another assignment" deferred that's
             # returned from calling the worker's run method is
             # irrelevant to doing updates outside the queue. We ignore
-            # it in favor of the deferred of the task itself.
-            worker.run(task.copy())
-            dList.append(task.d)
+            # it in favor of a new deferred that fires when all
+            # results have been obtained from the workers.
+            newTask = task.copy()
+            worker.run(newTask)
+            dList.append(newTask.d)
         return defer.gatherResults(dList)
     
     def __call__(self, task):
@@ -512,8 +527,6 @@ class TaskHandler(object):
         series.
         
         @return: A deferred that fires when the task has been assigned
-          to a worker and it has accepted the assignment, or in
-          broadcast mode, when all workers have accepted their copies
-          of the assignment.
+          to a worker and it has accepted the assignment.
         """
         return self.assignmentFactory.new(task)

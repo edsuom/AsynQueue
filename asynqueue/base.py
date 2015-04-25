@@ -511,7 +511,7 @@ class TaskQueue(object):
         kwTD = { 'rf': rf, 'consumer': kw.get('consumer', None) }
         if hasattr(self, 'info'):
             kwTD['ID'] = self.info.setCall(func, args, kw).ID
-        task.d.addCallback(self._taskDone, task, **kwTD)
+        task.addCallback(self._taskDone, task, **kwTD)
         return task
         
     def call(self, func, *args, **kw):

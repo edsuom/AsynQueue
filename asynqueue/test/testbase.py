@@ -202,9 +202,11 @@ class MockWorker(MsgBase):
 
     def run(self, task):
         def ran(result, d):
+            self.msg("Done with {}", repr(task))
             d.callback(None)
             return result
-        
+
+        self.msg("Running {}", repr(task), "-")
         self.task = task
         self.delayedCall = reactor.callLater(
             self.runDelay, self._reallyRun)
