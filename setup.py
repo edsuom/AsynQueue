@@ -2,22 +2,23 @@
 #
 # AsynQueue:
 # Asynchronous task queueing based on the Twisted framework, with task
-# prioritization and a powerful worker/manager interface.
+# prioritization and a powerful worker interface.
 #
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
-#
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
+# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# http://edsuom.com/AsynQueue
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 # 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
 # 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 NAME = "AsynQueue"
 
@@ -36,7 +37,7 @@ kw = {'version':'0.8.1',
       'license':'GPL',
       'platforms':'OS Independent',
 
-      'url':"http://foss.edsuom.com/%s/" % NAME,
+      'url':"http://edsuom.com/%s/" % NAME,
       'author':'Edwin A. Suominen',
       'maintainer':'Edwin A. Suominen',
       
@@ -50,7 +51,7 @@ kw['keywords'] = [
 
 
 kw['classifiers'] = [
-    'Development Status :: 4 - Beta',
+    'Development Status :: 5 - Production/Stable',
 
     'Intended Audience :: Developers',
     'Intended Audience :: Science/Research',
@@ -71,9 +72,9 @@ Asynchronous task queueing based on the Twisted framework.
 
 kw['long_description'] = " ".join("""
 Asynchronous task queueing based on the Twisted framework, with task
-prioritization and a powerful worker/manager interface. Worker implementations
-are included for running tasks via threads, separate Python interpreters, and
-remote worker nodes.
+prioritization and a powerful worker interface. Worker implementations
+are included for running tasks asynchronously in the main thread, in
+separate threads, and in separate Python interpreters (multiprocessing).
 """.split("\n"))
 
 ### Finally, run the setup

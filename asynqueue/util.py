@@ -1,24 +1,26 @@
-# AsynQueue:
-# Asynchronous task queueing based on the Twisted framework, with task
-# prioritization and a powerful worker/manager interface.
-#
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
-#
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
-# 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
-# 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
-
 """
 Miscellaneous useful stuff.
+
+B{AsynQueue} provides asynchronous task queueing based on the Twisted
+framework, with task prioritization and a powerful worker
+interface. Worker implementations are included for running tasks
+asynchronously in the main thread, in separate threads, and in
+separate Python interpreters (multiprocessing).
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/}. This program is free software: you can
+redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. This
+program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details. You should have received a copy of the GNU General
+Public License along with this program.  If not, see
+U{http://www.gnu.org/licenses/}.
+
+@author: Edwin A. Suominen
+
 """
 
 import cPickle as pickle
@@ -47,7 +49,7 @@ def p2o(pickledString, defaultObj=None):
 
     Note that a reference to the default object itself will be
     returned, not a copy of it. So make sure you only supply an empty
-    Python primitives, e.g., "[]".
+    Python primitive, e.g., C{[]}.
     """
     if not pickledString:
         return defaultObj
@@ -79,8 +81,14 @@ def callAfterDeferred(namespace, dName, f, *args, **kw):
 # For Testing
 # ----------------------------------------------------------------------------
 def testFunction(x):
+    """
+    I{For testing only.}
+    """
     return 2*x
 class TestStuff(object):
+    """
+    I{For testing only.}
+    """
     @staticmethod
     def divide(x, y):
         return x/y
@@ -102,6 +110,9 @@ class TestStuff(object):
 # ----------------------------------------------------------------------------
     
 class CallProfiler(profile.Profile):
+    """
+    I{For development only.}
+    """
     def __init__(self, filename):
         self.filename = filename
         super(CallProfiler, self).__init__()
@@ -121,7 +132,7 @@ class DeferredTracker(object):
     
     def put(self, d):
         """
-        Put another deferred in the tracker.
+        Put another C{Deferred} in the tracker.
         """
         def transparentCallback(anything):
             if d in self.dList:
@@ -141,7 +152,7 @@ class DeferredTracker(object):
         
     def deferToAll(self):
         """
-        Return a deferred that tracks all active deferreds that haven't
+        Return a C{Deferred} that tracks all active deferreds that haven't
         yet fired. When the tracked deferreds fire, the returned
         deferred fires, too.
         """
@@ -152,9 +163,9 @@ class DeferredTracker(object):
 
     def deferToLast(self):
         """
-        Return a deferred that tracks the deferred that was most recently put
-        in the tracker. When the tracked deferred fires, the returned deferred
-        fires, too.
+        Return a C{Deferred} that tracks the C{Deferred} that was most
+        recently put in the tracker. When the tracked deferred fires,
+        the returned deferred fires, too.
         """
         def transparentCallback(anything):
             d.callback(None)
@@ -173,12 +184,11 @@ class DeferredTracker(object):
 
 class DeferredLock(defer.DeferredLock):
     """
-    I am a modified form of L{defer.DeferredLock lock that lets you
+    I am a modified form of L{defer.DeferredLock} lock that lets you
     shut things down when you get the lock.
 
     Raises an exception if you try to acquire the lock after a
     shutdown has been initated.
-
     """
     def __init__(self):
         self.N_vips = 0
@@ -189,13 +199,13 @@ class DeferredLock(defer.DeferredLock):
     @contextmanager
     def context(self, vip=False):
         """
-        Usage example, inside a defer.inlineCallbacks function:
+        Usage example, inside a defer.inlineCallbacks function::
 
-        with lock.context() as d:
-            # "Wait" for the 
-            yield d
-            <Do something that requires holding onto the lock>
-        <Proceed with the lock released>
+          with lock.context() as d:
+              # "Wait" for the 
+              yield d
+              <Do something that requires holding onto the lock>
+          <Proceed with the lock released>
         
         """
         yield self.acquire(vip)
@@ -203,10 +213,10 @@ class DeferredLock(defer.DeferredLock):
         
     def acquire(self, vip=False):
         """
-        Like L{defer.DeferredLock.acquire} except with a vip option. That
-        lets you cut ahead of everyone in the regular waiting list and
-        gets the next lock, after anyone else in the VIP line who is
-        waiting from their own call of this method.
+        Like L{defer.DeferredLock.acquire} except with a I{vip}
+        option. That lets you cut ahead of everyone in the regular
+        waiting list and gets the next lock, after anyone else in the
+        VIP line who is waiting from their own call of this method.
         """
         def transparentCallback(result):
             self.N_vips -= 1
@@ -261,14 +271,15 @@ class CallRunner(object):
     Call me with a callTuple to get a 2-tuple containing the status of
     the call and its result:
 
-    'e': An exception was raised; the result is a pretty-printed
-         traceback string, unless I am constructed with
-         'returnFailures' set. Then the result is a Failure object.
+      - B{e}: An exception was raised; the result is a pretty-printed
+        traceback string, unless I am constructed with
+        I{returnFailures} set. Then the result is a C{Failure} object.
 
-    'r': Ran fine, the result is the return value of the call.
+      - B{r}: Ran fine, the result is the return value of the call.
 
-    'i': Ran fine, but the result is an iterable other than a standard
-         Python one.
+      - B{i}: Ran fine, but the result is an iterable other than a
+        standard Python one.
+    
     """
     def __init__(self):
         self.info = info.Info()

@@ -1,25 +1,29 @@
-# AsynQueue:
-# Asynchronous task queueing based on the Twisted framework, with task
-# prioritization and a powerful worker/manager interface.
-#
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
-#
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
-# 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
-# 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
-
 """
-An implementor of the IWorker interface using (gasp! Twisted
-heresy!) Python's stdlib multiprocessing.
+An implementor of the C{IWorker} interface using (gasp! Twisted
+heresy!) Python's standard-library multiprocessing.
+
+B{AsynQueue} provides asynchronous task queueing based on the Twisted
+framework, with task prioritization and a powerful worker
+interface. Worker implementations are included for running tasks
+asynchronously in the main thread, in separate threads, and in
+separate Python interpreters (multiprocessing).
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/}. This program is free software: you can
+redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. This
+program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details. You should have received a copy of the GNU General
+Public License along with this program.  If not, see
+U{http://www.gnu.org/licenses/}.
+
+@author: Edwin A. Suominen
+
+@see: L{ProcessQueue} and L{ProcessWorker}.
+
 """
 import multiprocessing as mp
 
@@ -34,16 +38,32 @@ import errors, util, iteration
 
 class ProcessQueue(TaskQueue):
     """
-    I am a task queue for dispatching picklable or keyword-supplied
+    A L{TaskQueue} that runs tasks on one or more subordinate Python
+    processes.
+    
+    I am a L{TaskQueue} for dispatching picklable or keyword-supplied
     callables to be run by workers from a pool of I{N} worker
     processes, the number I{N} being specified as the sole argument of
     my constructor.
     """
     @staticmethod
     def cores():
+        """
+        @return: The number of CPU cores available.
+
+        @rtype: int
+        """
         return ProcessWorker.cores()
 
     def __init__(self, N, **kw):
+        """
+        @param N: The number of workers (subordinate Python processes)
+        initially in the queue.
+
+        @type N: int
+
+        @param kw: Keywords for the regular L{TaskQueue} constructor.
+        """
         TaskQueue.__init__(self, **kw)
         for null in xrange(N):
             worker = ProcessWorker()
@@ -55,8 +75,16 @@ class ProcessWorker(object):
     I implement an L{IWorker} that runs tasks in a dedicated worker
     process.
 
-    You can also supply a series keyword containing a list of one or
-    more task series that I am qualified to handle.
+    You can also supply a I{series} keyword containing a list of one
+    or more task series that I am qualified to handle.
+    
+    @ivar interval: The initial event-checking interval, in seconds.
+    @type interval: float
+    @ivar backoff: The backoff exponent.
+    @type backoff: float
+
+    @cvar cQualified: 'process', 'local'
+    
     """
     pollInterval = 0.01
     backOff = 1.04
@@ -66,6 +94,11 @@ class ProcessWorker(object):
 
     @staticmethod
     def cores():
+        """
+        @return: The number of CPU cores available.
+
+        @rtype: int
+        """
         return mp.cpu_count()
     
     def __init__(self, series=[], profiler=None):
@@ -89,6 +122,8 @@ class ProcessWorker(object):
         """
         Do a next call of the iterator held by my process, over the pipe
         and in Twisted fashion.
+
+        @param ID: A unique identifier for the iterator.
         """
         def gotLock(null):
             self.cMain.send(ID)
@@ -114,9 +149,11 @@ class ProcessWorker(object):
     @defer.inlineCallbacks
     def run(self, task):
         """
-        Sends the task callable and args, kw to the process (must all be
-        picklable) and polls the interprocess connection for a result,
-        with exponential backoff.
+        Sends the I{task} callable and args, kw to the process (must all
+        be picklable) and polls the interprocess connection for a
+        result, with exponential backoff.
+
+        I{This actually works very well, O ye Twisted event-purists.}
         """
         if task is None:
             # A termination task, do after pending tasks are done
@@ -162,8 +199,8 @@ class ProcessWorker(object):
     
     def stop(self):
         """
-        The returned deferred fires when the task loop has ended and its
-        process terminated.
+        @return: A C{Deferred} that fires when the task loop has ended and
+          its process terminated.
         """
         def terminationTaskDone(null):
             self._killProcess()
@@ -197,6 +234,9 @@ class ProcessUniverse(object):
         """
         Runs a loop in a dedicated process that waits for new tasks. The
         loop exits when a C{None} object is supplied as a task.
+
+        @param connection: The sub-process end of an interprocess
+        connection.
         """
         while True:
             # Wait here for the next call

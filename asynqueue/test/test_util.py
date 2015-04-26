@@ -90,6 +90,15 @@ class TestDeferredTracker(TestCase):
         self.assertFalse(self._flag)
         self.assertEqual(len(self.dt.dList), 0)
 
+    @defer.inlineCallbacks
+    def test_deferToAll_multiple(self):
+        # Put some in and wait for them
+        for d in self._slowStuff(3):
+            self.dt.put(d)
+        # Wait for all, twice
+        yield self.dt.deferToAll()
+        yield self.dt.deferToAll()
+        
     def test_memory(self):
         def doneDelaying(null, k):
             newCounts = gc.get_count()

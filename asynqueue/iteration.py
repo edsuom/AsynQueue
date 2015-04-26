@@ -1,24 +1,26 @@
-# AsynQueue:
-# Asynchronous task queueing based on the Twisted framework, with task
-# prioritization and a powerful worker/manager interface.
-#
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
-#
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
-# 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
-# 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
-
 """
-Iteration, Twisted style
+Iteration, Twisted style.
+
+B{AsynQueue} provides asynchronous task queueing based on the Twisted
+framework, with task prioritization and a powerful worker
+interface. Worker implementations are included for running tasks
+asynchronously in the main thread, in separate threads, and in
+separate Python interpreters (multiprocessing).
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/}. This program is free software: you can
+redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. This
+program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details. You should have received a copy of the GNU General
+Public License along with this program.  If not, see
+U{http://www.gnu.org/licenses/}.
+
+@author: Edwin A. Suominen
+
 """
 
 import time, inspect
@@ -34,9 +36,16 @@ import errors
 
 
 def deferToDelay(delay):
+    """
+    Returns a C{Deferred} that fires after the specified I{delay} (in
+    seconds).
+    """
     return Delay(delay)()
 
 def isIterator(x):
+    """
+    @see: L{Deferator.isIterator}
+    """
     return Deferator.isIterator(x)
 
     
@@ -45,8 +54,13 @@ class Delay(object):
     I let you delay things and wait for things that may take a while,
     in Twisted fashion.
 
-    Perhaps a bit more suited to the util module, but that would
+    Perhaps a bit more suited to the L{util} module, but that would
     require this module to import it, and it imports this module.
+
+    @ivar interval: The initial event-checking interval, in seconds.
+    @type interval: float
+    @ivar backoff: The backoff exponent.
+    @type backoff: float
     """
     interval = 0.01
     backoff = 1.04
@@ -64,6 +78,10 @@ class Delay(object):
                     self.backoff))
 
     def __call__(self, delay=None):
+        """
+        Call to get a C{Deferred} that fires after my default delay or one
+        you specify.
+        """
         if delay is None:
             delay = self.interval
         d = defer.Deferred()
@@ -73,17 +91,18 @@ class Delay(object):
     @defer.inlineCallbacks
     def untilEvent(self, eventChecker):
         """
-        Returns a deferred that fires when a call to the supplied
+        Returns a C{Deferred} that fires when a call to the supplied
         event-checking callable returns an affirmative (not C{None},
         C{False}, etc.) result, or until the optional timeout limit is
-        reached.
+        reached. The result of the C{Deferred} is C{True} if the event
+        actually happened, or C{False} if a timeout occurred.
 
-        The result of the deferred is C{True} if the event actually
-        happened, or C{False} if a timeout occurred.
+        The event checker should B{not} return a C{Deferred}. I call
+        the event checker less and less frequently as the wait goes
+        on, depending on the backoff exponent (default is 1.04).
 
-        The event checker should *not* return a deferred. Calls the
-        event checker less and less frequently as the wait goes on,
-        depending on the backoff exponent (default is 1.04).
+        @param eventChecker: A no-argument callable that returns an
+          immediate boolean value indicating if an event occurred.
         """
         if not callable(eventChecker):
             raise TypeError("You must supply a callable event checker")
@@ -107,13 +126,15 @@ class Delay(object):
 
 class Deferator(object):
     """
+    B{Defer}red-yielding iterB{ator}.
+    
     Use an instance of me in place of a task result that is an
-    iterable other than one of Python's built-in containers (list,
-    dict, etc.). I yield deferreds to the next iteration of the result
-    and maintain an internal deferred that fires when the iterations
-    are done or terminated cleanly with a call to my L{stop}
-    method. The deferred fires with C{True} if the iterations were
-    completed, or C{False} if not, i.e., a stop was done.
+    iterable other than one of Python's built-in containers (C{list},
+    C{dict}, etc.). I yield deferreds to the next iteration of the
+    result and maintain an internal deferred that fires when the
+    iterations are done or terminated cleanly with a call to my
+    L{stop} method. The deferred fires with C{True} if the iterations
+    were completed, or C{False} if not, i.e., a stop was done.
 
     Access the done-iterating deferred via my I{d} attribute. I also
     try to provide access to its methods attributes and attributes as
@@ -124,24 +145,25 @@ class Deferator(object):
     call L{next} again to get a deferred to the next one, and so on,
     until I raise L{StopIteration} just like a regular iterable.
 
-    B{NOTE}: There are two very important rules. First, you MUST wrap
-    my iteration in a L{defer.inlineCallbacks} loop or otherwise wait
-    for each yielded deferred to fire before asking for the next
-    one. Second, you must call the 'stop' method of the Deferator (or
-    the deferreds it yields) before doing a 'stop' or 'return' to
-    prematurely terminate the loop. Good behavior looks something like
-    this:
+    B{NOTE}: There are two very important rules. First, you B{must}
+    wrap my iteration in a L{defer.inlineCallbacks} loop or otherwise
+    wait for each yielded deferred to fire before asking for the next
+    one. Second, you must call the L{stop} method of the Deferator (or
+    the deferreds it yields) before doing a C{break} or C{return} to
+    prematurely terminate the loop.
 
-    @defer.inlineCallbacks
-    def printItems(self, ID):
-        for d in Deferator("remoteIterator", getMore, ID):
-            listItem = yield d
-            print listItem
-            if listItem == "Danger Will Robinson":
-                d.stop()
-                # You still have to break out of the loop after calling
-                # the deferator's stop method
-                return
+    Good behavior looks something like this::
+
+      @defer.inlineCallbacks
+      def printItems(self, ID):
+          for d in Deferator("remoteIterator", getMore, ID):
+              listItem = yield d
+              print listItem
+              if listItem == "Danger Will Robinson":
+                  d.stop()
+                  # You still have to break out of the loop after calling
+                  # the deferator's stop method
+                  return
 
     Instantiate me with a string representation of the underlying
     iterable (or the object itself, if it's handy) and a function
@@ -152,7 +174,7 @@ class Deferator(object):
     more iterations left.
 
     This requires your get-more function to be one step ahead somehow,
-    returning C{False} as its status indicator when the *next* call
+    returning C{False} as its status indicator when the I{next} call
     would raise L{StopIteration}. Use L{Prefetcherator.getNext} after
     setting the prefetcherator up with a suitable iterator or
     next-item callable.
@@ -161,8 +183,8 @@ class Deferator(object):
     for informative purposes in case an error gets propagated back
     somewhere. You can cheat and just use C{None} for the first
     constructor argument. Or you can supply a Prefetcherator as the
-    first and sole argument, or an iterator for which a Prefetcherator
-    will be constructed internally.
+    first and sole argument, or an iterator for which a
+    L{Prefetcherator} will be constructed internally.
     """
     builtIns = (
         str, unicode,
@@ -171,8 +193,10 @@ class Deferator(object):
     @classmethod
     def isIterator(cls, obj):
         """
-        Returns C{True} if the object is an iterator suitable for use with
-        me, C{False} otherwise.
+        Tells you if I{obj} is a suitable iterator.
+        
+        @return: C{True} if the object is an iterator suitable for use
+          with me, C{False} otherwise.
         """
         if isinstance(obj, cls.builtIns):
             return False
@@ -267,8 +291,8 @@ class Deferator(object):
         letting whatever is producing the iterations know that there
         won't be any more of them.
 
-        For convenience, each deferred that I yield during iteration
-        has a reference to this method via its own 'stop' attribute.
+        For convenience, each C{Deferred} that I yield during iteration
+        has a reference to this method via its own C{stop} attribute.
         """
         self.moreLeft = False
         self._callback(False)
@@ -283,8 +307,7 @@ class Prefetcherator(object):
     representation and something you can retrieve via my I{ID}
     attribute.
     """
-    __slots__ = [
-        'ID', 'nextCallTuple', 'lastFetch']
+    __slots__ = ['ID', 'nextCallTuple', 'lastFetch']
 
     def __init__(self, ID=None):
         self.ID = ID
@@ -303,10 +326,14 @@ class Prefetcherator(object):
 
     def setup(self, *args, **kw):
         """
+        Sets me up with an attempt at an initial prefetch.
+        
         Set me up with a new iterator, or the callable for an
         iterator-like-object, along with any args or keywords. Does a
-        first prefetch, returning a deferred that fires with C{True}
-        if all goes well or C{False} otherwise.
+        first prefetch.
+
+        @return: A C{Deferred} that fires with C{True} if all goes
+          well or C{False} otherwise.
         """
         def parseArgs():
             if not args:
@@ -337,9 +364,9 @@ class Prefetcherator(object):
     def _tryNext(self):
         """
         Returns a deferred that fires with the value from my
-        I{nextCallTuple} along with a Bool indicating if it's a valid
-        value. Deletes the nextValue reference after it returns with a
-        failure.
+        I{nextCallTuple} along with a C{bool} indicating if it's a
+        valid value. Deletes the I{nextValue} reference after it
+        returns with a failure.
         """
         def done(value):
             return value, True
@@ -353,6 +380,8 @@ class Prefetcherator(object):
 
     def getNext(self):
         """
+        Prefetch analog to C{next} on a regular iterator.
+        
         Gets the next value from my current iterator, or a deferred value
         from my current nextCallTuple, returning it along with a Bool
         indicating if this is a valid value and another one indicating
@@ -389,13 +418,15 @@ class Prefetcherator(object):
 
 class ListConsumer(object):
     """
+    Bare-bones iteration consumer.
+    
     I am a bare-bones iteration consumer that accumulates iterations
     as list items, processing each item by running it through
     L{processItem}, which you of course can override in your
-    subclass. It can return a deferred.
+    subclass. It can return a C{Deferred}.
 
-    Call my instance to get a deferred that fires with the underlying
-    list when the producer unregisters.
+    Call my instance to get a C{Deferred} that fires with the
+    underlying list when the producer unregisters.
 
     Set any attributes you want me to have using keywords.
     """
@@ -410,6 +441,9 @@ class ListConsumer(object):
             setattr(self, name, value)
 
     def __call__(self):
+        """
+        Call to get a (deferred) list of what I consumed.
+        """
         def done(null):
             return [self.x[key] for key in sorted(self.x.keys())]
         
@@ -421,6 +455,9 @@ class ListConsumer(object):
         return defer.DeferredList(dList).addCallback(done)
             
     def registerProducer(self, producer, streaming):
+        """
+        L{IConsumer} implementation.
+        """
         if hasattr(self, 'producer'):
             raise RuntimeError()
         if not streaming:
@@ -429,6 +466,9 @@ class ListConsumer(object):
         self.producer = producer
 
     def unregisterProducer(self):
+        """
+        L{IConsumer} implementation.
+        """
         if hasattr(self, 'producer'):
             del self.producer
         if hasattr(self, 'dp') and not self.dp.called:
@@ -454,6 +494,8 @@ class ListConsumer(object):
 
     def processItem(self, item):
         """
+        Process list items as they come in.
+        
         Override this to do special processing on each item as it arrives,
         returning the (possibly deferred) value of the item that
         should actually get appended to the list.
@@ -463,6 +505,8 @@ class ListConsumer(object):
         
 class IterationProducer(object):
     """
+    Producer of iterations from a L{Deferator}. 
+    
     I am a producer of iterations from a L{Deferator}. Get me running
     with a call to L{run}, which returns a deferred that fires when
     I'm done iterating or when the consumer has stopped me, whichever
@@ -534,12 +578,21 @@ class IterationProducer(object):
         defer.returnValue(self.consumer)
             
     def pauseProducing(self):
+        """
+        L{IPushProducer} implementation.
+        """
         self.paused = True
 
     def resumeProducing(self):
+        """
+        L{IPushProducer} implementation.
+        """
         self.paused = False
 
     def stopProducing(self):
+        """
+        L{IPushProducer} implementation.
+        """
         self.running = False
         self.dr.stop()
 
@@ -547,6 +600,8 @@ class IterationProducer(object):
 @defer.inlineCallbacks
 def iteratorToProducer(iterator, consumer=None, wrapper=None):
     """
+    Makes an iterator into an L{IterationProducer}.
+    
     Converts a possibly slow-running iterator into a Twisted-friendly
     producer, returning a deferred that fires with the producer when
     it's ready. If the the supplied object is not a suitable iterator
@@ -558,7 +613,7 @@ def iteratorToProducer(iterator, consumer=None, wrapper=None):
     L{IterationProducer.run} method to start the iteration/production.
 
     If you supply a consumer, those two steps will be done
-    automatically, and this method will fire with a deferred that
+    automatically, and this method will fire with a C{Deferred} that
     fires when the iteration/production is done.
     """
     result = None

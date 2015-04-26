@@ -1,24 +1,26 @@
-# AsynQueue:
-# Asynchronous task queueing based on the Twisted framework, with task
-# prioritization and a powerful worker/manager interface.
-#
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
-#
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
-# 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
-# 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
-
 """
 Task management for the task queue workers
+
+B{AsynQueue} provides asynchronous task queueing based on the Twisted
+framework, with task prioritization and a powerful worker
+interface. Worker implementations are included for running tasks
+asynchronously in the main thread, in separate threads, and in
+separate Python interpreters (multiprocessing).
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/}. This program is free software: you can
+redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. This
+program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details. You should have received a copy of the GNU General
+Public License along with this program.  If not, see
+U{http://www.gnu.org/licenses/}.
+
+@author: Edwin A. Suominen
+
 """
 from contextlib import contextmanager
 
@@ -48,7 +50,7 @@ class Task(object):
     versions of those methods directly, but my versions deal with things like
     repeated callbacks, which happen sometimes with task timeouts.
     
-    @ivar d: A deferred to the eventual result of the task.
+    @ivar d: A C{Deferred} to the eventual result of the task.
     
     @ivar series: A hashable object identifying the series of which this task
       is a part.
@@ -130,7 +132,7 @@ class Task(object):
     
     def __repr__(self):
         """
-        Gives me an informative string representation
+        Gives me an informative string representation.
         """
         func = self.callTuple[0]
         args = ", ".join([str(x) for x in self.callTuple[1]])
@@ -148,7 +150,7 @@ class Task(object):
     def __cmp__(self, other):
         """
         Numeric comparisons between tasks are based on their priority, with
-        higher (lower-numbered) priorities being considered \"less\" and thus
+        higher (lower-numbered) priorities being considered 'less' and thus
         sorted first.
 
         A task will always have a higher priority, i.e., be comparatively
@@ -221,9 +223,9 @@ class Assignment(object):
     accepts me. Deep down, my real role is to provide something to fire the
     callback of a deferred with instead of just another deferred.
     
-    @ivar d: A deferred that is instantiated for a given instance of me, which
-      fires when a worker accepts the assigment represented by that instance.
-
+    @ivar d: A C{Deferred} that is instantiated for a given instance
+      of me, which fires when a worker accepts the assigment
+      represented by that instance.
     """
     # We go through a lot of these objects and they're small, so let's make
     # them cheap to build
@@ -235,11 +237,11 @@ class Assignment(object):
 
     def accept(self, worker):
         """
-        Called when the worker accepts the assignment, firing my deferred.
+        Called when the worker accepts the assignment, firing my
+        C{Deferred}.
         
-        @return: Another deferred that fires when the worker is ready to accept
-          B{another} assignment following this one.
-        
+        @return: Another C{Deferred} that fires when the worker is
+          ready to accept B{another} assignment following this one.
         """
         self.d.callback(None)
         self.task.startTimer()
@@ -248,7 +250,8 @@ class Assignment(object):
 
 class AssignmentFactory(object):
     """
-    I generate L{Assignment} instances for workers to handle particular tasks.
+    I generate L{Assignment} instances for workers to handle
+    particular tasks.
     """
     def __init__(self):
         self.waiting = {}
@@ -271,14 +274,14 @@ class AssignmentFactory(object):
         for the supplied I{worker}.
 
         When a new assignment in the series is finally ready in the
-        queue for this worker, the deferred for the assignment request
-        will fire with an instance of L{Assignment} that has been
-        constructed with the task to be assigned.
+        queue for this worker, the C{Deferred} for the assignment
+        request will fire with an instance of L{Assignment} that has
+        been constructed with the task to be assigned.
 
         If the worker is still gainfully employed when it accepts the
-        assignment, and is not just wrapping up its work after having been
-        fired, the worker will request another assignment when it finishes the
-        task.
+        assignment, and is not just wrapping up its work after having
+        been fired, the worker will request another assignment when it
+        finishes the task.
         """
         def accept(assignment, d_request):
             worker.assignments[series].remove(d_request)
@@ -304,8 +307,9 @@ class AssignmentFactory(object):
 
     def new(self, task):
         """
-        Creates and queues a new assignment for the supplied I{task}, returning
-        a deferred that fires when the assignment has been accepted.
+        Creates and queues a new assignment for the supplied I{task},
+        returning a deferred that fires when the assignment has been
+        accepted.
         """
         series = task.series
         assignment = Assignment(task)
@@ -322,23 +326,25 @@ class TaskHandler(object):
     L{IWorker}.
 
     When a new worker is hired with my L{hire} method, I run the
-    L{Assignment.request} class method to request that the worker be assigned a
-    task from the queue of each task series for which it is qualified.
+    L{Assignment.request} class method to request that the worker be
+    assigned a task from the queue of each task series for which it is
+    qualified.
 
-    When the worker finally gets the assignment, it fires the L{Assignment}
-    object's internal deferred with a reference to itself. That is my cue to
-    have the worker run the assigned task and request another assignment of a
-    task in the same series when it's done, unless I've terminated the worker
-    in the meantime.
+    When the worker finally gets the assignment, it fires the
+    L{Assignment} object's internal deferred with a reference to
+    itself. That is my cue to have the worker run the assigned task
+    and request another assignment of a task in the same series when
+    it's done, unless I've terminated the worker in the meantime.
 
-    Each worker object maintains a dictionary of deferreds for each of its
-    outstanding assignment requests so that I can cancel them if I terminate
-    the worker. Then I can effectively cancel the assignment requests by firing
-    the deferreds with fake, no-task assignments. See my L{terminate} method.
+    Each worker object maintains a dictionary of deferreds for each of
+    its outstanding assignment requests so that I can cancel them if I
+    terminate the worker. Then I can effectively cancel the assignment
+    requests by firing the deferreds with fake, no-task
+    assignments. See my L{terminate} method.
     
-    @ivar workers: A C{dict} of worker objects that are currently employed by
-      me, keyed by a unique integer ID code for each worker.
-    
+    @ivar workers: A C{dict} of worker objects that are currently
+      employed by me, keyed by a unique integer ID code for each
+      worker.
     """
     def __init__(self, profile=None):
         self.isRunning = True
@@ -350,10 +356,11 @@ class TaskHandler(object):
 
     def shutdown(self, timeout=None):
         """
-        Shutdown all my workers, then fire them, in turn. Returns a
-        deferred that fires when my entire work force has been
-        terminated. The deferred result is a list of all tasks, if
-        any, that were left unfinished by the work force.
+        Shutdown all my workers, then fire them, in turn.
+
+        @return: A C{Deferred} that fires when my entire work force
+          has been terminated. The deferred result is a list of all
+          tasks, if any, that were left unfinished by the work force.
         """
         def gotResults(results):
             if self.profiler:
@@ -380,7 +387,7 @@ class TaskHandler(object):
         new worker request an initial assignment from each queue.
 
         The method generates an integer ID uniquely identifying the
-        worker, and gives the worker an C{ID} attribute with the ID
+        worker, and gives the worker an I{ID} attribute with the ID
         for its own reference, The ID is returned as well.
         """
         @defer.inlineCallbacks
@@ -431,10 +438,9 @@ class TaskHandler(object):
         C{True}, the worker is crashed right away without waiting for it to run
         through its pending tasks.
 
-        @return: A deferred that fires when the worker has been removed,
-          gracefully or not, with a list of any tasks left unfinished and not
-          reassigned.
-        
+        @return: A C{Deferred} that fires when the worker has been
+          removed, gracefully or not, with a list of any tasks left
+          unfinished and not reassigned.
         """
         def crashTheWorker(worker, d):
             unfinished = worker.crash()
@@ -526,7 +532,7 @@ class TaskHandler(object):
         request will be entered for it to obtain another task of the same
         series.
         
-        @return: A deferred that fires when the task has been assigned
-          to a worker and it has accepted the assignment.
+        @return: A C{Deferred} that fires when the task has been
+          assigned to a worker and it has accepted the assignment.
         """
         return self.assignmentFactory.new(task)

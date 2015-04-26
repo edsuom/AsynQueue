@@ -1,24 +1,26 @@
-# AsynQueue:
-# Asynchronous task queueing based on the Twisted framework, with task
-# prioritization and a powerful worker/manager interface.
-#
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
-#
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
-# 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
-# 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
-
 """
 Information about callables and what happens to them.
+
+
+B{AsynQueue} provides asynchronous task queueing based on the Twisted
+framework, with task prioritization and a powerful worker
+interface. Worker implementations are included for running tasks
+asynchronously in the main thread, in separate threads, and in
+separate Python interpreters (multiprocessing).
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/}. This program is free software: you can
+redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. This
+program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details. You should have received a copy of the GNU General
+Public License along with this program.  If not, see
+U{http://www.gnu.org/licenses/}.
+
+@author: Edwin A. Suominen
 """
 
 import cPickle as pickle
@@ -163,6 +165,8 @@ class InfoHolder(object):
 
 class Info(object):
     """
+    Provides detailed info about function/method calls.
+    
     I provide text (picklable) info about a call. Construct me with a
     function object and any args and keywords if you want the info to
     include that particular function call, or you can set it (and
@@ -180,20 +184,42 @@ class Info(object):
         Sets my current f-args-kw tuple, returning a reference to myself
         to allow easy method chaining.
 
-        The function 'f' must be an actual callable object if you want
+        The function I{f} must be an actual callable object if you want
         to use L{getWireVersion}. Otherwise it can also be a string
         depicting a callable.
 
-        You can specify args with a second argument (as a list or
-        tuple), and kw with a third argument (as a dict). If you are
+        You can specify I{args} with a second argument (as a list or
+        tuple), and I{kw} with a third argument (as a C{dict}). If you are
         only specifying a single arg, you can just provide it as your
         second argument to this method call without wrapping it in a
         list or tuple. I try to be flexible.
 
         If you've set a function name and want to add a sequence of
         args or a dict of keywords, you can do it by supplying the
-        'args' or 'kw' keywords. You can also set a class instance at
-        that time with the 'instance' keyword.
+        I{args} or I{kw} keywords. You can also set a class instance
+        at that time with the I{instance} keyword.
+
+        To sum up, here are the numbers of arguments you can provide:
+        
+          1. A single argument with a callable object or string
+             depicting a callable.
+  
+          2. Two arguments: the callable I{f} plus a single
+             argument or list of arguments to I{f}.
+  
+          3. Three arguments: I{f}, I{args}, and a dict
+             of keywords for the callable.
+
+        @param metaArgs: 1-3 arguments as specified above.
+
+        @keyword args: A sequence of arguments for the callable I{f}
+          or one previously set.
+
+        @keyword kw: A dict of keywords for the callable I{f} or one
+          previously set.
+
+        @keyword instance: An instance of a class of which the
+          callable I{f} is a method.
         """
         if metaArgs:
             if metaArgs == self.lastMetaArgs and not hasattr(self, 'pastInfo'):
@@ -223,6 +249,7 @@ class Info(object):
                 "or keywords adding args, kw to a previously set one")
         if hasattr(self, 'currentID'):
             del self.currentID
+        # Runs the property getter
         self.ID
         if metaArgs:
             # Save metaArgs to ignore repeated calls with the same metaArgs
@@ -256,6 +283,8 @@ class Info(object):
     @contextmanager
     def context(self, *metaArgs, **kw):
         """
+        Context manager for setting and getting call info.
+        
         Call this context manager method with info about a particular call
         (same format as L{setCall} uses) and it yields an
         L{InfoHolder} object keyed to that call. It lets you get info
@@ -272,13 +301,22 @@ class Info(object):
             
     def getInfo(self, ID, name, nowForget=False):
         """
+        Provides info about a call.
+        
         If the supplied name is 'callDict', returns the f-args-kw-instance
-        dict for my current callable. The value of ID is ignored in
+        dict for my current callable. The value of I{ID} is ignored in
         such case. Otherwise, returns the named information attribute
         for the previous call identified with the supplied ID.
 
-        Set 'nowForget' to remove any reference to this ID or
-        callDict after the info is obtained.
+        @param ID: ID of a previous call, ignored if I{name} is 'callDict'
+
+        @param name: The name of the particular type of info requested.
+
+        @type name: str
+        
+        @param nowForget: Set C{True} to remove any reference to this
+          ID or callDict after the info is obtained.
+        
         """
         def getCallDict():
             if hasattr(self, 'callDict'):
@@ -311,9 +349,11 @@ class Info(object):
 
     def nn(self, ID=None, raw=False):
         """
-        For my current callable or a previous one identified by ID,
+        Namespace-name parser
+        
+        For my current callable or a previous one identified by I{ID},
         returns a 3-tuple namespace-ID-name combination suitable for
-        sending to a process worker via pickle.
+        sending to a process worker via L{pickle}.
 
         The first element: If the callable is a method, a pickled or
         fully qualified name (FQN) version of its parent object. This
@@ -324,11 +364,15 @@ class Info(object):
         a standalone function, the pickled or FQN version. If nothing
         works, this element will be C{None} along with the first one.
 
-        If the raw keyword is set True, the raw parent (or function)
-        object will be returned instead of a pickle or FQN, but all
-        the type checking and round-trip testing still will be done.
-        """
+        @param ID: Previous callable
 
+        @type ID: int
+        
+        @param raw: Set C{True} to return the raw parent (or
+          function) object instead of a pickle or FQN. All the type
+          checking and round-trip testing still will be done.
+
+        """
         if ID:
             pastInfo = self.getInfo(ID, 'wireVersion')
             if pastInfo:
@@ -363,38 +407,7 @@ class Info(object):
                     processed = func
                 result = None, processed
         return self.saveInfo('wireVersion', result, ID)        
-    
-    def _divider(self, lineList):
-        N_dashes = max([len(x) for x in lineList]) + 1
-        if N_dashes > 79:
-            N_dashes = 79
-        lineList.append("-" * N_dashes)
-
-    def _formatList(self, lineList):
-        lines = []
-        for line in lineList:
-            newLines = line.split(':')
-            for newLine in newLines:
-                for reallyNewLine in newLine.split('\\n'):
-                    lines.append(reallyNewLine)
-        return "\n".join(lines)
-    
-    def _funcText(self, func):
-        if isinstance(func, (str, unicode)):
-            return func
-        if callable(func):
-            text = getattr(func, '__name__', None)
-            if text:
-                return text
-            if inspect.ismethod(func):
-                text = "{}.{}".format(func.im_self, text)
-                return text
-        try:
-            func = str(func)
-        except:
-            func = repr(func)
-        return "{}[Not Callable!]".format(func)
-        
+           
     def aboutCall(self, ID=None, nowForget=False):
         """
         Returns an informative string describing my current function call
@@ -465,3 +478,34 @@ class Info(object):
         lineList.append(failureObj.getTraceback(detail='verbose'))
         text = self._formatList(lineList)
         return self.saveInfo('aboutFailure', text, ID)
+
+    def _divider(self, lineList):
+        N_dashes = max([len(x) for x in lineList]) + 1
+        if N_dashes > 79:
+            N_dashes = 79
+        lineList.append("-" * N_dashes)
+
+    def _formatList(self, lineList):
+        lines = []
+        for line in lineList:
+            newLines = line.split(':')
+            for newLine in newLines:
+                for reallyNewLine in newLine.split('\\n'):
+                    lines.append(reallyNewLine)
+        return "\n".join(lines)
+    
+    def _funcText(self, func):
+        if isinstance(func, (str, unicode)):
+            return func
+        if callable(func):
+            text = getattr(func, '__name__', None)
+            if text:
+                return text
+            if inspect.ismethod(func):
+                text = "{}.{}".format(func.im_self, text)
+                return text
+        try:
+            func = str(func)
+        except:
+            func = repr(func)
+        return "{}[Not Callable!]".format(func)

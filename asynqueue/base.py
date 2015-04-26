@@ -1,24 +1,26 @@
-# AsynQueue:
-# Asynchronous task queueing based on the Twisted framework, with task
-# prioritization and a powerful worker/manager interface.
-#
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
-#
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
-# 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
-# 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
-
 """
 The task queue and its immediate support staff.
+
+B{AsynQueue} provides asynchronous task queueing based on the Twisted
+framework, with task prioritization and a powerful worker
+interface. Worker implementations are included for running tasks
+asynchronously in the main thread, in separate threads, and in
+separate Python interpreters (multiprocessing).
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/}. This program is free software: you can
+redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. This
+program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details. You should have received a copy of the GNU General
+Public License along with this program.  If not, see
+U{http://www.gnu.org/licenses/}.
+
+@author: Edwin A. Suominen
+
 """
 
 import heapq, logging
@@ -95,14 +97,16 @@ class Priority(object):
 
 class LoadInfoProducer(object):
     """
-    I produce information about the current load of a task queue. The
-    information consists of the number of tasks currently queued, and
-    is written as a single integer to my consumers as a single integer
-    whenever a task is queued up and again when it is completed.
+    Produces task queue loading information.
+    
+    I produce information about the current load of a
+    L{TaskQueue}. The information consists of the number of tasks
+    currently queued, and is written as a single integer to my
+    consumers as a single integer whenever a task is queued up and
+    again when it is completed.
 
     @ivar consumer: A list of the consumers for whom I'm producing
       information.
-    
     """
     implements(interfaces.IPushProducer)
     
@@ -405,28 +409,29 @@ class TaskQueue(object):
         """
         Processes the status/result tuple from a worker running a task:
 
-        'e': An exception was raised; the result is a pretty-printed
-             traceback string. If the keyword 'returnFailure' was set
-             for my constructor or this task, I will make it into a
-             failure so the task's errback is triggered.
-
-        'r': Ran fine, the result is the return value of the call.
-
-        'i': Ran fine, but the result was an iterable other than a
-             standard Python one. So my result is a Deferator that
-             yields deferreds to the worker's iterations, or, if you
-             specified a consumer, an IterationProducer registered
-             with the consumer that needs to get running to write
-             iterations to it. If the iterator was empty, the result
-             is just an empty list.
-
-        'c': Ran fine (on an AMP server), but the result was too big
-             for a single return value. So the result is a deferred
-             that will eventually fire with the result after all the
-             chunks of the return value have arrived and been
-             magically pieced together and unpickled.
+          - B{e}: An exception was raised; the result is a
+            pretty-printed traceback string. If the keyword
+            'returnFailure' was set for my constructor or this task, I
+            will make it into a failure so the task's errback is
+            triggered.
+  
+          - B{r}: Ran fine, the result is the return value of the call.
+  
+          - B{i}: Ran fine, but the result was an iterable other than a
+            standard Python one. So my result is a Deferator that yields
+            deferreds to the worker's iterations, or, if you specified a
+            consumer, an IterationProducer registered with the consumer
+            that needs to get running to write iterations to it. If the
+            iterator was empty, the result is just an empty list.
+  
+          - B{c}: Ran fine (on an AMP server), but the result was too
+            big for a single return value. So the result is a deferred
+            that will eventually fire with the result after all the
+            chunks of the return value have arrived and been magically
+            pieced together and unpickled.
+          
+          - B{t}: The task timed out. I'll try to re-run it, once.
         
-        't': The task timed out. I'll try to re-run it, once.
         """
         @contextmanager
         def taskInfo(ID):

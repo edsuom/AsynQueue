@@ -1,25 +1,27 @@
-# AsynQueue:
-# Asynchronous task queueing based on the Twisted framework, with task
-# prioritization and a powerful worker/manager interface.
-#
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
-#
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
-# 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
-# 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
-
 """
-ThreadWorker and its support staff. Also, a cool implementation of
-deferToThread.
+L{ThreadQueue}, L{ThreadWorker} and their support staff. Also, a
+cool implementation of deferToThread.
+
+B{AsynQueue} provides asynchronous task queueing based on the Twisted
+framework, with task prioritization and a powerful worker
+interface. Worker implementations are included for running tasks
+asynchronously in the main thread, in separate threads, and in
+separate Python interpreters (multiprocessing).
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/}. This program is free software: you can
+redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. This
+program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details. You should have received a copy of the GNU General
+Public License along with this program.  If not, see
+U{http://www.gnu.org/licenses/}.
+
+@author: Edwin A. Suominen
+
 """
 
 import threading
@@ -35,8 +37,8 @@ import errors, util, iteration
 
 class ThreadQueue(TaskQueue):
     """
-    I am a task queue for dispatching arbitrary callables to be run by
-    a single worker thread.
+    I am a L{TaskQueue} for dispatching arbitrary callables to be run
+    by a single worker thread.
     """
     def __init__(self, **kw):
         raw = kw.pop('raw', False)
@@ -47,8 +49,9 @@ class ThreadQueue(TaskQueue):
     def deferToThread(self, f, *args, **kw):
         """
         Runs the f-args-kw call in my dedicated worker thread, skipping
-        past the queue. As with a regular TaskQueue.call, returns a
-        deferred that fires with the result and deals with iterators.
+        past the queue. As with a regular L{TaskQueue.call}, returns a
+        C{Deferred} that fires with the result and deals with
+        iterators.
         """
         return util.callAfterDeferred(
             self, 'd', self.worker.t.deferToThread, f, *args, **kw)
@@ -59,9 +62,9 @@ class ThreadWorker(object):
     I implement an L{IWorker} that runs tasks in a dedicated worker
     thread.
 
-    You can supply a series keyword containing a list of one or more
-    task series that I am qualified to handle, and raw=True if you
-    want raw iterators to be returned instead of prefetcherators
+    You can supply a I{series} keyword containing a list of one or
+    more task series that I am qualified to handle, and C{raw=True} if
+    you want raw iterators to be returned instead of prefetcherators
     unless otherwise specified in a call.
     """
     implements(IWorker)
@@ -77,18 +80,20 @@ class ThreadWorker(object):
 
     def run(self, task):
         """
-        Returns a deferred that fires only after the threaded call is
-        done. I do basic FIFO queuing of calls to this method, but
-        priority queuing is above my paygrade and you'd best honor my
-        deferred and let someone like L{tasks.WorkerManager} only call
-        this method when I say I'm ready.
+        Returns a C{Deferred} that fires only after the threaded call is
+        done.
 
-        One simple thing I *will* do is apply the doNext keyword to
-        any task with the highest priority, -20 or lower (for a
-        L{base.TaskQueue.call} with its own *doNext* keyword set). If
+        I do basic FIFO queuing of calls to this method, but priority
+        queuing is above my paygrade and you'd best honor my deferred
+        and let someone like L{tasks.WorkerManager} only call this
+        method when I say I'm ready.
+
+        One simple thing I B{will} do is apply the I{doNext} keyword
+        to any task with the highest priority, -20 or lower (for a
+        L{base.TaskQueue.call} with its own I{doNext} keyword set). If
         you call this method one task at a time like you're supposed
         to, even that won't make a difference, except that it will cut
-        in front of any existing call with *doNext* set. So use
+        in front of any existing call with I{doNext} set. So use
         judiciously.
         """
         def done(statusResult):
@@ -114,8 +119,8 @@ class ThreadWorker(object):
 
     def stop(self):
         """
-        The returned deferred fires when the task loop has ended and its
-        thread terminated.
+        @return: A C{Deferred} that fires when the task loop has ended and
+          its thread has terminated.
         """
         return self.t.stop()
 
@@ -132,23 +137,26 @@ class ThreadWorker(object):
 
 class ThreadLooper(object):
     """
-    I run function calls in a dedicated thread, returning a deferred
-    to each eventual result, a 2-tuple containing the status of the
-    last call and its result according to the format of
-    L{util.CallRunner}.
+    I run function calls in a dedicated thread.
+
+    Each call returns a C{Deferred} to its eventual result, which is a
+    2-tuple containing the status of the last call and its result
+    according to the format of L{util.CallRunner}.
 
     If the result is an iterable other than one of Python's built-in
-    ones, the deferred fires with an instance of
+    ones, the C{Deferred} fires with an instance of
     L{iteration.Prefetcherator} instead. Couple it to your own
     deferator to iterate over the underlying iterable running in my
-    thread. You can disable this behavior by setting raw=True in the
-    constructor, or enable/disable it on an individual call by setting
-    raw=True/False.
+    thread. You can disable this behavior by setting C{raw=True} in
+    the constructor, or enable/disable it on an individual call by
+    setting raw=True/False.
+
+    @ivar timeout: The wait timeout, which defaults to 60 (one
+      minute). This is just how long the thread loop waits before
+      checking for a pending deferred and firing it with a timeout
+      error. Otherwise, it simply waits another minute, and it can do
+      that forever with no problem.
     """
-    # My default wait timeout is one minute: This is just how long the
-    # thread loop waits before checking for a pending deferred and
-    # firing it with a timeout error. Otherwise, it simply waits
-    # another minute, and it can do that forever with no problem.
     timeout = 60
     
     def __init__(self, raw=False):
@@ -207,10 +215,10 @@ class ThreadLooper(object):
         status/result tuple.
 
         Calls are done in the order received, unless you set
-        doNext=True.
+        C{doNext=True}.
 
-        Set raw=True to have a raw iterator returned instead of a
-        Deferator, or raw=False to have a Deferator returned
+        Set C{raw=True} to have a raw iterator returned instead of a
+        Deferator, or C{raw=False} to have a L{Deferator} returned
         instead of a raw iterator, contrary to the instance-wide
         default set with the constructor keyword 'raw'.
         """
@@ -256,7 +264,7 @@ class ThreadLooper(object):
 
     def dr2ip(self, dr, consumer=None):
         """
-        Converts a Deferator into an iterationProducer, with a
+        Converts a L{Deferator} into an L{IterationProducer}, with a
         consumer registered if you supply one. Then each iteration
         will be written to your consumer, and the deferred returned
         will fire when the iterations are done. Otherwise, the
@@ -275,8 +283,8 @@ class ThreadLooper(object):
         Twisted's deferToThread.
 
         If you expect a deferred iterator as your result (an instance
-        of L{iteration.Deferator}), supply an IConsumer implementor
-        via the consumer keyword. Each iteration will be written to
+        of L{iteration.Deferator}), supply an L{IConsumer} implementor
+        via the I{consumer} keyword. Each iteration will be written to
         it, and the deferred will fire when the iterations are
         done. Otherwise, the deferred will fire with an
         L{iteration.Deferator}.
@@ -300,8 +308,8 @@ class ThreadLooper(object):
 
     def stop(self):
         """
-        The returned deferred fires when the task loop has ended and its
-        thread terminated.
+        @return: A C{Deferred} that fires when the task loop has ended and
+          its thread has terminated.
         """
         if not self.threadRunning:
             return defer.succeed(None)

@@ -1,24 +1,27 @@
-# AsynQueue:
-# Asynchronous task queueing based on the Twisted framework, with task
-# prioritization and a powerful worker/manager interface.
-#
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
-#
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
-# 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
-# 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
-
 """
-SocketWorker and its support staff.
+SocketWorker and its support staff. B{Unsupported}, not yet
+working, and probably unnecessary. See L{process}.
+
+B{AsynQueue} provides asynchronous task queueing based on the Twisted
+framework, with task prioritization and a powerful worker
+interface. Worker implementations are included for running tasks
+asynchronously in the main thread, in separate threads, and in
+separate Python interpreters (multiprocessing).
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/}. This program is free software: you can
+redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. This
+program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details. You should have received a copy of the GNU General
+Public License along with this program.  If not, see
+U{http://www.gnu.org/licenses/}.
+
+@author: Edwin A. Suominen
+
 """
 
 import sys, os.path, tempfile, shutil
@@ -293,21 +296,21 @@ class RunTask(amp.Command):
     The args and kw are all pickled strings. The args and kw can be
     empty strings, indicating no args or kw.
 
-    The response has the following status/result structure:
+    The response has the following status/result structure::
 
-    'e': An exception was raised; the result is a pretty-printed
-         traceback string.
-
-    'n': Ran fine, the result was a C{None} object.
-    
-    'r': Ran fine, the result is the pickled return value of the call.
-
-    'i': Ran fine, but the result is an iterable other than a standard
-         Python one. The result is an ID string to use for your
-         calls to C{GetNext}.
-
-    'c': Ran fine, but the result is too big for a single return
-         value. So you get an ID string for calls to C{GetNext.
+      'e': An exception was raised; the result is a pretty-printed
+           traceback string.
+  
+      'n': Ran fine, the result was a C{None} object.
+      
+      'r': Ran fine, the result is the pickled return value of the call.
+  
+      'i': Ran fine, but the result is an iterable other than a standard
+           Python one. The result is an ID string to use for your
+           calls to C{GetNext}.
+  
+      'c': Ran fine, but the result is too big for a single return
+           value. So you get an ID string for calls to C{GetNext.
     """
     arguments = [
         ('fn', amp.String()),

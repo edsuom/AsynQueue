@@ -1,24 +1,26 @@
-# AsynQueue:
-# Asynchronous task queueing based on the Twisted framework, with task
-# prioritization and a powerful worker/manager interface.
-#
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
-#
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
-# 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
-# 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
-
 """
 The worker interface.
+
+B{AsynQueue} provides asynchronous task queueing based on the Twisted
+framework, with task prioritization and a powerful worker
+interface. Worker implementations are included for running tasks
+asynchronously in the main thread, in separate threads, and in
+separate Python interpreters (multiprocessing).
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/}. This program is free software: you can
+redistribute it and/or modify it under the terms of the GNU General
+Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version. This
+program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details. You should have received a copy of the GNU General
+Public License along with this program.  If not, see
+U{http://www.gnu.org/licenses/}.
+
+@author: Edwin A. Suominen
+
 """
 
 from zope.interface import invariant, Interface, Attribute
@@ -76,35 +78,34 @@ class IWorker(Interface):
         highest-priority tasks before anything else they have lined up in
         their mini-queues.
 
-        Unless the worker is constructed with a raw=True keyword or the
-        task includes raw=True, an iterator resulting from the task is
-        converted into an instance of L{iteration.Deferator}. The
-        underlying iteration (possibly across a pipe or wire) must be
-        handled transparently to the user. If the task has a 'consumer'
-        keyword set to an implementor of IConsumer}, an
-        L{iteration.IterationProducer} coupled to that consumer will be
-        the end result instead.
+        Unless the worker is constructed with a C{raw=True} keyword or
+        the task includes C{raw=True}, an iterator resulting from the
+        task is converted into an instance of
+        L{iteration.Deferator}. The underlying iteration (possibly
+        across a pipe or wire) must be handled transparently to the
+        user. If the task has a 'consumer' keyword set to an
+        implementor of L{IConsumer}, an L{iteration.IterationProducer}
+        coupled to that consumer will be the end result instead.
 
         Make sure that any callbacks you add to the task's internal
         deferred object C{task.d} return the callback argument. Otherwise,
         the result of your task will be lost in the callback chain.
         
-        @return: A deferred that fires when the worker is ready to be
-          assigned another task.
-        
+        @return: A C{Deferred} that fires when the worker is ready to
+          be assigned another task.
         """
         
     def stop():
         """
-        Attempts to gracefully shut down the worker, returning a deferred that
+        Attempts to gracefully shut down the worker, returning a C{Deferred} that
         fires when the worker is done with all assigned tasks and will not
         cause any errors if the reactor is stopped or its object is
         deleted.
 
-        The deferred returned by your implementation of this method must
-        not fire until B{after} the results of all pending tasks have been
-        obtained. Thus the deferred must be chained to each C{task.d}
-        somehow.
+        The C{Deferred} returned by your implementation of this method
+        must not fire until B{after} the results of all pending tasks
+        have been obtained. Thus the deferred must be chained to each
+        C{task.d} somehow.
 
         Make sure that any callbacks you add to the task's internal
         deferred object C{task.d} return the callback argument. Otherwise,
