@@ -32,8 +32,8 @@ import errors, info, util, iteration
 
 
 # Make all our workers importable from this module
-from threads import ThreadQueue, ThreadWorker
-from process import ProcessQueue, ProcessWorker
+from threads import ThreadWorker
+from process import ProcessWorker
 from wire import SocketWorker
 
 
@@ -41,15 +41,14 @@ class AsyncWorker(object):
     """
     I implement an L{IWorker} that runs tasks in the Twisted main
     loop, one task at a time but in a well-behaved non-blocking
-    manner. If the task callable doesn't return a deferred, it better
-    get its work done fast.
+    manner. If the task callable doesn't return a C{Deferred}, it
+    better get its work done fast.
 
     You can supply a series keyword containing a list of one or more
     task series that I am qualified to handle.
 
     Might be useful where you want the benefits of priority queueing
     without leaving the Twisted mindset even for a moment.
-    
     """
     implements(IWorker)
     cQualified = ['async', 'local']
@@ -64,6 +63,10 @@ class AsyncWorker(object):
         self.dLock.addStopper(callableObject)
 
     def run(self, task):
+        """
+        Implements L{IWorker.run}, running the I{task} in the main
+        thread. The task callable B{must} not block.
+        """
         def ready(null):
             # THOU SHALT NOT BLOCK!
             return defer.maybeDeferred(
@@ -99,6 +102,9 @@ class AsyncWorker(object):
         return self.dLock.acquire(vip).addCallback(ready)
 
     def stop(self):
+        """
+        Implements L{IWorker.stop}.
+        """
         return self.dLock.stop()
 
     def crash(self):
@@ -109,8 +115,6 @@ class AsyncWorker(object):
 
 
 __all__ = [
-    'ThreadQueue', 'ThreadWorker',
-    'ProcessQueue', 'ProcessWorker',
-    'AsyncWorker', 'SocketWorker',
+    'ThreadWorker', 'ProcessWorker', 'AsyncWorker', 'SocketWorker',
     'IWorker'
 ]

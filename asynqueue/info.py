@@ -1,6 +1,6 @@
 """
-Information about callables and what happens to them.
-
+Information about callables and what happens to them. My L{Info}
+object is a flexible info provider.
 
 B{AsynQueue} provides asynchronous task queueing based on the Twisted
 framework, with task prioritization and a powerful worker
@@ -184,9 +184,9 @@ class Info(object):
         Sets my current f-args-kw tuple, returning a reference to myself
         to allow easy method chaining.
 
-        The function I{f} must be an actual callable object if you want
-        to use L{getWireVersion}. Otherwise it can also be a string
-        depicting a callable.
+        The function I{f} must be an actual callable object if you
+        want to use L{nn}. Otherwise it can also be a string depicting
+        a callable.
 
         You can specify I{args} with a second argument (as a list or
         tuple), and I{kw} with a third argument (as a C{dict}). If you are

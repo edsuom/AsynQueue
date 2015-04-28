@@ -85,7 +85,7 @@ class ThreadWorker(object):
 
         I do basic FIFO queuing of calls to this method, but priority
         queuing is above my paygrade and you'd best honor my deferred
-        and let someone like L{tasks.WorkerManager} only call this
+        and let someone like L{tasks.TaskHandler} only call this
         method when I say I'm ready.
 
         One simple thing I B{will} do is apply the I{doNext} keyword

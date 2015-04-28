@@ -1,5 +1,5 @@
 """
-The task queue and its immediate support staff.
+The L{TaskQueue} and its immediate support staff.
 
 B{AsynQueue} provides asynchronous task queueing based on the Twisted
 framework, with task prioritization and a powerful worker
@@ -331,6 +331,11 @@ class TaskQueue(object):
         return self.th.isRunning and self.q.isRunning()
         
     def shutdown(self):
+        """
+        You must call this and wait for the C{Deferred} it returns when
+        you're done with me. Calls L{Queue.shutdown}, among other
+        things.
+        """
         def cleanup(stuff):
             if hasattr(self, '_triggerID'):
                 reactor.removeSystemEventTrigger(self._triggerID)
@@ -353,7 +358,7 @@ class TaskQueue(object):
         queue, returning a deferred that fires with an integer ID
         uniquely identifying the worker.
 
-        See L{WorkerManager.hire}.
+        See L{TaskHandler.hire}.
         """
         return self.th.hire(worker)
 
@@ -375,7 +380,7 @@ class TaskQueue(object):
         workers. Otherwise, they are returned via the deferred's
         callback.
         
-        See L{tasks.WorkerManager.terminate}.
+        See L{tasks.TaskHandler.terminate}.
         """
         ID = self._getWorkerID(workerOrID)
         if ID is None:
@@ -405,9 +410,10 @@ class TaskQueue(object):
             return self.th.workers.values()
         return self.th.workers.get(ID, None)
         
-    def _taskDone(self, statusResult, task, **kw):
+    def taskDone(self, statusResult, task, **kw):
         """
-        Processes the status/result tuple from a worker running a task:
+        Processes the status/result tuple from a worker running a
+        task. You don't need to call this directly.
 
           - B{e}: An exception was raised; the result is a
             pretty-printed traceback string. If the keyword
@@ -431,7 +437,6 @@ class TaskQueue(object):
             pieced together and unpickled.
           
           - B{t}: The task timed out. I'll try to re-run it, once.
-        
         """
         @contextmanager
         def taskInfo(ID):
@@ -490,7 +495,7 @@ class TaskQueue(object):
             self.tasksBeingRetried.append(task)
             task.rush()
             self.q.put(task)
-            return task.reset().addCallback(self._taskDone, **kw)
+            return task.reset().addCallback(self.taskDone, **kw)
         return Failure(
             errors.WorkerError("Unknown status '{}'".format(status)))
 
@@ -516,7 +521,7 @@ class TaskQueue(object):
         kwTD = { 'rf': rf, 'consumer': kw.get('consumer', None) }
         if hasattr(self, 'info'):
             kwTD['ID'] = self.info.setCall(func, args, kw).ID
-        task.addCallback(self._taskDone, task, **kwTD)
+        task.addCallback(self.taskDone, task, **kwTD)
         return task
         
     def call(self, func, *args, **kw):

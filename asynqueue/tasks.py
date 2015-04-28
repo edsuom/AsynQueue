@@ -1,5 +1,7 @@
 """
-Task management for the task queue workers
+Task management for the task queue workers. The star of this show
+is L{TaskHandler}, which is what turns L{base.PriorityQueue} into a
+L{base.TaskQueue}.
 
 B{AsynQueue} provides asynchronous task queueing based on the Twisted
 framework, with task prioritization and a powerful worker
@@ -20,7 +22,6 @@ Public License along with this program.  If not, see
 U{http://www.gnu.org/licenses/}.
 
 @author: Edwin A. Suominen
-
 """
 from contextlib import contextmanager
 
@@ -326,7 +327,7 @@ class TaskHandler(object):
     L{IWorker}.
 
     When a new worker is hired with my L{hire} method, I run the
-    L{Assignment.request} class method to request that the worker be
+    L{AssignmentFactory.request} method to request that the worker be
     assigned a task from the queue of each task series for which it is
     qualified.
 

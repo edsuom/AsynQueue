@@ -57,11 +57,13 @@ def p2o(pickledString, defaultObj=None):
 
 def callAfterDeferred(namespace, dName, f, *args, **kw):
     """
-    Looks for a deferred namespace.dName and does the f-args-kw call,
-    chaining its call to the deferred if necessary. Note that the
-    original deferred's value is swallowed when it calls the new
-    deferred's callback; the original deferred must be for signalling
-    readiness only and its return value not relied upon.
+    Looks for a C{Deferred} I{dName} as an attribute of I{namespace}
+    and does the f-args-kw call, chaining its call to the C{Deferred}
+    if necessary.
+
+    Note that the original deferred's value is swallowed when it calls
+    the new deferred's callback; the original deferred must be for
+    signalling readiness only and its return value not relied upon.
     """
     def call(discarded):
         delattr(namespace, dName)
