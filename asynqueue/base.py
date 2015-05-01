@@ -50,8 +50,8 @@ class Priority(object):
 
     def shutdown(self):
         """
-        Shuts down the priority heap, firing errbacks of the deferreds of any
-        get requests that will not be fulfilled.
+        Shuts down the priority heap, firing errbacks of the deferreds of
+        any L{get} requests that will not be fulfilled.
         """
         if self.pendingGetCalls:
             msg = "No more items forthcoming"
@@ -61,8 +61,9 @@ class Priority(object):
     
     def get(self):
         """
-        Gets an item with the highest priority (lowest value) from the heap,
-        returning a deferred that fires when the item becomes available.
+        Gets an item with the highest priority (lowest value) from the
+        heap, returning a C{Deferred} that fires when the item becomes
+        available.
         """
         if len(self.heap):
             d = defer.succeed(heapq.heappop(self.heap))
@@ -116,9 +117,8 @@ class LoadInfoProducer(object):
 
     def registerConsumer(self, consumer):
         """
-        Call this with a provider of L{interfaces.IConsumer} and I'll
-        produce for it in addition to any others already registered
-        with me.
+        Call this with a provider of C{IConsumer} and I'll produce for it
+        in addition to any others already registered with me.
         """
         try:
             consumer.registerProducer(self, True)
@@ -165,10 +165,12 @@ class Queue(object):
     """
     I am an asynchronous priority queue. Construct me with an item
     handler that can be called with each item from the queue and
-    shutdown when I'm done.
+    call L{shutdown} when I'm done.
 
     Put anything you like in the queue except C{None} objects. Those
     are reserved for triggering a queue shutdown.
+
+    You will probably use a L{TaskQueue} instead of me directly.
     """
     def __init__(self, handler, timeout=None):
         """
@@ -245,9 +247,8 @@ class Queue(object):
     
     def subscribe(self, consumer):
         """
-        Subscribes the supplied provider of L{interfaces.IConsumer} to
-        updates on the number of items queued whenever it goes up or
-        down.
+        Subscribes the supplied provider of C{IConsumer} to updates on the
+        number of items queued whenever it goes up or down.
 
         The figure is the integer number of calls currently pending,
         i.e., the number of items that have been queued up but haven't
@@ -353,11 +354,13 @@ class TaskQueue(object):
 
     def attachWorker(self, worker):
         """
-        Registers a new provider of IWorker for working on tasks from the
-        queue, returning a deferred that fires with an integer ID
-        uniquely identifying the worker.
+        Registers a new provider of C{IWorker} for working on tasks from
+        the queue.
 
-        See L{TaskHandler.hire}.
+        @return: A C{Deferred} that fires with an integer ID uniquely
+        identifying the worker.
+
+        @see: L{tasks.TaskHandler.hire}.
         """
         return self.th.hire(worker)
 
@@ -379,7 +382,7 @@ class TaskQueue(object):
         workers. Otherwise, they are returned via the deferred's
         callback.
         
-        See L{tasks.TaskHandler.terminate}.
+        @see: L{tasks.TaskHandler.terminate}.
         """
         ID = self._getWorkerID(workerOrID)
         if ID is None:
@@ -500,7 +503,8 @@ class TaskQueue(object):
 
     def _newTask(self, func, args, kw):
         """
-        Make a new Task object from a func-args-kw combo
+        Make a new L{tasks.Task} object from a func-args-kw combo. You
+        won't call this directly.
         """
         if not self.isRunning():
             text = Info().setCall(func, args, kw).aboutCall()
@@ -525,11 +529,12 @@ class TaskQueue(object):
         
     def call(self, func, *args, **kw):
         """
-        Puts a call to I{func} with any supplied arguments and keywords
-        into the pipeline, returning a deferred to the eventual result
-        of the call when it is eventually pulled from the pipeline and
-        run.
-
+        Queues up a function call.
+        
+        Puts a call to I{func} with any supplied arguments and
+        keywords into the pipeline. This is perhaps the B{single most
+        important method} of the AsynQueue API.
+        
         Scheduling of the call is impacted by the I{niceness} keyword
         that can be included in addition to any keywords for the
         call. As with UNIX niceness, the value should be an integer
@@ -539,6 +544,9 @@ class TaskQueue(object):
         Tasks in a series of tasks all having niceness N+10 are
         dequeued and run at approximately half the rate of tasks in
         another series with niceness N.
+
+        @return: A C{Deferred} to the eventual result of the call when
+          it is eventually pulled from the pipeline and run.
         
         @keyword niceness: Scheduling niceness, an integer between -20
           and 20, with lower numbers having higher scheduling priority
@@ -572,7 +580,6 @@ class TaskQueue(object):
         @keyword returnFailure: If a task raises an exception, call
           its errback with a Failure. Default is to either log an
           error (if 'warn' is set) or stop the queue.
-
         """
         task = self._newTask(func, args, kw)
         self.q.put(task)
@@ -582,18 +589,18 @@ class TaskQueue(object):
         """
         Sets an update task from I{func} with any supplied arguments and
         keywords to be run directly on all current and future
-        workers. Returns a deferred to the result of the call on all
-        current workers, though there is no mechanism for obtaining
-        such results for new hires, so it's probably best not to rely
-        too much on them.
+        workers. Returns a C{Deferred} to the result of the call on
+        all current workers, though there is no mechanism for
+        obtaining such results for new hires, so it's probably best
+        not to rely too much on them.
 
-        The updates are run via a direct remoteCall to each worker,
+        The updates are run directly via L{tasks.TaskHandler.update},
         not through the queue. Because of the disconnect between
         queued and direct calls, it is likely but not guaranteed that
         any jobs you have queued when this method is called will run
         on a particular worker B{after} this update is run. Wait for
-        the deferred from this method to fire before queuing any jobs
-        that need the update to be in place before running.
+        the C{Deferred} from this method to fire before queuing any
+        jobs that need the update to be in place before running.
 
         If you don't want the task saved to the update list, but only
         run on the workers currently attached, set the I{ephemeral}
