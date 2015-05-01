@@ -1,27 +1,31 @@
+# AsynQueue:
+# Asynchronous task queueing based on the Twisted framework, with task
+# prioritization and a powerful worker interface.
+#
+# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# http://edsuom.com/AsynQueue
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
 Task management for the task queue workers. The star of this show
 is L{TaskHandler}, which is what turns L{base.PriorityQueue} into a
 L{base.TaskQueue}.
 
-B{AsynQueue} provides asynchronous task queueing based on the Twisted
-framework, with task prioritization and a powerful worker
-interface. Worker implementations are included for running tasks
-asynchronously in the main thread, in separate threads, and in
-separate Python interpreters (multiprocessing).
-
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
-U{http://edsuom.com/}. This program is free software: you can
-redistribute it and/or modify it under the terms of the GNU General
-Public License as published by the Free Software Foundation, either
-version 3 of the License, or (at your option) any later version. This
-program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-for more details. You should have received a copy of the GNU General
-Public License along with this program.  If not, see
-U{http://www.gnu.org/licenses/}.
-
-@author: Edwin A. Suominen
+Be sure to call the L{TaskQueue.shutdown} method (or that of your
+subclass, e.g., L{threads.ThreadQueue}) before you shut down your
+Twisted reactor.
 """
 from contextlib import contextmanager
 
@@ -35,7 +39,6 @@ else:
     defer.Deferred = cdefer.Deferred
 
 from info import Info
-from util import CallProfiler
 from interfaces import IWorker
 from errors import ImplementationError
 
@@ -347,12 +350,11 @@ class TaskHandler(object):
       employed by me, keyed by a unique integer ID code for each
       worker.
     """
-    def __init__(self, profile=None):
+    def __init__(self):
         self.isRunning = True
         self.workers = {}
         self.laborPools = {}
         self.updateTasks = []
-        self.profiler = CallProfiler(profile) if profile else None
         self.assignmentFactory = AssignmentFactory()
 
     def shutdown(self, timeout=None):
@@ -364,8 +366,6 @@ class TaskHandler(object):
           tasks, if any, that were left unfinished by the work force.
         """
         def gotResults(results):
-            if self.profiler:
-                self.profiler.shutdown()
             # Why not just return the result? Don't remember.
             unfinishedTasks = []
             for result in results:
@@ -410,7 +410,6 @@ class TaskHandler(object):
         IWorker.validateInvariants(worker)
         worker.hired = True
         worker.assignments = {}
-        worker.profiler = self.profiler
         # Qualifications
         qualifications = [None]
         if hasattr(worker, 'cQualified'):

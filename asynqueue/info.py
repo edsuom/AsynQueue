@@ -1,26 +1,38 @@
+# AsynQueue:
+# Asynchronous task queueing based on the Twisted framework, with task
+# prioritization and a powerful worker interface.
+#
+# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# http://edsuom.com/AsynQueue
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
-Information about callables and what happens to them. My L{Info}
-object is a flexible info provider.
+Information about callables and what happens to them.
 
-B{AsynQueue} provides asynchronous task queueing based on the Twisted
-framework, with task prioritization and a powerful worker
-interface. Worker implementations are included for running tasks
-asynchronously in the main thread, in separate threads, and in
-separate Python interpreters (multiprocessing).
+My L{Info} object is a flexible info provider, with several methods
+for offering you text info about a call. Construct it with a function
+object and any args and keywords if you want the info to include that
+particular function call, or you can set it (and change it) later with
+L{Info.setCall}.
 
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
-U{http://edsuom.com/}. This program is free software: you can
-redistribute it and/or modify it under the terms of the GNU General
-Public License as published by the Free Software Foundation, either
-version 3 of the License, or (at your option) any later version. This
-program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-for more details. You should have received a copy of the GNU General
-Public License along with this program.  If not, see
-U{http://www.gnu.org/licenses/}.
+The L{Info.nn} method may be useful in the still non-working L{wire}
+module for separating a call into a namespace and attribute name. It's
+not used yet, though, there or anywhere else in C{AsynQueue}.
 
-@author: Edwin A. Suominen
+Another useful object for development are my L{showResult} and
+L{whichThread} decorator functions, which you can use together.
 """
 
 import cPickle as pickle

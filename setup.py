@@ -6,7 +6,7 @@
 #
 # Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
 # http://edsuom.com/AsynQueue
-
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -37,11 +37,13 @@ kw = {'version':'0.8.1',
       'license':'GPL',
       'platforms':'OS Independent',
 
-      'url':"http://edsuom.com/%s/" % NAME,
+      'url':"http://edsuom.com/{}.html".format(NAME),
       'author':'Edwin A. Suominen',
       'maintainer':'Edwin A. Suominen',
+
+      'install_requires':required,
+      'packages':['asynqueue'],
       
-      'packages':find_packages(exclude=["*.test"]),
       'zip_safe':True
       }
 

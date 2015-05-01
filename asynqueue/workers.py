@@ -1,26 +1,26 @@
+# AsynQueue:
+# Asynchronous task queueing based on the Twisted framework, with task
+# prioritization and a powerful worker interface.
+#
+# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# http://edsuom.com/AsynQueue
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
-Implementors of the L{Iworker} interface.
-
-B{AsynQueue} provides asynchronous task queueing based on the Twisted
-framework, with task prioritization and a powerful worker
-interface. Worker implementations are included for running tasks
-asynchronously in the main thread, in separate threads, and in
-separate Python interpreters (multiprocessing).
-
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
-U{http://edsuom.com/}. This program is free software: you can
-redistribute it and/or modify it under the terms of the GNU General
-Public License as published by the Free Software Foundation, either
-version 3 of the License, or (at your option) any later version. This
-program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-for more details. You should have received a copy of the GNU General
-Public License along with this program.  If not, see
-U{http://www.gnu.org/licenses/}.
-
-@author: Edwin A. Suominen
-
+Implementors of the L{interfaces.IWorker} interface. These objects
+are what handle the tasks in your L{base.TaskQueue}.
 """
 import sys, os, os.path, tempfile, shutil
 
@@ -40,15 +40,20 @@ from wire import SocketWorker
 class AsyncWorker(object):
     """
     I implement an L{IWorker} that runs tasks in the Twisted main
-    loop, one task at a time but in a well-behaved non-blocking
-    manner. If the task callable doesn't return a C{Deferred}, it
-    better get its work done fast.
+    loop.
 
-    You can supply a series keyword containing a list of one or more
-    task series that I am qualified to handle.
+    I run each L{task.Task} one at a time but in a well-behaved
+    non-blocking manner. If the task callable doesn't return a
+    C{Deferred}, it better get its work done fast. You just can't get
+    away with blocking in the Twisted main loop.
 
-    Might be useful where you want the benefits of priority queueing
-    without leaving the Twisted mindset even for a moment.
+    You can supply a I{series} keyword containing a list of one or
+    more task series that I am qualified to handle.
+
+    This class was mostly written for testing during development, but
+    it helped keep the basic functions of a worker in mind. And who
+    knows; it might be useful where you want the benefits of priority
+    queueing without leaving the Twisted mindset even for a moment.
     """
     implements(IWorker)
     cQualified = ['async', 'local']

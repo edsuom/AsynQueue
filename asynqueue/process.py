@@ -1,29 +1,29 @@
+# AsynQueue:
+# Asynchronous task queueing based on the Twisted framework, with task
+# prioritization and a powerful worker interface.
+#
+# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# http://edsuom.com/AsynQueue
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
-An implementor of the C{IWorker} interface using (gasp! Twisted
-heresy!) Python's standard-library multiprocessing.
-
-B{AsynQueue} provides asynchronous task queueing based on the Twisted
-framework, with task prioritization and a powerful worker
-interface. Worker implementations are included for running tasks
-asynchronously in the main thread, in separate threads, and in
-separate Python interpreters (multiprocessing).
-
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
-U{http://edsuom.com/}. This program is free software: you can
-redistribute it and/or modify it under the terms of the GNU General
-Public License as published by the Free Software Foundation, either
-version 3 of the License, or (at your option) any later version. This
-program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-for more details. You should have received a copy of the GNU General
-Public License along with this program.  If not, see
-U{http://www.gnu.org/licenses/}.
-
-@author: Edwin A. Suominen
+An implementor of the C{IWorker} interface using
+(I{gasp! Twisted heresy!}) Python's standard-library
+multiprocessing.
 
 @see: L{ProcessQueue} and L{ProcessWorker}.
-
 """
 import multiprocessing as mp
 
@@ -221,6 +221,16 @@ class ProcessUniverse(object):
         self.runner = util.CallRunner()
 
     def next(self, ID):
+        """
+        My L{loop} calls this when the interprocess pipe sends it a string
+        identifier for one of the iterators I have pending.
+
+        @return: A 2-tuple with the specified iterator's next value,
+          and a bool indicating if the value was valid or a bogus
+          C{None} resulting from a C{StopIteration} error or a
+          non-existent iterator.
+        @rtype: tuple
+        """
         if ID in self.iterators:
             try:
                 value = self.iterators[ID].next()

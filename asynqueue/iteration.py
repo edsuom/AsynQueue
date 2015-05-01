@@ -1,26 +1,39 @@
+# AsynQueue:
+# Asynchronous task queueing based on the Twisted framework, with task
+# prioritization and a powerful worker interface.
+#
+# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# http://edsuom.com/AsynQueue
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
-Iteration, Twisted style.
+Iteration, Twisted style!
 
-B{AsynQueue} provides asynchronous task queueing based on the Twisted
-framework, with task prioritization and a powerful worker
-interface. Worker implementations are included for running tasks
-asynchronously in the main thread, in separate threads, and in
-separate Python interpreters (multiprocessing).
+This module contains multitudes; consider it carefully. It provides a
+way of dealing with iterations asynchronously. The L{Deferator} yields
+C{Deferred} objects, an asynchronous version of an iterator.
 
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
-U{http://edsuom.com/}. This program is free software: you can
-redistribute it and/or modify it under the terms of the GNU General
-Public License as published by the Free Software Foundation, either
-version 3 of the License, or (at your option) any later version. This
-program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-for more details. You should have received a copy of the GNU General
-Public License along with this program.  If not, see
-U{http://www.gnu.org/licenses/}.
+Even cooler is L{IterationProducer}, which I{produces} iterations to
+an implementor of C{twisted.internet.interfaces.IConsumer}. You can
+make one out of an iterator with L{iteratorToProducer}.
 
-@author: Edwin A. Suominen
-
+The L{Delay} object is also very useful, both as a
+Deferred-after-delay callable and a way to get a C{Deferred} that
+fires when an event occurs. This is the key to getting
+L{process.ProcessWorker} to work so nicely via Python's standard
+multiprocessing module.
 """
 
 import time, inspect
@@ -242,6 +255,9 @@ class Deferator(object):
         self._callback(True)
     
     def __repr__(self):
+        """
+        We all want to be nicely represented.
+        """
         return "<Deferator wrapping of\n  <{}>,\nat 0x{}>".format(
             self.representation, format(id(self), '012x'))
 
@@ -262,9 +278,22 @@ class Deferator(object):
     #--------------------------------------------------------------------------
     
     def __iter__(self):
+        """
+        One of two methods needed for me to act like an iterator.
+        """
         return self
 
     def next(self):
+        """
+        One of two methods needed for me to act like an iterator. The
+        result (unless C{StopIteration} is raised) is a C{Deferred} to
+        the underlying iterator's next value, not the value itself.
+
+        Cool, huh? It took a B{lot} of work to figure this out. You
+        have to play nice, too, calling this method again only after
+        the C{Deferred} fires and calling L{stop} if you want to break
+        out of the iterations early.
+        """
         def gotNext(result):
             value, isValid, self.moreLeft = result
             return value
@@ -287,11 +316,11 @@ class Deferator(object):
         You must call this to cleanly break out of a loop of my iterations.
 
         Not part of the official iterator implementation, but
-        necessary for a deferred way of iterating. You need a way of
+        necessary for a Twisted way of iterating. You need a way of
         letting whatever is producing the iterations know that there
         won't be any more of them.
 
-        For convenience, each C{Deferred} that I yield during iteration
+        For convenience, each C{Deferred} that I yield while iterating
         has a reference to this method via its own C{stop} attribute.
         """
         self.moreLeft = False
@@ -313,6 +342,10 @@ class Prefetcherator(object):
         self.ID = ID
 
     def __repr__(self):
+        """
+        An informative representation. You may thank me for having this
+        during development.
+        """
         text = "<Prefetcherator instance '{}'".format(self.ID)
         if self.isBusy():
             text += "\n with nextCallTuple '{}'>".format(
@@ -322,6 +355,10 @@ class Prefetcherator(object):
         return text
             
     def isBusy(self):
+        """
+        @return: C{True} if I've been set up with a call to L{setup} and
+        am still running whatever iteration that involved.
+        """
         return hasattr(self, 'nextCallTuple')
 
     def setup(self, *args, **kw):
@@ -550,7 +587,7 @@ class IterationProducer(object):
     @defer.inlineCallbacks
     def run(self):
         """
-        Produces my iterations, returning a deferred that fires (with a
+        Produces my iterations, returning a C{Deferred} that fires (with a
         reference to my consumer) when done.
         """
         if not hasattr(self, 'consumer'):

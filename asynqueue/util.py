@@ -1,26 +1,36 @@
+# AsynQueue:
+# Asynchronous task queueing based on the Twisted framework, with task
+# prioritization and a powerful worker interface.
+#
+# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# http://edsuom.com/AsynQueue
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
 Miscellaneous useful stuff.
 
-B{AsynQueue} provides asynchronous task queueing based on the Twisted
-framework, with task prioritization and a powerful worker
-interface. Worker implementations are included for running tasks
-asynchronously in the main thread, in separate threads, and in
-separate Python interpreters (multiprocessing).
+L{callAfterDeferred} is a cool little function that looks for a
+C{Deferred} as an attribute of some namespace (i.e., object) and does
+a call after it fires. L{DeferredTracker} lets you to track and wait
+for deferreds without actually having received a reference to
+them. L{DeferredLock} lets you shut things down when you get the lock.
 
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
-U{http://edsuom.com/}. This program is free software: you can
-redistribute it and/or modify it under the terms of the GNU General
-Public License as published by the Free Software Foundation, either
-version 3 of the License, or (at your option) any later version. This
-program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-for more details. You should have received a copy of the GNU General
-Public License along with this program.  If not, see
-U{http://www.gnu.org/licenses/}.
-
-@author: Edwin A. Suominen
-
+L{CallRunner} is used by L{threads.ThreadWorker} and
+L{process.ProcessWorker}. You probably won't need to use it yourself,
+unless perhaps you come up with an entirely new kind of
+L{interfaces.IWorker} implementation.
 """
 
 import cPickle as pickle
@@ -111,18 +121,6 @@ class TestStuff(object):
         return 2*x
 # ----------------------------------------------------------------------------
     
-class CallProfiler(profile.Profile):
-    """
-    I{For development only.}
-    """
-    def __init__(self, filename):
-        self.filename = filename
-        super(CallProfiler, self).__init__()
-
-    def shutdown(self):
-        self.dump_stats(self.filename)
-        self.disable()
-
 
 class DeferredTracker(object):
     """
