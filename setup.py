@@ -42,7 +42,7 @@ kw = {'version':'0.8.2',
       'maintainer':'Edwin A. Suominen',
 
       'install_requires':required,
-      'packages':['asynqueue', 'mcmandelbrot'],
+      'packages':['asynqueue'],
       
       'zip_safe':True
       }
