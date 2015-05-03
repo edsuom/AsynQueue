@@ -33,7 +33,7 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version':'0.8.1',
+kw = {'version':'0.8.2',
       'license':'GPL',
       'platforms':'OS Independent',
 
@@ -42,7 +42,7 @@ kw = {'version':'0.8.1',
       'maintainer':'Edwin A. Suominen',
 
       'install_requires':required,
-      'packages':['asynqueue'],
+      'packages':['asynqueue', 'mcmandelbrot'],
       
       'zip_safe':True
       }
