@@ -22,98 +22,186 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import sys
+
 import weave
+import numpy as np
 from PIL import Image
 
-from twisted.internet import reactor
+from twisted.internet import defer, reactor
 
 import asynqueue
 
 
-
 class MandelbrotValuer(object):
     """
-    Returns the value (number of iterations to escape, if at all,
+    Returns the values (number of iterations to escape, if at all,
     inverted) of the Mandelbrot set at point cr + i*ci in the complex
-    plane.
+    plane, for a range of real values with a constant imaginary component.
 
     C code adapted from Ilan Schnell's C{iterations} function at::
     
       https://svn.enthought.com/svn/enthought/Mayavi/
         branches/3.0.4/examples/mayavi/mandelbrot.py}
 
-    The value is inverted, i.e., subtracted from the maximum value, so
+    The values are inverted, i.e., subtracted from the maximum value, so
     that no-escape points (technically, the only points actually in
     the Mandelbrot Set) have zero value and points that escape
     immediately have the maximum value. This allows simple mapping to
     the classic image with a black area in the middle.
     """
-    maxValue = 255
+    N_values = 512
+    colorMap = [
+        (0.70,   0, 180), # Red
+        (0.90,  80, 240), # Green
+        (1.00, 128, 255)  # Blue
+    ]
     
     code = """
-    int k = 1;
-    double zr=cr, zi=ci, zr2, zi2;
-    while ( k < kmax ) {
-        zr2 = zr * zr;
-        zi2 = zi * zi;
-        if ( zr2+zi2 > 16.0 ) break;
-        zi = 2.0 * zr * zi + ci;
-        zr = zr2 - zi2 + cr;
-        k++;
+    int j, k;
+    double zr, zi, zr2, zi2;
+    for (j=0; j<Nx[0]; j++) {
+        k = 1;
+        zr = X1(j);
+        zi = ci;
+        while ( k < kmax ) {
+            zr2 = zr * zr;
+            zi2 = zi * zi;
+            if ( zr2+zi2 > 16.0 ) break;
+            zi = 2.0 * zr * zi + ci;
+            zr = zr2 - zi2 + X1(j);
+            k++;
+        }
+        // This value of c isn't needed any more, so re-use the array item
+        X1(j) = (double)(kmax - k);
     }
-    k = kmax - k;
-    return_val = k;
     """
-    vars = ['cr', 'ci', 'kmax']
+    vars = ['x', 'ci', 'kmax']
 
-    def __call__(self, cr, ci):
-        kmax = self.maxValue
-        return weave.inline(self.code, self.vars)
+    def __init__(self):
+        prevThreshold = 0
+        self.thresholds = [0]
+        self.coefficients = []
+        for j, row in enumerate(self.colorMap):
+            threshold = int(self.N_values * row[0])
+            self.thresholds.append(threshold)
+            coefficient = float(row[2] - row[1]) / (threshold - prevThreshold)
+            self.coefficients.append(coefficient)
+            prevThreshold = threshold
+        self.rgbLast = (None, None)
+    
+    def __call__(self, crMin, crMax, N, ci):
+        """
+        Computes values for I{N} points along the real (horizontal) axis
+        from I{crMin} to I{crMax}, with the constant imaginary
+        component I{ci}. Maps the values to RGB byte triplets and
+        returns a L{bytearray} of length 3N.
+        """
+        x = np.linspace(crMin, crMax, N, dtype='float64')
+        kmax = self.N_values - 1
+        weave.inline(self.code, self.vars)
+        return self.valuesToRGB(x)
+        
+    def valuesToRGB(self, x):
+        """
+        Maps the values in the supplied array I{x} into a bytearray of 3x
+        length with the RGB pixel color.
+        """
+        def scale(value, k):
+            diff = value - self.thresholds[k]
+            result = int(self.coefficients[k] * diff) + self.colorMap[k][1]
+            if result < 0:
+                return 0
+            if result > 255:
+                return 255
+            return result
+        
+        def mapValue(value):
+            # There are a lot of repeated values, so we cache the last
+            # one
+            if self.rgbLast[0] == value:
+                # Yes, another repeat. Use it.
+                return self.rgbLast[1]
+            if value > self.thresholds[0]:
+                if value > self.thresholds[1]:
+                    # Blue
+                    rgb = (0, 0, scale(value, 2))
+                else:
+                    # Green
+                    rgb = (0, scale(value, 1), 0)
+            else:
+                # Red
+                rgb = (scale(value, 0), 0, 0)
+            # Cache the input value and mapped value
+            self.rgbLast = (value, rgb)
+            return rgb
 
+        N = x.shape[0]
+        k012 = (0,1,2)
+        result = bytearray(3*N)
+        for j in xrange(N):
+            rgb = mapValue(x[j])
+            for k in k012:
+                result[3*j+k] = rgb[k]
+        return result
 
 
 class Runner(object):
     """
     """
-    N_processes = 8
-    rgThreshold = 200
-    
-    def __init__(self, xMin, xMax, yMin, yMax, N=2):
-        self.xSpan = (xMin, xMax, N)
-        self.ySpan = (yMin, yMax, N)
+    N_processes = 7
+
+    def __init__(self, xMin, xMax, Nx, yMin, yMax, Ny):
+        self.xSpan = (xMin, xMax, Nx)
+        self.ySpan = (yMin, yMax, Ny)
+        #self.q = asynqueue.TaskQueue()
+        #self.q.attachWorker(asynqueue.ThreadWorker())
         self.q = asynqueue.ProcessQueue(self.N_processes)
 
     def frange(self, minVal, maxVal, N):
-        val = minVal
-        step = (maxVal - minVal) / N
+        val = float(minVal)
+        step = (float(maxVal) - val) / N
         for k in xrange(N):
-            yield val
+            yield k, val
             val += step
 
-    def mapValueToRGB(self, value):
-        if value > self.rgThreshold:
-            return (0, value, 0)
-        return (value, 0, 0)
+    def oops(self, failureObj):
+        failureObj.printTraceback()
+        reactor.stop()
             
+    @defer.inlineCallbacks
     def run(self, imagePath):
         """
+        Computes the Mandelbrot Set for my complex region of interest and
+        generates an RGB image, saving it to the specified
+        I{imagePath}.
         """
-        def gotValue(value):
-            im[cr, ci] = self.mapValueToRGB(value)
+        def gotResult(rgbs, k):
+            if not self.isRunning:
+                return
+            if isinstance(rgbs, str):
+                print str
+                self.isRunning = False
+                return
+            print ".",
+            sys.stdout.flush()
+            for j in xrange(N):
+                im.im.putpixel((j, k), tuple(rgbs[3*j:3*j+3]))
 
-        def done(null):
-            im.save(imagePath)
-            #reactor.stop()
-            
+        self.isRunning = True
         mv = MandelbrotValuer()
+        crMin, crMax, N = self.xSpan
         dt = asynqueue.DeferredTracker()
         im = Image.new("RGB", (self.xSpan[2], self.ySpan[2]))
-        for cr in self.frange(*self.xSpan):
-            for ci in self.frange(*self.ySpan):
-                d = self.q.call(mv, cr, ci)
-                d.addCallback(gotValue)
-                dt.put(d)
-        return dt.deferToAll().addCallback(done)
+        for k, ci in self.frange(*self.ySpan):
+            if not self.isRunning:
+                break
+            d = self.q.call(mv, crMin, crMax, N, ci)
+            d.addCallback(gotResult, k)
+            dt.put(d)
+        yield dt.deferToAll()
+        im.save(imagePath)
+        reactor.stop()
 
 
 def run(*args):
@@ -121,15 +209,16 @@ def run(*args):
     Call with xMin, xMax, yMin, yMax, filePath
     """
     if not args:
-        import sys
-        args = []
-        for k in (2,3):
-            for x in sys.argv[k].split('-'):
-                args.append(float(x.strip()))
-        args.append(sys.argv[4])
-    runner = Runner(*args[:4])
-    reactor.callWhenRunning(runner.run, args[4])
+        args = [float(x) for x in sys.argv[1:7]]
+        args.append(sys.argv[7])
+    runner = Runner(*args[:6])
+    reactor.callWhenRunning(runner.run, args[6])
     reactor.run()
+
+
+if __name__ == '__main__':
+    run(-2.25, 0.75, 8000, -1.5, +1.5, 8000, 'mcm.png')
+    #run()
 
 
 
