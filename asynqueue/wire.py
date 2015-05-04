@@ -84,11 +84,11 @@ class SocketWorker(object):
     tempDir = []
     cQualified = ['process', 'network']
     
-    def __init__(self, series=[], sFile=None, reconnect=False, profiler=None):
+    def __init__(self, series=[], sFile=None, reconnect=False, raw=False):
         self.ap = None
         self.tasks = []
+        self.raw = raw
         self.iQualified = series
-        self.profiler = profiler
         # TODO: Implement reconnect option?
         self.reconnect = reconnect
         # Acquire lock until subordinate spawning and AMP connection
@@ -216,15 +216,14 @@ class SocketWorker(object):
         doNext = task.callTuple[2].pop('doNext', False)
         yield self.dLock.acquire(doNext)
         # Run the task on the subordinate Python interpreter
-        # TODO: Have the subordinate run with its own version of
-        # self.profiler.runcall if profiler present. It will need to
-        # return its own Stats object when we call QuitRunning
         #-----------------------------------------------------------
         kw = {}
         func = task.callTuple[0]
         for k, value in enumerate(task.callTuple):
             name = RunTask.arguments[k][0]
             kw[name] = value if isinstance(value, str) else o2p(value)
+        if self.raw:
+            kw.setdefault('raw', True)
         # The heart of the matter
         response = yield self.ap.callRemote(RunTask, **kw)
         #-----------------------------------------------------------
@@ -447,6 +446,7 @@ class TaskUniverse(object):
             return ('e', text)
         
         response = {}
+        raw = kw.pop('raw', False)
         if kw.pop('thread', False):
             if not hasattr(self, 't'):
                 self.t = ThreadLooper(rawIterators=True)
@@ -466,7 +466,7 @@ class TaskUniverse(object):
                 # A None object
                 status = 'n'
                 result = ""
-            elif iteration.Deferator.isIterator(result):
+            elif not raw and iteration.Deferator.isIterator(result):
                 status = 'i'
                 result = self._saveIterator(result)
             else:

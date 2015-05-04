@@ -231,13 +231,10 @@ class Deferator(object):
             return False
         if inspect.isgenerator(obj) or inspect.isgeneratorfunction(obj):
             return True
-        try:
-            iter(obj)
-        except:
-            result = False
-        else:
-            result = True
-        return result
+        for attrName in ('__iter__', 'next'):
+            if not callable(getattr(obj, attrName, None)):
+                return False
+        return True
 
     def __init__(self, objOrRep, *args, **kw):
         self.d = defer.Deferred()

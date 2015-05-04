@@ -82,8 +82,8 @@ class IWorker(Interface):
         task is converted into an instance of
         L{iteration.Deferator}. The underlying iteration (possibly
         across a pipe or wire) must be handled transparently to the
-        user. If the task has a 'consumer' keyword set to an
-        implementor of L{IConsumer}, an L{iteration.IterationProducer}
+        user. If the task has a I{consumer} keyword set to an
+        implementor of C{IConsumer}, an L{iteration.IterationProducer}
         coupled to that consumer will be the end result instead.
 
         Make sure that any callbacks you add to the task's internal

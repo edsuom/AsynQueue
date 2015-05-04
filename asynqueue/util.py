@@ -268,24 +268,35 @@ class DeferredLock(defer.DeferredLock):
 
 class CallRunner(object):
     """
-    Call me with a callTuple to get a 2-tuple containing the status of
-    the call and its result:
-
-      - B{e}: An exception was raised; the result is a pretty-printed
-        traceback string, unless I am constructed with
-        I{returnFailures} set. Then the result is a C{Failure} object.
-
-      - B{r}: Ran fine, the result is the return value of the call.
-
-      - B{i}: Ran fine, but the result is an iterable other than a
-        standard Python one.
-    
+    I'm used by L{threads.ThreadLooper} and
+    L{process.ProcessUniverse}.
     """
-    def __init__(self):
+    def __init__(self, raw=False):
+        self.raw = raw
         self.info = info.Info()
 
     def __call__(self, callTuple):
+        """
+        Does the f-args-kw call in I{callTuple} to get a 2-tuple
+        containing the status of the call and its result:
+
+        - B{e}: An exception was raised; the result is a
+          pretty-printed traceback string, unless I am constructed
+          with I{returnFailures} set. Then the result is a C{Failure}
+          object.
+  
+        - B{r}: Ran fine, the result is the return value of the call.
+  
+        - B{i}: Ran fine, but the result is an iterable other than a
+          standard Python one.
+
+        Honors the I{raw} option to return iterators as-is if
+        desired. The called function never sees that keyword.
+        """
         f, args, kw = callTuple
+        raw = kw.pop('raw', None)
+        if raw is None:
+            raw = self.raw
         try:
             result = f(*args, **kw)
             # If the task causes the thread to hang, the method
@@ -293,7 +304,7 @@ class CallRunner(object):
         except:
             result = self.info.setCall(f, args, kw).aboutException()
             return ('e', result)
-        if iteration.Deferator.isIterator(result):
+        if not raw and iteration.Deferator.isIterator(result):
             return ('i', result)
         return ('r', result)
 

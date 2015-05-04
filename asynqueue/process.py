@@ -33,7 +33,7 @@ from twisted.python.failure import Failure
 
 from base import TaskQueue
 from interfaces import IWorker
-import errors, util, iteration
+import errors, util, iteration, info
 
 
 class ProcessQueue(TaskQueue):
@@ -101,16 +101,26 @@ class ProcessWorker(object):
         """
         return mp.cpu_count()
     
-    def __init__(self, series=[], profiler=None):
+    def __init__(self, series=[], raw=False):
+        """
+        Constructs me with a L{ThreadLooper} and an empty list of tasks.
+        
+        @param series: A list of one or more task series that this
+          particular instance of me is qualified to handle.
+
+        @param raw: Set C{True} if you want raw iterators to be
+          returned instead of L{iteration.Deferator} instances. You
+          can override this in with the same keyword set C{False} in a
+          call.
+        """
         self.tasks = []
         self.iQualified = series
-        self.profiler = profiler
         # Tools
         self.delay = iteration.Delay()
         self.dLock = util.DeferredLock()
         # Multiprocessing with (Gasp! Twisted heresy!) standard lib Python
         self.cMain, cProcess = mp.Pipe()
-        pu = ProcessUniverse()
+        pu = ProcessUniverse(raw)
         self.process = mp.Process(target=pu.loop, args=(cProcess,))
         self.process.start()
 
@@ -216,9 +226,9 @@ class ProcessUniverse(object):
     """
     Each process for a L{ProcessWorker} lives in one of these.
     """
-    def __init__(self):
+    def __init__(self, raw=False):
         self.iterators = {}
-        self.runner = util.CallRunner()
+        self.runner = util.CallRunner(raw)
 
     def next(self, ID):
         """
@@ -265,7 +275,7 @@ class ProcessUniverse(object):
                     # Due to the pipe between worker and process, we
                     # hold onto the iterator here and just
                     # return an ID to it
-                    ID = str(hash(result))
+                    ID = str(info.hashIt(result))
                     self.iterators[ID] = result
                     result = ID
                 connection.send((status, result))

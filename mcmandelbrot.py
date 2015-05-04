@@ -26,7 +26,7 @@ import sys
 
 import weave
 import numpy as np
-from PIL import Image
+import matplotlib.pyplot as plt
 
 from twisted.internet import defer, reactor
 
@@ -51,11 +51,6 @@ class MandelbrotValuer(object):
     the classic image with a black area in the middle.
     """
     N_values = 512
-    colorMap = [
-        (0.70,   0, 180), # Red
-        (0.90,  80, 240), # Green
-        (1.00, 128, 255)  # Blue
-    ]
     
     code = """
     int j, k;
@@ -72,134 +67,125 @@ class MandelbrotValuer(object):
             zr = zr2 - zi2 + X1(j);
             k++;
         }
-        // This value of c isn't needed any more, so re-use the array item
-        X1(j) = (double)(kmax - k);
+        // Invert so that the fastest escape has the max value
+        k = kmax - k;
+        // Scale to range 0.0-1.0 and, since this value of c isn't needed
+        // anymore, put the result in the array item
+        X1(j) = (double)(k) / kmax;
     }
     """
     vars = ['x', 'ci', 'kmax']
 
-    def __init__(self):
-        prevThreshold = 0
-        self.thresholds = [0]
-        self.coefficients = []
-        for j, row in enumerate(self.colorMap):
-            threshold = int(self.N_values * row[0])
-            self.thresholds.append(threshold)
-            coefficient = float(row[2] - row[1]) / (threshold - prevThreshold)
-            self.coefficients.append(coefficient)
-            prevThreshold = threshold
-        self.rgbLast = (None, None)
-    
     def __call__(self, crMin, crMax, N, ci):
         """
         Computes values for I{N} points along the real (horizontal) axis
         from I{crMin} to I{crMax}, with the constant imaginary
-        component I{ci}. Maps the values to RGB byte triplets and
-        returns a L{bytearray} of length 3N.
+        component I{ci}.
+
+        @return: A 1-D C{NumPy} array of length I{N} containing the
+          values as normalized 16-bit floats in the range
+          0.0-1.0. It's a small datatype but entirely adequate, even
+          if antialiasing is done.
+        
         """
-        x = np.linspace(crMin, crMax, N, dtype='float64')
+        x = np.linspace(crMin, crMax, N, dtype=np.float64)
         kmax = self.N_values - 1
         weave.inline(self.code, self.vars)
-        return self.valuesToRGB(x)
-        
-    def valuesToRGB(self, x):
-        """
-        Maps the values in the supplied array I{x} into a bytearray of 3x
-        length with the RGB pixel color.
-        """
-        def scale(value, k):
-            diff = value - self.thresholds[k]
-            result = int(self.coefficients[k] * diff) + self.colorMap[k][1]
-            if result < 0:
-                return 0
-            if result > 255:
-                return 255
-            return result
-        
-        def mapValue(value):
-            # There are a lot of repeated values, so we cache the last
-            # one
-            if self.rgbLast[0] == value:
-                # Yes, another repeat. Use it.
-                return self.rgbLast[1]
-            if value > self.thresholds[0]:
-                if value > self.thresholds[1]:
-                    # Blue
-                    rgb = (0, 0, scale(value, 2))
-                else:
-                    # Green
-                    rgb = (0, scale(value, 1), 0)
-            else:
-                # Red
-                rgb = (scale(value, 0), 0, 0)
-            # Cache the input value and mapped value
-            self.rgbLast = (value, rgb)
-            return rgb
-
-        N = x.shape[0]
-        k012 = (0,1,2)
-        result = bytearray(3*N)
-        for j in xrange(N):
-            rgb = mapValue(x[j])
-            for k in k012:
-                result[3*j+k] = rgb[k]
-        return result
+        return x.astype(np.float16)
 
 
 class Runner(object):
     """
+    I run a multi-process Mandelbrot Set computation operation.
+
+    @cvar N_processes: The number of processes to use, disregarded if
+      I{useThread} is set C{True} in my constructor.
     """
     N_processes = 4
 
-    def __init__(self, xMin, xMax, Nx, yMin, yMax, Ny):
+    def __init__(self, Nx, xMin, xMax, yMin, yMax, useThread=False):
         self.xSpan = (xMin, xMax, Nx)
+        Ny = int(Nx * (yMax - yMin) / (xMax - xMin))
         self.ySpan = (yMin, yMax, Ny)
-        #self.q = asynqueue.TaskQueue()
-        #self.q.attachWorker(asynqueue.ThreadWorker())
-        self.q = asynqueue.ProcessQueue(self.N_processes)
+        if useThread:
+            self.q = asynqueue.TaskQueue()
+            self.q.attachWorker(asynqueue.ThreadWorker())
+        else:
+            self.q = asynqueue.ProcessQueue(self.N_processes)
+
+    def run(self, imgFilePath):
+        """
+        Computes the Mandelbrot Set under C{Twisted} and generates a
+        pretty image.
+        """
+        reactor.callWhenRunning(self._reallyRun, imgFilePath)
+        reactor.run()
+
+    def _reallyRun(self, imgFilePath):
+        def done(z):
+            if z is not None:
+                self.plot(z)
+            reactor.stop()
+        
+        return self.compute().addCallback(done)
+        
+    @defer.inlineCallbacks
+    def compute(self):
+        """
+        Computes the Mandelbrot Set for my complex region of interest and
+        returns a C{Deferred} that fires with a 2D C{NumPy} array of
+        normalized values.
+        """
+        def gotResult(row, k):
+            if not self.isRunning:
+                # Stopping, ignore the result
+                return
+            if isinstance(row, str):
+                # Error, print it and stop when we can
+                print str
+                self.isRunning = False
+                return self.q.shutdown()
+            z[k,:] = row
+
+        self.isRunning = True
+        mv = MandelbrotValuer()
+        crMin, crMax, Nx = self.xSpan
+        dt = asynqueue.DeferredTracker()
+        z = np.zeros((self.ySpan[2], Nx), dtype=np.float16)
+        for k, ci in self.frange(*self.ySpan):
+            if not self.isRunning:
+                break
+            # Call one of my processes to get a row of values
+            d = self.q.call(mv, crMin, crMax, Nx, ci)
+            d.addCallback(gotResult, k)
+            dt.put(d)
+        yield dt.deferToAll()
+        if self.isRunning:
+            defer.returnValue(z)
 
     def frange(self, minVal, maxVal, N):
+        """
+        Iterates over a range of I{N} evenly spaced floats from I{minVal}
+        to I{maxVal}, yielding the iteration index and the value.
+        """
         val = float(minVal)
         step = (float(maxVal) - val) / N
         for k in xrange(N):
             yield k, val
             val += step
 
-    def oops(self, failureObj):
-        failureObj.printTraceback()
-        reactor.stop()
-            
-    @defer.inlineCallbacks
-    def run(self, imagePath):
+    def plot(self, z):
         """
-        Computes the Mandelbrot Set for my complex region of interest and
-        generates an RGB image, saving it to the specified
-        I{imagePath}.
+        Color-maps values in the 2D array I{z} and renders a pseudocolor plot.
         """
-        def gotResult(rgbs, k):
-            if not self.isRunning:
-                return
-            if isinstance(rgbs, str):
-                print str
-                self.isRunning = False
-                return
-            for j in xrange(N):
-                im.im.putpixel((j, k), tuple(rgbs[3*j:3*j+3]))
+        fig = plt.figure()
+        extent = [
+            self.xSpan[0], self.xSpan[1],
+            self.ySpan[0], self.ySpan[1]]
+        plt.imshow(z, origin='lower', extent=extent, aspect='equal')
+        plt.colorbar()
 
-        self.isRunning = True
-        mv = MandelbrotValuer()
-        crMin, crMax, N = self.xSpan
-        dt = asynqueue.DeferredTracker()
-        im = Image.new("RGB", (self.xSpan[2], self.ySpan[2]))
-        for k, ci in self.frange(*self.ySpan):
-            if not self.isRunning:
-                break
-            d = self.q.call(mv, crMin, crMax, N, ci)
-            d.addCallback(gotResult, k)
-            dt.put(d)
-        yield dt.deferToAll()
-        im.save(imagePath)
-        reactor.stop()
+        plt.show()
 
 
 def run(*args):
@@ -207,15 +193,14 @@ def run(*args):
     Call with xMin, xMax, yMin, yMax, filePath
     """
     if not args:
-        args = [float(x) for x in sys.argv[1:7]]
-        args.append(sys.argv[7])
-    runner = Runner(*args[:6])
-    reactor.callWhenRunning(runner.run, args[6])
-    reactor.run()
+        args = [int(sys.argv[1])]
+        args = [float(x) for x in sys.argv[2:6]]
+        args.append(sys.argv[6])
+    Runner(*args[:5]).run(args[5])
 
 
 if __name__ == '__main__':
-    run(-2.25, 0.75, 8000, -1.5, +1.5, 8000, 'mcm.png')
+    run(4000, -2.25, 0.75, -1.5, +1.5, 'mcm.png')
     #run()
 
 

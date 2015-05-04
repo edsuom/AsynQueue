@@ -58,9 +58,20 @@ class AsyncWorker(object):
     implements(IWorker)
     cQualified = ['async', 'local']
     
-    def __init__(self, series=[], profiler=None):
+    def __init__(self, series=[], raw=False):
+        """
+        Constructs an instance of me with a L{util.DeferredLock}.
+        
+        @param series: A list of one or more task series that this
+          particular instance of me is qualified to handle.
+
+        @param raw: Set C{True} if you want raw iterators to be
+          returned instead of L{iteration.Deferator} instances. You
+          can override this in with the same keyword set C{False} in a
+          call.
+        """
         self.iQualified = series
-        self.profiler = profiler
+        self.raw = raw
         self.info = info.Info()
         self.dLock = util.DeferredLock()
 
@@ -98,10 +109,9 @@ class AsyncWorker(object):
             task.callback(('e', text))
 
         f, args, kw = task.callTuple
-        if self.profiler:
-            args = [f] + list(args)
-            f = self.profiler.runcall
-        raw = kw.pop('raw', False)
+        raw = kw.pop('raw', None)
+        if raw is None:
+            raw = self.raw
         consumer = kw.pop('consumer', None)
         vip = (kw.pop('doNext', False) or task.priority <= -20)
         return self.dLock.acquire(vip).addCallback(ready)

@@ -60,7 +60,10 @@ def hashIt(*args):
             try:
                 thisHash = hash(x)
             except:
-                thisHash = 0
+                try:
+                    thisHash = hash(pickle.dumps(x))
+                except:
+                    thisHash = 0
             total += thisHash
     return hash(total)
 

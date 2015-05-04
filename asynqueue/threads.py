@@ -62,15 +62,28 @@ class ThreadWorker(object):
     I implement an L{IWorker} that runs tasks in a dedicated worker
     thread.
 
-    You can supply a I{series} keyword containing a list of one or
-    more task series that I am qualified to handle, and C{raw=True} if
-    you want raw iterators to be returned instead of prefetcherators
-    unless otherwise specified in a call.
+    @cvar cQualified: Task series all instances of me are qualified to
+      perform.
+
+    @ivar iQualified: Task series one instance of me is qualified to
+      perform. Usually left blank, unless you want only some workers
+      doing certain tasks.
     """
     implements(IWorker)
     cQualified = ['thread', 'local']
 
     def __init__(self, series=[], raw=False):
+        """
+        Constructs me with a L{ThreadLooper} and an empty list of tasks.
+        
+        @param series: A list of one or more task series that this
+          particular instance of me is qualified to handle.
+
+        @param raw: Set C{True} if you want raw iterators to be
+          returned instead of L{iteration.Deferator} instances. You
+          can override this in with the same keyword set C{False} in a
+          call.
+        """
         self.tasks = []
         self.iQualified = series
         self.t = ThreadLooper(raw)
@@ -160,12 +173,11 @@ class ThreadLooper(object):
     timeout = 60
     
     def __init__(self, raw=False):
-        self.raw = raw
         # Just a simple attribute to indicate if the thread loop is
         # running, mostly for unit testing
         self.threadRunning = True
         # Tools
-        self.runner = util.CallRunner()
+        self.runner = util.CallRunner(raw)
         self.dLock = util.DeferredLock()
         self.event = threading.Event()
         self.thread = threading.Thread(name=repr(self), target=self.loop)
@@ -222,9 +234,6 @@ class ThreadLooper(object):
         instead of a raw iterator, contrary to the instance-wide
         default set with the constructor keyword 'raw'.
         """
-        raw = kw.pop('raw', None)
-        if raw is None:
-            raw = self.raw
         yield self.dLock.acquire(kw.pop('doNext', False))
         self.callTuple = f, args, kw
         self.d = defer.Deferred()
@@ -241,23 +250,17 @@ class ThreadLooper(object):
         self.dLock.release()
         status, result = statusResult
         if status == 'i':
-            # An iterator
-            if raw:
-                # ...but no special processing
-                status = 'r'
+            ID = str(hash(result))
+            pf = iteration.Prefetcherator(ID)
+            ok = yield pf.setup(result)
+            if ok:
+                # OK, we can iterate this
+                result = iteration.Deferator(
+                    repr(pf), self.deferToThread, pf.getNext)
             else:
-                # ...with special processing
-                ID = str(hash(result))
-                pf = iteration.Prefetcherator(ID)
-                ok = yield pf.setup(result)
-                if ok:
-                    # OK, we can iterate this
-                    result = iteration.Deferator(
-                        repr(pf), self.deferToThread, pf.getNext)
-                else:
-                    # An iterator, but not one we could prefetch
-                    # from. Probably empty.
-                    result = []
+                # An iterator, but not one we could prefetch
+                # from. Probably empty.
+                result = []
         # Not an iterator, at least not one being specially
         # processed; we already have our result
         defer.returnValue((status, result))
@@ -293,16 +296,13 @@ class ThreadLooper(object):
             status, result = statusResult
             if status == 'e':
                 return Failure(errors.ThreadError(result))
-            elif status == 'i' and not raw:
+            elif status == 'i':
                 if consumer:
                     ip = iteration.IterationProducer(dr, consumer)
                     return ip.run()
                 return result
             return result
 
-        raw = kw.pop('raw', None)
-        if raw is None:
-            raw = self.raw
         consumer = kw.pop('consumer', None)
         return self.call(f, *args, **kw).addCallback(done)
 
