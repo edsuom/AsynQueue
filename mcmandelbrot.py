@@ -149,7 +149,7 @@ class MandelbrotValuer(object):
 class Runner(object):
     """
     """
-    N_processes = 7
+    N_processes = 4
 
     def __init__(self, xMin, xMax, Nx, yMin, yMax, Ny):
         self.xSpan = (xMin, xMax, Nx)
@@ -183,8 +183,6 @@ class Runner(object):
                 print str
                 self.isRunning = False
                 return
-            print ".",
-            sys.stdout.flush()
             for j in xrange(N):
                 im.im.putpixel((j, k), tuple(rgbs[3*j:3*j+3]))
 

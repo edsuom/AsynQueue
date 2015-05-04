@@ -92,8 +92,13 @@ class Delay(object):
 
     def __call__(self, delay=None):
         """
-        Call to get a C{Deferred} that fires after my default delay or one
-        you specify.
+        Returns a C{Deferred} that fires after my default delay interval
+        or one you specify. You can have it fire in the next reactor
+        iteration by setting I{delay} to zero (not C{None}, as that
+        will use the default delay instead).
+
+        The default interval is 10ms unless you override that in by
+        setting my I{interval} attribute to something else.
         """
         if delay is None:
             delay = self.interval
@@ -112,7 +117,7 @@ class Delay(object):
 
         The event checker should B{not} return a C{Deferred}. I call
         the event checker less and less frequently as the wait goes
-        on, depending on the backoff exponent (default is 1.04).
+        on, depending on the backoff exponent (default is C{1.04}).
 
         @param eventChecker: A no-argument callable that returns an
           immediate boolean value indicating if an event occurred.
@@ -120,21 +125,32 @@ class Delay(object):
         if not callable(eventChecker):
             raise TypeError("You must supply a callable event checker")
 
-        t0 = time.time()
-        interval = self.interval
-        while True:
-            if eventChecker():
-                defer.returnValue(True)
-                break
-            if hasattr(self, 'timeout') and time.time()-t0 > self.timeout:
-                defer.returnValue(False)
-                break
-            # No response yet, check again after the poll interval,
-            # which increases exponentially so that each incremental
-            # delay is somewhat proportional to the amount of time
-            # spent waiting thus far.
-            yield self(interval)
-            interval *= self.backoff
+        # We do two very quick checks before entering the delay loop,
+        # to minimize overhead when dealing with very fast events.
+        if eventChecker():
+            # First, if the event has happened right away, we don't
+            # enter the loop at all.
+            defer.returnValue(True)
+        else:
+            t0 = time.time()
+            interval = self.interval
+            # Second, we "wait" until the very next reactor iteration
+            # to do another check, as the first and possibly only loop
+            # iteration.
+            yield self(0)
+            while True:
+                if eventChecker():
+                    defer.returnValue(True)
+                    break
+                if hasattr(self, 'timeout') and time.time()-t0 > self.timeout:
+                    defer.returnValue(False)
+                    break
+                # No response yet, check again after the poll interval,
+                # which increases exponentially so that each incremental
+                # delay is somewhat proportional to the amount of time
+                # spent waiting thus far.
+                yield self(interval)
+                interval *= self.backoff
 
 
 class Deferator(object):
