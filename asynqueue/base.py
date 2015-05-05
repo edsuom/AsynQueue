@@ -501,7 +501,7 @@ class TaskQueue(object):
         return Failure(
             errors.WorkerError("Unknown status '{}'".format(status)))
 
-    def _newTask(self, func, args, kw):
+    def newTask(self, func, args, kw):
         """
         Make a new L{tasks.Task} object from a func-args-kw combo. You
         won't call this directly.
@@ -581,7 +581,7 @@ class TaskQueue(object):
           its errback with a Failure. Default is to either log an
           error (if 'warn' is set) or stop the queue.
         """
-        task = self._newTask(func, args, kw)
+        task = self.newTask(func, args, kw)
         self.q.put(task)
         return task.d
 
@@ -611,5 +611,5 @@ class TaskQueue(object):
                 "Can't supply a consumer for an update because there "+\
                 "may be multiple iteration producers")
         ephemeral = kw.pop('ephemeral', False)
-        task = self._newTask(func, args, kw)
+        task = self.newTask(func, args, kw)
         return self.th.update(task, ephemeral)

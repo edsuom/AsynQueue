@@ -118,26 +118,29 @@ class TestDeferredTracker(TestCase):
             d.addCallback(doneDelaying, k)
             self.dt.put(d)
         return self.dt.deferToAll().addCallback(done)
-            
 
-class ToyConsumer(object):
-    implements(IConsumer)
-
-    def __init__(self, verbose):
-        self.verbose = verbose
+        
+class TestCallRunner(TestCase):
+    verbose = True
     
-    def registerProducer(self, *args):
-        self.x = []
-        self.registered = args
-        if self.verbose:
-            print "Registered:", args
+    def _divide(self, x, y):
+        return x/y
+    
+    def test_withStats(self):
+        runner = util.CallRunner(callStats=True)
+        z = []
+        for x in xrange(1000, 2000):
+            result = runner((self._divide, (x, 2), {}))
+            self.assertEqual(result[0], 'r')
+            z.append(result[1])
+        self.assertEqual(len(z), 1000)
+        self.assertEqual(z[0], 500)
+        callTimes = runner.callTimes
+        self.assertEqual(len(callTimes), 1000)
+        self.assertLess(max(callTimes), 1E-4)
+        self.msg(
+            "Call times range from {:f} to {:f} ms",
+            1000*min(callTimes), 1000*max(callTimes))
 
-    def unregisterProducer(self):
-        self.registered = None
-
-    def write(self, data):
-        if self.verbose:
-            print "Wrote:", data
-        self.x.append(data)
-
+    
 

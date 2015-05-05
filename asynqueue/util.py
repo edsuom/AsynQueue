@@ -33,6 +33,7 @@ unless perhaps you come up with an entirely new kind of
 L{interfaces.IWorker} implementation.
 """
 
+from time import time
 import cPickle as pickle
 import cProfile as profile
 from contextlib import contextmanager
@@ -271,9 +272,19 @@ class CallRunner(object):
     I'm used by L{threads.ThreadLooper} and
     L{process.ProcessUniverse}.
     """
-    def __init__(self, raw=False):
+    def __init__(self, raw=False, callStats=False):
+        """
+        @param raw: Set C{True} to return raw iterators by default instead
+          of doing L{iteration} magic.
+        @param callStats: Set C{True} to accumulate a list of
+          I{callTimes} for each call. B{Caution:} Can get big with
+          lots of calls!
+        """
         self.raw = raw
         self.info = info.Info()
+        self.callStats = callStats
+        if callStats:
+            self.callTimes = []
 
     def __call__(self, callTuple):
         """
@@ -298,7 +309,12 @@ class CallRunner(object):
         if raw is None:
             raw = self.raw
         try:
-            result = f(*args, **kw)
+            if self.callStats:
+                t0 = time()
+                result = f(*args, **kw)
+                self.callTimes.append(time()-t0)
+            else:
+                result = f(*args, **kw)
             # If the task causes the thread to hang, the method
             # call will not reach this point.
         except:

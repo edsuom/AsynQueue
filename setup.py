@@ -57,10 +57,11 @@ kw['classifiers'] = [
 
     'Intended Audience :: Developers',
     'Intended Audience :: Science/Research',
-
-    'License :: OSI Approved :: GNU General Public License (GPL)',
+    
+    'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
     'Operating System :: OS Independent',
     'Programming Language :: Python',
+    'Framework :: Twisted',
 
     'Topic :: System :: Distributed Computing',
     'Topic :: Software Development :: Object Brokering',

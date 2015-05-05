@@ -45,8 +45,9 @@ def deferToDelay(delay):
 
 def blockingTask(x, delay=None):
     if delay is None:
-        delay = random.uniform(0.1, 0.5)
-    time.sleep(delay)
+        delay = random.uniform(0.01, 0.2)
+    if delay:
+        time.sleep(delay)
     return 2*x
     
 

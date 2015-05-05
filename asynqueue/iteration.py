@@ -70,13 +70,19 @@ class Delay(object):
     Perhaps a bit more suited to the L{util} module, but that would
     require this module to import it, and it imports this module.
 
+    With event delays of 100 ms to 1 second (in
+    L{process.ProcessWorker}, setting I{backoff} to 1.10 seems more
+    efficient than 1.05 or 1.20, with the (initial) I{interval} of 50
+    ms. However, you may want to tune things for your application and
+    system.
+
     @ivar interval: The initial event-checking interval, in seconds.
     @type interval: float
     @ivar backoff: The backoff exponent.
     @type backoff: float
     """
-    interval = 0.01
-    backoff = 1.04
+    interval = 0.001
+    backoff = 1.10
 
     def __init__(self, interval=None, backoff=None, timeout=None):
         if interval:
