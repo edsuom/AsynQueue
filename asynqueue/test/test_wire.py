@@ -35,7 +35,10 @@ def blockingTask(x, delay=None):
         delay = random.uniform(0.1, 0.5)
     time.sleep(delay)
     return 2*x
-        
+
+def divide(x, y):
+    return float(x) / y
+
         
 class TestSocketWorker(TestCase):
     verbose = True
@@ -53,9 +56,8 @@ class TestSocketWorker(TestCase):
         
     @defer.inlineCallbacks
     def test_basic(self):
-        result = yield self.queue.call(
-            "asynqueue.wire.divide", 5.0, 2.0)
-        self.assertEqual(result, 2.5)
+        result = yield self.queue.call(sum, [1,2,3])
+        self.assertEqual(result, 6)
 
     @defer.inlineCallbacks
     def test_namespace(self):

@@ -148,7 +148,7 @@ class TestAssignmentFactory(TestCase):
 
 
 class TestTaskHandlerHiring(TestCase):
-    verbose = True
+    verbose = False
     
     def setUp(self):
         self.th = tasks.TaskHandler()
@@ -264,13 +264,12 @@ class TestTaskHandlerHiring(TestCase):
     def test_terminateByCrashing(self):
         self._count = 0
         worker = MockWorker(runDelay=1.0)
-        workerID = self.th.hire(worker)
+        workerID = yield self.th.hire(worker)
         task = MockTask(lambda x: x, ('foo',), {}, 100, None)
         yield self.th(task)
         result = yield self.th.terminate(workerID, crash=True)
         self.assertEqual(result, [task])
-        self.assertTrue(task.d.called)
-        yield d
+        self.assertFalse(task.d.called)
         
 
 class TestTaskHandlerRun(TestCase):

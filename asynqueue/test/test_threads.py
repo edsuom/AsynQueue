@@ -283,7 +283,7 @@ class TestThreadLooper(TestCase):
         self.assertEqual(status, 'e')
         self.msg("Expected error message:", '-')
         self.msg(result)
-        self.assertPattern(r'\.divide', result)
+        self.assertPattern(r'divide', result)
         self.assertPattern(r'[dD]ivi.+zero', result)
 
     @defer.inlineCallbacks

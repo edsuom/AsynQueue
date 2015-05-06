@@ -84,7 +84,6 @@ class TestInfo(TestCase):
         for k, ID in enumerate(IDs):
             callDict = self.info.getInfo(ID, 'callDict')
             fs = callDict['fs']
-            self.assertIn('test_getID', fs)
             self.assertIn(fakList[k][0], fs)
             self.assertTrue(callable(callDict['f']))
             for kk, name in enumerate(('args', 'kw')):
@@ -113,9 +112,9 @@ class TestInfo(TestCase):
         pastInfo = []
         for pattern, f, args, kw in (
                 ('[cC]allable!', None, (), {}),
-                ('\.foo\(1\)', self.p.foo, (1,), {}),
-                ('\.foo\(2\)', self.p.foo, (2,), {}),
-                ('\._bar\(1, y=2\)', self._bar, (1,), {'y':2}),
+                ('foo\(1\)', self.p.foo, (1,), {}),
+                ('foo\(2\)', self.p.foo, (2,), {}),
+                ('_bar\(1, y=2\)', self._bar, (1,), {'y':2}),
         ):
             ID = self.info.setCall(f, args, kw).ID
             self.assertNotIn(ID, IDs)
@@ -144,7 +143,7 @@ class TestInfo(TestCase):
                 # Now get the info later, after someone else has
                 # likely done their own setCall
                 callInfo = x.aboutCall()
-                self.assertPattern("\.foo\({:d}\)".format(k), callInfo)
+                self.assertPattern("foo\({:d}\)".format(k), callInfo)
         dList = []
         for k in xrange(5):
             dList.append(deferToDelay(

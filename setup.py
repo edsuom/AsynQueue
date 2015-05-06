@@ -24,9 +24,7 @@ NAME = "AsynQueue"
 
 
 ### Imports and support
-import ez_setup
-ez_setup.use_setuptools()
-from setuptools import setup, find_packages
+from setuptools import setup
 
 ### Define requirements
 required = ['Twisted']
@@ -38,7 +36,8 @@ kw = {'version':'0.8.2',
       'platforms':'OS Independent',
 
       'url':"http://edsuom.com/{}.html".format(NAME),
-      'author':'Edwin A. Suominen',
+      'author':"Edwin A. Suominen",
+      'author_email':"valueprivacy-foss@yahoo.com",
       'maintainer':'Edwin A. Suominen',
 
       'install_requires':required,

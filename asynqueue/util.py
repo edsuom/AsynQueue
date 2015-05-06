@@ -291,15 +291,14 @@ class CallRunner(object):
         Does the f-args-kw call in I{callTuple} to get a 2-tuple
         containing the status of the call and its result:
 
-        - B{e}: An exception was raised; the result is a
-          pretty-printed traceback string, unless I am constructed
-          with I{returnFailures} set. Then the result is a C{Failure}
-          object.
-  
-        - B{r}: Ran fine, the result is the return value of the call.
-  
-        - B{i}: Ran fine, but the result is an iterable other than a
-          standard Python one.
+          - B{e}: An exception was raised; the result is a
+            pretty-printed traceback string.
+          
+          - B{r}: Ran fine, the result is the return value of the
+            call.
+          
+          - B{i}: Ran fine, but the result is an iterable other than a
+            standard Python one.
 
         Honors the I{raw} option to return iterators as-is if
         desired. The called function never sees that keyword.

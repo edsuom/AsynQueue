@@ -135,7 +135,7 @@ class SocketWorker(object):
 
         if sFile is None:
             sFile = self._newSocketFile()
-        if hasattr(self, 'ap'):
+        if self.ap:
             # We already have a connection
             return defer.succeed(None)
         self.dLock.acquire()
@@ -225,7 +225,9 @@ class SocketWorker(object):
         if self.raw:
             kw.setdefault('raw', True)
         # The heart of the matter
+        print "RUN-1", kw
         response = yield self.ap.callRemote(RunTask, **kw)
+        print "RUN-2", response
         #-----------------------------------------------------------
         # At this point, we can permit another remote call to get
         # going for a separate task.
@@ -592,9 +594,9 @@ class TaskServer(amp.AMP):
         Responder for L{RunTask}
         """
         func = self._parseArg(fn)
-        args = p2o(args, [])
-        kw = p2o(kw, {})
         if func:
+            args = p2o(args, [])
+            kw = p2o(kw, {})
             return self.u.call(func, *args, **kw)
         text = self.info.setCall(fn, args, kw).aboutCall()
         return {
