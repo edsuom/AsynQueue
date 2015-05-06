@@ -24,7 +24,7 @@
 
 
 """
-mcmandelbrot.py [-s] Nx xMin xMax yMin yMax [filePath [N_values]]
+C{mcmandelbrot.py [-s] Nx xMin xMax yMin yMax [filePath [N_values]]}
 
 An example of C{AsynQueue} in action. Can be fun to play with if you
 have a multicore CPU. You will need the following packages, which you
@@ -37,7 +37,7 @@ can get via C{pip install}:
 
 Here are some command-line args to try. Add a different filename to
 each if you want to save a gallery of images to view and zoom in
-on. Use PNG format.
+on. Use PNG format to preserve the most detail.
 
 
 4000 -2.15 +0.70 -1.20 +1.20
@@ -98,7 +98,7 @@ there that points up and left.
 
 Further detail of the intersection showing the up-and-left Mandelbrot
 set with interesting visual features caused by a limited escape cutoff
-of 512 in the value computation loop, L{MandelbrotValuer.__call__}
+of 1000 in the value computation loop, L{MandelbrotValuer.__call__}
 
 
 3000 -1.1622600 -1.1622598 +0.2922580 +0.2922582 <imgFile> 20000
@@ -127,12 +127,17 @@ available.
 import sys, time
 
 import weave
+from weave.base_info import custom_info
 import numpy as np
 import matplotlib.pyplot as plt
 
 from twisted.internet import defer, reactor
 
 import asynqueue
+
+
+class my_info(custom_info):
+    _extra_compile_args = ['-Wcpp']
 
 
 class MandelbrotValuer(object):
@@ -146,38 +151,95 @@ class MandelbrotValuer(object):
       https://svn.enthought.com/svn/enthought/Mayavi/
         branches/3.0.4/examples/mayavi/mandelbrot.py}
 
-    The values are inverted, i.e., subtracted from the maximum value, so
-    that no-escape points (technically, the only points actually in
+    with periodicity testing and test-interval updating adapted from
+    Simpsons's code contribution at::
+
+      http://en.wikipedia.org/wiki/User:Simpsons_contributor/
+        periodicity_checking
+
+    and period-2 bulb testing from Wikibooks::
+
+      http://en.wikibooks.org/wiki/Fractals/
+        Iterations_in_the_complex_plane/Mandelbrot_set
+
+    The values are inverted, i.e., subtracted from the maximum value,
+    so that no-escape points (technically, the only points actually in
     the Mandelbrot Set) have zero value and points that escape
     immediately have the maximum value. This allows simple mapping to
     the classic image with a black area in the middle.
     """
-    code = """
-    int j, k;
-    double zr, zi, zr2, zi2;
-    for (j=0; j<Nx[0]; j++) {
-        k = 1;
-        zr = X1(j);
-        zi = ci;
-        while ( k < kmax ) {
+    support_code = """
+    bool region_test(double zr, double zr2, double zi2)
+    {
+        double q;
+        // (x+1)^2 + y2 < 1/16
+        if (zr2 + 2*zr + 1 + zi2 < 0.0625) return(true);
+        // q = (x-1/4)^2 + y^2
+        q = zr2 - 0.5*zr + 0.0625 + zi2;
+        // q*(q+(x-1/4)) < 1/4*y^2
+        q *= (q + zr - 0.25);
+        if (q < 0.25*zi2) return(true);
+        return(false);
+    }
+
+    int eval_point(int j, int N, double cr, double ci)
+    {
+        int k = 1;
+        double zr = cr;
+        double zi = ci;
+        double zr2 = zr * zr, zi2 = zi * zi;
+        // If we are in one of the two biggest "lakes," we need go no further
+        if (region_test(zr, zr2, zi2)) return N;
+        // Periodicity-testing variables
+        double zrp = 0, zip = 0;
+        int k_check = 0, N_check = 3, k_update = 0;
+        while ( k < N ) {
+            // Compute Z[n+1] = Z[n]^2 + C, with escape test
+            if ( zr2+zi2 > 16.0 ) return k;
+            zi = 2.0 * zr * zi + ci;
+            zr = zr2 - zi2 + cr;
+            k++;
+            // Periodicity test: If same point is reached as previously,
+            // there is no escape
+            if ( zr == zrp )
+                if ( zi == zip ) return N;
+            // Check if previous-value update needed
+            if ( k_check == N_check )
+            {
+                // Yes, do it
+                zrp = zr;
+                zip = zi;
+                // Check again after another N_check iterations, an
+                // interval that occasionally doubles
+                k_check = 0;
+                if ( k_update == 5 )
+                {
+                    k_update = 0;
+                    N_check *= 2;
+                }
+                k_update++;
+            }
+            k_check++;
+            // Compute squares for next iteration
             zr2 = zr * zr;
             zi2 = zi * zi;
-            if ( zr2+zi2 > 16.0 ) break;
-            zi = 2.0 * zr * zi + ci;
-            zr = zr2 - zi2 + X1(j);
-            k++;
         }
-        // Invert so that the fastest escape has the max value
-        k = kmax - k;
-        // Scale to range 0.0-1.0 and, since this value of c isn't needed
-        // anymore, put the result in the array item
-        X1(j) = (double)(k) / kmax;
     }
     """
-    vars = ['x', 'ci', 'kmax']
+    code = """
+    #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+    int j, k;
+    for (j=0; j<Nx[0]; j++) {
+        // Evaluate the point
+        Y1(j) = eval_point(j, kmax, X1(j), ci);
+    }
+    """
+    vars = ['x', 'y', 'ci', 'kmax']
 
     def __init__(self, N_values):
         self.N_values = N_values
+        print "N", N_values
+        self.infoObj = my_info()
     
     def __call__(self, crMin, crMax, N, ci):
         """
@@ -186,14 +248,17 @@ class MandelbrotValuer(object):
         component I{ci}.
 
         @return: A 1-D C{NumPy} array of length I{N} containing the
-          values as normalized 16-bit floats in the range
-          0.0-1.0. It's a small datatype but entirely adequate.
-        
+          escape values as 16-bit integers.
         """
         x = np.linspace(crMin, crMax, N, dtype=np.float64)
+        y = np.zeros(N, dtype=np.int16)
         kmax = self.N_values - 1
-        weave.inline(self.code, self.vars)
-        return x.astype(np.float16)
+        # Compute the row vector of escape iterations
+        weave.inline(
+            self.code, self.vars,
+            customize=self.infoObj, support_code=self.support_code)
+        # Invert so that the fastest escape has the max value
+        return kmax - y
 
 
 class Runner(object):
@@ -203,6 +268,7 @@ class Runner(object):
     @cvar N_processes: The number of processes to use, disregarded if
       I{useThread} is set C{True} in my constructor.
     """
+    N_values = 1000
     N_processes = 7
 
     def __init__(
@@ -232,7 +298,7 @@ class Runner(object):
           M{z = z^2 + c} to see if escape is reached and determine
           that C{c} lies outside the Mandelbrot set.
         @type N_values: Second argument, if any, an integer. Default
-          is 512.
+          is 1000.
         
         """
         @defer.inlineCallbacks
@@ -252,7 +318,7 @@ class Runner(object):
             reactor.stop()
 
         imgFilePath = args[0] if args else None
-        N_values = int(args[1]) if len(args) > 1 else 512
+        N_values = int(args[1]) if len(args) > 1 else self.N_values
         reactor.callWhenRunning(reallyRun)
         reactor.run()
         
@@ -272,7 +338,7 @@ class Runner(object):
         mv = MandelbrotValuer(N_values)
         crMin, crMax, Nx = self.xSpan
         dt = asynqueue.DeferredTracker()
-        z = np.zeros((self.ySpan[2], Nx), dtype=np.float16)
+        z = np.zeros((self.ySpan[2], Nx), dtype=np.int16)
         for k, ci in self.frange(*self.ySpan):
             # Call one of my processes to get a row of values
             d = self.q.call(mv, crMin, crMax, Nx, ci)
