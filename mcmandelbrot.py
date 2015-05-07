@@ -240,7 +240,7 @@ class MandelbrotValuer(object):
     def __init__(self, N_values):
         self.N_values = N_values
         self.infoObj = my_info()
-        self.scale = 1.0 / N_values
+        self.scale = 0.2 / N_values
     
     def __call__(self, crMin, crMax, N, ci):
         """
@@ -251,19 +251,33 @@ class MandelbrotValuer(object):
         @return: A 1-D C{NumPy} array of length I{N} containing the
           escape values as 16-bit integers.
         """
-        kmax = self.N_values - 1
+        yy = np.zeros(N, dtype=np.float16)
         quarterDiff = 0.25 * (crMax - crMin) / N
-        x = np.linspace(crMin, crMax, N, dtype=np.float64)
+        for dx, dy in (
+                ( 0.0,          0.0        ),
+                (-quarterDiff, -quarterDiff),
+                (+quarterDiff, -quarterDiff),
+                (-quarterDiff, +quarterDiff),
+                (+quarterDiff, +quarterDiff)):
+            x = np.linspace(crMin+dx, crMax+dx, N, dtype=np.float64)
+            y = self.computeValues(N, x, ci+dy)
+            yy += y.astype(np.float16)
+        # Invert the iteration values so that trapped points have zero
+        # value, then scale to 0.0 - 1.0 range
+        return self.scale * (5*self.N_values - yy)
+
+    def computeValues(self, N, x, ci):
+        """
+        Computes and returns a row vector of escape iterations, integer
+        values.
+        """
+        kmax = self.N_values - 1
         y = np.zeros(N, dtype=np.int16)
-        ci += 0.0
-        # Compute the row vector of escape iterations
         weave.inline(
             self.code, self.vars,
             customize=self.infoObj, support_code=self.support_code)
-        # Invert the iteration values so that fastest escape has
-        # highest value, then scale to 0.0 - 1.0 range
-        return self.scale * (kmax - y)
-
+        return y
+        
 
 class ResultsManager(object):
     """
