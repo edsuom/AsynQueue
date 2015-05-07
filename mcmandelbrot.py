@@ -255,6 +255,7 @@ class MandelbrotValuer(object):
         quarterDiff = 0.25 * (crMax - crMin) / N
         x = np.linspace(crMin, crMax, N, dtype=np.float64)
         y = np.zeros(N, dtype=np.int16)
+        ci += 0.0
         # Compute the row vector of escape iterations
         weave.inline(
             self.code, self.vars,
