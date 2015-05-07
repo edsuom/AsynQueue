@@ -238,7 +238,6 @@ class MandelbrotValuer(object):
 
     def __init__(self, N_values):
         self.N_values = N_values
-        print "N", N_values
         self.infoObj = my_info()
     
     def __call__(self, crMin, crMax, N, ci):
@@ -261,6 +260,57 @@ class MandelbrotValuer(object):
         return kmax - y
 
 
+class ResultsManager(object):
+    """
+    I manage the array results from the computations, running
+    everything in a thread via my own worker (and series) in the
+    TaskQueue.
+    """
+    def __init__(self, q):
+        self.q = q
+        self.q.attachWorker(asynqueue.ThreadWorker())
+
+    def __len__(self):
+        return self.z.size
+        
+    def initArrays(self, Nx, Ny, N_values):
+        def f_i():
+            self.counts = np.zeros(N_values, dtype=np.int16)
+            self.z = np.zeros((Ny, Nx), dtype=np.float16)
+        return self.q.call(f_i, series='thread')
+
+    def handleRow(self, row, k):
+        """
+        Handles a I{row} (1-D array) from one of the processes at row
+        index I{k}.
+        """
+        def f_hr():
+            self.z[k,:] = row
+            counts = np.bincount(row)
+            print "ROW COUNTS"
+            print self.counts
+            print "COUNTS"
+            print counts
+            self.counts[:counts.size] += counts
+        return self.q.call(f_hr, series='thread')
+
+    def plot(self, extent, imgFilePath=None):
+        """
+        Color-maps values in the 2D array I{z} and renders a pseudocolor plot.
+        """
+        def f_p():
+            total = np.sum(self.counts)
+            cc = np.empty(len(self.counts), dtype='float')
+            for k in xrange(len(self.counts)):
+                cc[k] = float(sum(self.counts[:k+1])) / total
+            for x in np.nditer(self.z, op_flags=['readwrite']):
+                x[...] = cc[int(x)]
+            if imgFilePath:
+                plt.imsave(imgFilePath, self.z, origin='lower')
+                return
+        return self.q.call(f_p, series='thread')
+        
+
 class Runner(object):
     """
     I run a multi-process Mandelbrot Set computation operation.
@@ -271,19 +321,16 @@ class Runner(object):
     N_values = 1000
     N_processes = 7
 
-    def __init__(
-            self, Nx, xMin, xMax, yMin, yMax, useThread=False, stats=False):
+    def __init__(self, Nx, xMin, xMax, yMin, yMax, stats=False):
         self.xSpan = (xMin, xMax, Nx)
         Ny = int(Nx * (yMax - yMin) / (xMax - xMin))
         self.ySpan = (yMin, yMax, Ny)
-        if useThread:
-            self.stats = False
-            self.q = asynqueue.TaskQueue()
-            self.q.attachWorker(asynqueue.ThreadWorker())
-        else:
-            self.stats = stats
-            self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
+        self.stats = stats
+        self.dt = asynqueue.DeferredTracker()
+        self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
+        self.rm = ResultsManager(self.q)
 
+    @defer.inlineCallbacks
     def run(self, *args):
         """
         Computes the Mandelbrot Set under C{Twisted} and generates a
@@ -301,26 +348,27 @@ class Runner(object):
           is 1000.
         
         """
-        @defer.inlineCallbacks
-        def reallyRun():
-            t0 = time.time()
-            z = yield self.compute(N_values)
-            totalTime = time.time() - t0
-            if z is None:
-                reactor.stop()
-                sys.exit(1)
-            self.plot(z, imgFilePath)
-            print "Computed {:d} values in {:1.1f} seconds.".format(
-                z.size, totalTime)
-            if self.stats:
-                stats = yield self.q.stats()
-                self.showStats(totalTime, stats)
-            reactor.stop()
-
         imgFilePath = args[0] if args else None
         N_values = int(args[1]) if len(args) > 1 else self.N_values
-        reactor.callWhenRunning(reallyRun)
-        reactor.run()
+        self.dt.put(
+            self.rm.initArrays(self.xSpan[2], self.ySpan[2], N_values))
+        t0 = time.time()
+        N = yield self.compute(N_values)
+        totalTime = time.time() - t0
+        print "Computed {:d} values in {:1.1f} seconds.".format(
+            N, totalTime)
+        if self.stats:
+            stats = yield self.q.stats()
+            self.showStats(totalTime, stats)
+        extent = [
+            self.xSpan[0], self.xSpan[1],
+            self.ySpan[0], self.ySpan[1]]
+        yield self.rm.plot(extent, imgFilePath)
+        fig = plt.figure()
+        plt.imshow(self.rm.z, origin='lower', extent=extent, aspect='equal')
+        plt.colorbar()
+        plt.show()
+
         
     @defer.inlineCallbacks
     def compute(self, N_values):
@@ -329,23 +377,16 @@ class Runner(object):
         returns a C{Deferred} that fires with a 2D C{NumPy} array of
         normalized values.
         """
-        def gotResult(row, k):
-            if isinstance(row, str):
-                print "ERROR: ", row
-            else:
-                z[k,:] = row
-
-        mv = MandelbrotValuer(N_values)
+        yield self.dt.deferToAll()
         crMin, crMax, Nx = self.xSpan
-        dt = asynqueue.DeferredTracker()
-        z = np.zeros((self.ySpan[2], Nx), dtype=np.int16)
+        mv = MandelbrotValuer(N_values)
         for k, ci in self.frange(*self.ySpan):
             # Call one of my processes to get a row of values
-            d = self.q.call(mv, crMin, crMax, Nx, ci)
-            d.addCallback(gotResult, k)
-            dt.put(d)
-        yield dt.deferToAll()
-        defer.returnValue(z)
+            d = self.q.call(mv, crMin, crMax, Nx, ci, series='process')
+            d.addCallback(self.rm.handleRow, k)
+            self.dt.put(d)
+        yield self.dt.deferToAll()
+        defer.returnValue(len(self.rm))
 
     def frange(self, minVal, maxVal, N):
         """
@@ -357,21 +398,6 @@ class Runner(object):
         for k in xrange(N):
             yield k, val
             val += step
-
-    def plot(self, z, imgFilePath=None):
-        """
-        Color-maps values in the 2D array I{z} and renders a pseudocolor plot.
-        """
-        if imgFilePath:
-            plt.imsave(imgFilePath, z, origin='lower')
-            return
-        fig = plt.figure()
-        extent = [
-            self.xSpan[0], self.xSpan[1],
-            self.ySpan[0], self.ySpan[1]]
-        plt.imshow(z, origin='lower', extent=extent, aspect='equal')
-        plt.colorbar()
-        plt.show()
 
     def showStats(self, totalTime, stats):
         x = np.asarray(stats)
@@ -385,7 +411,7 @@ class Runner(object):
         print "Total on main:\t{:7.2f} seconds".format(totalTime)
         diffs = 1000*(x[:,0] - x[:,1])
         mean = np.mean(diffs)
-        print "Mean worker-to-process overhead (ms per call): {:0.7f}".format(
+        print "Mean worker-to-process overhead (ms/call): {:0.7f}".format(
             mean)
 
 
@@ -394,7 +420,16 @@ def run(*args, **kw):
     Call with [-s,] Nx, xMin, xMax, yMin, yMax[, filePath[, N_values]]
 
     @keyword callStats: Set C{True} to print stats about calls.
+
+    @keyword stopWhenDone: Set C{True} to stop the reactor when done.
     """
+    def reallyRun():
+        runner = Runner(*newArgs, **kw)
+        d = runner.run(*args[5:])
+        if stopWhenDone:
+            d.addCallback(lambda _: reactor.stop())
+        return d
+    
     if not args:
         args = sys.argv[1:]
     if '-s' in args:
@@ -405,8 +440,10 @@ def run(*args, **kw):
         sys.exit(1)
     newArgs = [int(args[0])]
     newArgs.extend([float(x) for x in args[1:5]])
-    Runner(*newArgs, **kw).run(*args[5:])
+    stopWhenDone = kw.pop('stopWhenDone', False)
+    reactor.callWhenRunning(reallyRun)
+    reactor.run()
 
 
 if __name__ == '__main__':
-    run()
+    run(stopWhenDone=True)
