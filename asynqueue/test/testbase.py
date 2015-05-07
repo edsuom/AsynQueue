@@ -25,8 +25,8 @@ Intelligent import, Mock objects, and an improved TestCase for AsynQueue
 import re, sys, os.path, time, random
 
 from zope.interface import implements
-from twisted.internet import reactor, defer
-from twisted.internet.interfaces import IConsumer
+from twisted.internet import reactor, defer, task
+from twisted.internet.interfaces import IPushProducer, IConsumer
 
 from twisted.trial import unittest
 
@@ -116,6 +116,60 @@ class ProcessProtocol(MsgBase):
         self.msg("Process Ended")
 
 
+class RangeProducer(object):
+    """
+    Produces an integer range of values like C{xrange}.
+
+    Fires a C{Deferred} accessible via my I{d} attribute when the
+    range has been produced.
+    """
+    implements(IPushProducer)
+
+    def __init__(self, consumer, N, interval):
+        """
+        Constructs an instance of me to produce a range of I{N} integer
+        values with the specified I{interval} between them.
+        """
+        if not IConsumer.providedBy(consumer):
+            raise errors.ImplementationError(
+                "Object {} isn't a consumer".format(repr(consumer)))
+        consumer.registerProducer(self, True)
+        self.consumer = consumer
+        self.k, self.N = 0, N
+        self.interval = interval
+        self.t0 = time.time()
+        self.d = defer.Deferred()
+        self.produce = True
+        self.setNextCall()
+
+    def setNextCall(self):
+        if not hasattr(self, 'dc') or not self.dc.active():
+            self.dc = reactor.callLater(self.interval, self.nextValue)
+
+    def stopProducing(self):
+        self.produce = False
+        if self.dc.active():
+            self.dc.cancel()
+
+    def pauseProducing(self):
+        self.stopProducing()
+
+    def resumeProducing(self):
+        self.produce = True
+        self.setNextCall()
+
+    def nextValue(self):
+        if self.k < self.N:
+            self.consumer.write(self.k)
+            print "NV"
+            self.k += 1
+        if self.k == self.N:
+            self.consumer.unregisterProducer()
+            self.d.callback(time.time() - self.t0)
+        elif self.produce:
+            self.setNextCall()
+
+        
 class IterationConsumer(MsgBase):
     implements(IConsumer)
 

@@ -29,6 +29,8 @@ import threading
 from zope.interface import implements
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
+from twisted.internet.interfaces import IConsumer
+
 
 from base import TaskQueue
 from interfaces import IWorker
@@ -321,3 +323,140 @@ class ThreadLooper(object):
         return self.dLock.stop()
 
         
+class Consumerator(object):
+    """
+    I act like an L{IConsumer} for your Twisted code and an iterator
+    for your blocking code running via a L{ThreadWorker}.
+    """
+    implements(IConsumer)
+
+    class IterationStopper:
+        pass
+    
+    def __init__(self):
+        self.readBuffer = []
+        self.dLock = util.DeferredLock()
+        self.tLock = threading.Lock()
+        self.tEvent = threading.Event()
+        self.cEvent = threading.Event()
+        self.thread = threading.Thread(name=repr(self), target=self.loop)
+        self.thread.start()
+    
+    def loop(self):
+        """
+        Runs a loop in a dedicated thread that waits for new
+        iterations. The loop exits when I get an instance of
+        L{self.IterationStopper}.
+        """
+        while True:
+            # Wait for an iteration from the IConsumer interface
+            print "CE-W"
+            self.cEvent.wait()
+            # Wait for the blocking-iterator thread to be ready for
+            # this iteration
+            print "TL-A"
+            self.tLock.acquire()        
+            # Get a local reference to the iteration value (before it
+            # is changed) and allow my producer to produce another one
+            # in the main thread
+            value = self.iterationValue
+            print "DL-R"
+            self.dLock.release()
+            # Signal the blocking-iterator thread that another
+            # iteration is ready.
+            print "TE-S"
+            self.tEvent.set()
+            if isinstance(value, self.IterationStopper):
+                # This was the post-iteration signal; we're done after
+                # the blocking-iterator thread gets done dealing with
+                # its StopIteration
+                print "TL-A"
+                self.tLock.acquire()
+                break
+    
+    # --- IConsumer implementation --------------------------------------------
+    
+    def registerProducer(self, producer, streaming):
+        """
+        L{IConsumer} implementation
+        """
+        if hasattr(self, 'producer'):
+            raise RuntimeError()
+        if not streaming:
+            raise TypeError("I only work with push producers")
+        self.producer = producer
+
+    def unregisterProducer(self):
+        """
+        L{IConsumer} implementation
+        """
+        def gotLock(null):
+            self.iterationValue = self.IterationStopper()
+            print "CE-S"
+            self.cEvent.set()
+        
+        if hasattr(self, 'producer'):
+            del self.producer
+        print "DL-A"
+        return self.dLock.acquire().addCallback(gotLock)
+
+    @defer.inlineCallbacks
+    def write(self, data):
+        """
+        Emits this chunk of I{data} from my blocking end as an iteration.
+        """
+        def handleData():
+            thisData = self.readBuffer.pop(0)
+            # "Wait" for my subthread to get done waiting for the
+            # blocking-iterator thread to process the last iteration
+            print "DL-A"
+            return self.dLock.acquire().addCallback(ready, thisData)
+
+        def ready(null, x):
+            # Give it the new iteration value and tell it one is ready
+            self.iterationValue = x
+            print "CE-S"
+            self.cEvent.set()
+
+        if not hasattr(self, 'producer'):
+            return
+        # Buffer this data
+        self.readBuffer.append(data)
+        # Tell the producer to hold off on any more iteration values
+        # for the moment while everything it's sent (and may yet send)
+        # gets processed
+        self.producer.pauseProducing()
+        while self.readBuffer:
+            yield handleData()
+        # The producer can now give me another iteration value
+        self.producer.resumeProducing()
+
+        
+    # Iterator implementation -------------------------------------------------
+    # Call in a *different* thread via ThreadWorker
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        # Wait for the next iteration to be produced
+        print "TE-W"
+        self.tEvent.wait()
+        # Get a local reference to the iteration value (before it is
+        # changed)
+        value = self.iterationValue
+        # Allow my iteration subthread to produce another iteration
+        print "TL-R"
+        self.tLock.release()
+        if isinstance(value, self.IterationStopper):
+            # We are done iterating
+            raise StopIteration
+        # This is a legit iteration value, return it. Since this
+        # method runs in the blocking-iterator thread, it won't
+        # get called again until the caller is ready for another
+        # iteration.
+        return value
+    
+    
+            
+

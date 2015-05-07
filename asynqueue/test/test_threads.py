@@ -26,7 +26,7 @@ from twisted.internet import defer, reactor
 
 from util import TestStuff
 import base, tasks, iteration, threads
-from testbase import deferToDelay, IterationConsumer, TestCase
+from testbase import deferToDelay, RangeProducer, IterationConsumer, TestCase
 
 
 class TaskMixin:
@@ -356,5 +356,41 @@ class TestThreadLooper(TestCase):
             valueList.append(value)
         self.assertEqual(len(valueList), 5)
 
+
+class TestConsumerator(TaskMixin, TestCase):
+    verbose = False
+
+    def setUp(self):
+        self.q = threads.ThreadQueue()
+        self.c = threads.Consumerator()
+
+    def tearDown(self):
+        return self.q.shutdown()
+
+    def _blockingIteratorUser(self, iterator):
+        self.values = []
+        for x in iterator:
+            print "BI: {}".format(x)
+            # Doesn't this just seem rude after using Twisted a while?
+            self.values.append(self._blockingTask(x))
+        return self.values
+
+    @defer.inlineCallbacks
+    def test_basics(self):
+        N = 3
+        totalTime = 2.0
+        producer = RangeProducer(self.c, N, totalTime/N)
+        values = yield self.q.call(self._blockingIteratorUser, self.c)
+        timeSpent = yield producer.d
+        self.msg(
+            "Consumed {:d} iterations in {:f} seconds",
+            len(values), timeSpent)
+        self.assertEqual(len(values), N)
+        self.assertEqual(values, range(0, 2*N, 2))
+
+        #self.assertAlmostEqual(timeSpent, totalTime, 0)
+
+        
+        
 
         
