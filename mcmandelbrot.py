@@ -129,6 +129,7 @@ import sys, time
 import weave
 from weave.base_info import custom_info
 import numpy as np
+import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 
 from twisted.internet import defer, reactor
@@ -239,6 +240,7 @@ class MandelbrotValuer(object):
     def __init__(self, N_values):
         self.N_values = N_values
         self.infoObj = my_info()
+        self.scale = 1.0 / N_values
     
     def __call__(self, crMin, crMax, N, ci):
         """
@@ -249,15 +251,17 @@ class MandelbrotValuer(object):
         @return: A 1-D C{NumPy} array of length I{N} containing the
           escape values as 16-bit integers.
         """
+        kmax = self.N_values - 1
+        quarterDiff = 0.25 * (crMax - crMin) / N
         x = np.linspace(crMin, crMax, N, dtype=np.float64)
         y = np.zeros(N, dtype=np.int16)
-        kmax = self.N_values - 1
         # Compute the row vector of escape iterations
         weave.inline(
             self.code, self.vars,
             customize=self.infoObj, support_code=self.support_code)
-        # Invert so that the fastest escape has the max value
-        return kmax - y
+        # Invert the iteration values so that fastest escape has
+        # highest value, then scale to 0.0 - 1.0 range
+        return self.scale * (kmax - y)
 
 
 class ResultsManager(object):
@@ -266,17 +270,19 @@ class ResultsManager(object):
     everything in a thread via my own worker (and series) in the
     TaskQueue.
     """
-    def __init__(self, q):
+    colorMap = cm.jet
+    
+    def __init__(self, q, power):
         self.q = q
+        self.power = power
         self.q.attachWorker(asynqueue.ThreadWorker())
 
     def __len__(self):
         return self.z.size
         
-    def initArrays(self, Nx, Ny, N_values):
+    def init(self, Nx, Ny, N_values):
         def f_i():
-            self.counts = np.zeros(N_values, dtype=np.int16)
-            self.z = np.zeros((Ny, Nx), dtype=np.float16)
+            self.z = np.zeros((Ny, Nx))
         return self.q.call(f_i, series='thread')
 
     def handleRow(self, row, k):
@@ -285,13 +291,7 @@ class ResultsManager(object):
         index I{k}.
         """
         def f_hr():
-            self.z[k,:] = row
-            counts = np.bincount(row)
-            print "ROW COUNTS"
-            print self.counts
-            print "COUNTS"
-            print counts
-            self.counts[:counts.size] += counts
+            self.z[k,:] = np.power(row, self.power)
         return self.q.call(f_hr, series='thread')
 
     def plot(self, extent, imgFilePath=None):
@@ -299,15 +299,11 @@ class ResultsManager(object):
         Color-maps values in the 2D array I{z} and renders a pseudocolor plot.
         """
         def f_p():
-            total = np.sum(self.counts)
-            cc = np.empty(len(self.counts), dtype='float')
-            for k in xrange(len(self.counts)):
-                cc[k] = float(sum(self.counts[:k+1])) / total
-            for x in np.nditer(self.z, op_flags=['readwrite']):
-                x[...] = cc[int(x)]
             if imgFilePath:
-                plt.imsave(imgFilePath, self.z, origin='lower')
+                plt.imsave(
+                    imgFilePath, self.z, origin='lower', cmap=self.colorMap)
                 return
+            return self.colorMap
         return self.q.call(f_p, series='thread')
         
 
@@ -318,6 +314,7 @@ class Runner(object):
     @cvar N_processes: The number of processes to use, disregarded if
       I{useThread} is set C{True} in my constructor.
     """
+    power = 5.0
     N_values = 1000
     N_processes = 7
 
@@ -328,7 +325,7 @@ class Runner(object):
         self.stats = stats
         self.dt = asynqueue.DeferredTracker()
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
-        self.rm = ResultsManager(self.q)
+        self.rm = ResultsManager(self.q, self.power)
 
     @defer.inlineCallbacks
     def run(self, *args):
@@ -350,8 +347,7 @@ class Runner(object):
         """
         imgFilePath = args[0] if args else None
         N_values = int(args[1]) if len(args) > 1 else self.N_values
-        self.dt.put(
-            self.rm.initArrays(self.xSpan[2], self.ySpan[2], N_values))
+        self.dt.put(self.rm.init(self.xSpan[2], self.ySpan[2], N_values))
         t0 = time.time()
         N = yield self.compute(N_values)
         totalTime = time.time() - t0
@@ -363,12 +359,14 @@ class Runner(object):
         extent = [
             self.xSpan[0], self.xSpan[1],
             self.ySpan[0], self.ySpan[1]]
-        yield self.rm.plot(extent, imgFilePath)
-        fig = plt.figure()
-        plt.imshow(self.rm.z, origin='lower', extent=extent, aspect='equal')
-        plt.colorbar()
-        plt.show()
-
+        colorMap = yield self.rm.plot(extent, imgFilePath)
+        if colorMap:
+            fig = plt.figure()
+            plt.imshow(
+                self.rm.z,
+                origin='lower', extent=extent, aspect='equal', cmap=colorMap)
+            plt.colorbar()
+            plt.show()
         
     @defer.inlineCallbacks
     def compute(self, N_values):
@@ -436,7 +434,7 @@ def run(*args, **kw):
         kw['stats'] = True
         args.remove('-s')
     if len(args) < 5:
-        print "Arguments: N rMin rMax iMin iMax [imageFile]"
+        print "Arguments: N rMin rMax iMin iMax [imageFile [N_values]]"
         sys.exit(1)
     newArgs = [int(args[0])]
     newArgs.extend([float(x) for x in args[1:5]])
