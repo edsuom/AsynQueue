@@ -251,7 +251,7 @@ class MandelbrotValuer(object):
         @return: A 1-D C{NumPy} array of length I{N} containing the
           escape values as 16-bit integers.
         """
-        yy = np.zeros(N, dtype=np.float16)
+        yy = np.zeros(N)
         quarterDiff = 0.25 * (crMax - crMin) / N
         for dx, dy in (
                 ( 0.0,          0.0        ),
@@ -261,10 +261,11 @@ class MandelbrotValuer(object):
                 (+quarterDiff, +quarterDiff)):
             x = np.linspace(crMin+dx, crMax+dx, N, dtype=np.float64)
             y = self.computeValues(N, x, ci+dy)
-            yy += y.astype(np.float16)
+            yy += y.astype(np.float)
         # Invert the iteration values so that trapped points have zero
         # value, then scale to 0.0 - 1.0 range
-        return self.scale * (5*self.N_values - yy)
+        z = self.scale * (5*self.N_values - yy)
+        return z.astype(np.float16)
 
     def computeValues(self, N, x, ci):
         """
