@@ -26,7 +26,7 @@ import re, sys, os.path, time, random
 
 from zope.interface import implements
 from twisted.internet import reactor, defer, task
-from twisted.internet.interfaces import IPushProducer, IConsumer
+from twisted.internet.interfaces import IProducer, IConsumer
 
 from twisted.trial import unittest
 
@@ -123,9 +123,9 @@ class RangeProducer(object):
     Fires a C{Deferred} accessible via my I{d} attribute when the
     range has been produced.
     """
-    implements(IPushProducer)
+    implements(IProducer)
 
-    def __init__(self, consumer, N, interval):
+    def __init__(self, consumer, N, interval, streaming):
         """
         Constructs an instance of me to produce a range of I{N} integer
         values with the specified I{interval} between them.
@@ -133,41 +133,47 @@ class RangeProducer(object):
         if not IConsumer.providedBy(consumer):
             raise errors.ImplementationError(
                 "Object {} isn't a consumer".format(repr(consumer)))
-        consumer.registerProducer(self, True)
+        self.produce = False
+        self.interval = interval
         self.consumer = consumer
         self.k, self.N = 0, N
-        self.interval = interval
+        self.streaming = streaming
         self.t0 = time.time()
         self.d = defer.Deferred()
-        self.produce = True
-        self.setNextCall()
+        if streaming:
+            self.resumeProducing()
+        consumer.registerProducer(self, streaming)
 
     def setNextCall(self):
         if not hasattr(self, 'dc') or not self.dc.active():
             self.dc = reactor.callLater(self.interval, self.nextValue)
 
     def stopProducing(self):
-        self.produce = False
-        if self.dc.active():
-            self.dc.cancel()
+        self.produce = None
 
     def pauseProducing(self):
-        self.produce = False
+        if self.produce:
+            self.produce = False
 
     def resumeProducing(self):
-        self.produce = True
+        if self.produce == False:
+            self.produce = True
+            self.setNextCall()
 
     def nextValue(self):
+        if self.produce == None:
+            if not self.d.called:
+                self.d.callback(time.time() - self.t0)
+            return
         self.setNextCall()
-        if not self.produce:
+        if self.produce == False:
             return
         if self.k < self.N:
             self.consumer.write(self.k)
             self.k += 1
         if self.k == self.N:
-            self.consumer.unregisterProducer()
             self.stopProducing()
-            self.d.callback(time.time() - self.t0)
+            self.consumer.unregisterProducer()
 
         
 class IterationConsumer(MsgBase):

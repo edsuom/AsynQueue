@@ -133,7 +133,10 @@ import numpy as np
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 
+from zope.interface import implements
 from twisted.internet import defer, reactor
+from twisted.internet.interfaces import IPushProducer
+
 
 import asynqueue
 from asynqueue.threads import Consumerator

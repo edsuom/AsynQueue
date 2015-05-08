@@ -22,6 +22,7 @@ Unit tests for asynqueue.threads
 """
 
 import time, random, threading
+from contextlib import contextmanager
 from twisted.internet import defer, reactor
 
 from util import TestStuff
@@ -358,7 +359,7 @@ class TestThreadLooper(TestCase):
 
 
 class TestConsumerator(TaskMixin, TestCase):
-    verbose = False
+    verbose = True
 
     def setUp(self):
         self.q = threads.ThreadQueue()
@@ -373,12 +374,12 @@ class TestConsumerator(TaskMixin, TestCase):
             # Doesn't this just seem rude after using Twisted a while?
             self.values.append(self._blockingTask(x))
         return self.values
-
+        
     @defer.inlineCallbacks
-    def test_basics(self):
+    def test_withPushProducer(self):
         N = 10
         totalTime = 2.0
-        producer = RangeProducer(self.c, N, totalTime/N)
+        producer = RangeProducer(self.c, N, totalTime/N, True)
         values = yield self.q.call(self._blockingIteratorUser, self.c)
         timeSpent = yield producer.d
         self.msg(
@@ -386,9 +387,23 @@ class TestConsumerator(TaskMixin, TestCase):
             len(values), timeSpent)
         self.assertEqual(len(values), N)
         self.assertEqual(values, range(0, 2*N, 2))
-        self.assertAlmostEqual(timeSpent, totalTime, 2)
+        self.assertAlmostEqual(timeSpent, 1.1*totalTime, 2)
         yield self.c.deferUntilDone()
 
+    @defer.inlineCallbacks
+    def test_withPullProducer(self):
+        N = 20
+        totalTime = 2.0
+        producer = RangeProducer(self.c, N, totalTime/N, False)
+        values = yield self.q.call(self._blockingIteratorUser, self.c)
+        timeSpent = yield producer.d
+        self.msg(
+            "Consumed {:d} iterations in {:f} seconds",
+            len(values), timeSpent)
+        self.assertEqual(len(values), N)
+        self.assertEqual(values, range(0, 2*N, 2))
+        self.assertAlmostEqual(timeSpent, 1.05*totalTime, 2)
+        yield self.c.deferUntilDone()
         
         
 

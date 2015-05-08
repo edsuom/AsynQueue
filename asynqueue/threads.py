@@ -338,6 +338,10 @@ class Consumerator(object):
           w.write(request, c)
           return server.NOT_DONE_YET
 
+    I work with either an I{IPushProducer} or an I{IPullProducer}. You
+    can construct me with an instance of the former and I'll get
+    started right away. Otherwise, call my L{registerProducer} method
+    with the producer and whether it is streaming (push) or not.
     """
     implements(IConsumer)
 
@@ -376,7 +380,8 @@ class Consumerator(object):
             # Release the consumer interface to write another
             # iteration
             self.dLock.release()
-            # Wait until it's safe to overwrite the blocking-iterator loop's copy
+            # Wait until it's safe to overwrite the blocking-iterator
+            # loop's copy
             self.nLock.acquire()
             # Now do so and release it to work on the new copy
             self.bIterationValue = value
@@ -392,7 +397,8 @@ class Consumerator(object):
 
     def deferUntilDone(self):
         """
-        Returns a deferred that fires when I am done consuming iterations.
+        Returns a C{Deferred} that fires when I am done consuming
+        iterations.
         """
         d = defer.Deferred()
         self.d.chainDeferred(d)
@@ -406,9 +412,10 @@ class Consumerator(object):
         """
         if hasattr(self, 'producer'):
             raise RuntimeError()
-        if not streaming:
-            raise TypeError("I only work with push producers")
         self.producer = producer
+        self.streaming = streaming
+        if not streaming:
+            producer.resumeProducing()
         self.thread = threading.Thread(name=repr(self), target=self.loop)
         self.thread.start()
 
@@ -429,13 +436,14 @@ class Consumerator(object):
             # Release my iteration-consuming loop to work on this next
             # iteration value
             self.cLock.release()
-            # The producer can write another iteration now
+            # The producer can and should write another iteration now
             self.producer.resumeProducing()
 
-        # Tell the producer to hold off on any more iteration values
-        # for the moment while everything it's sent (and may yet send)
-        # gets processed
-        self.producer.pauseProducing()
+        if self.streaming:
+            # The producer is a IPushProducer, so tell it to hold off
+            # on any more iteration values for the moment while
+            # everything it's sent (and may yet send) gets processed
+            self.producer.pauseProducing()
         # Handle the data in the order received
         return self.dLock.acquire().addCallback(handleData, data)
         
