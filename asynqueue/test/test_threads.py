@@ -377,6 +377,7 @@ class TestConsumerator(TaskMixin, TestCase):
 
     @defer.inlineCallbacks
     def test_basics(self):
+        print "\n\n"
         N = 3
         totalTime = 2.0
         producer = RangeProducer(self.c, N, totalTime/N)
@@ -387,8 +388,7 @@ class TestConsumerator(TaskMixin, TestCase):
             len(values), timeSpent)
         self.assertEqual(len(values), N)
         self.assertEqual(values, range(0, 2*N, 2))
-
-        #self.assertAlmostEqual(timeSpent, totalTime, 0)
+        self.assertAlmostEqual(timeSpent, totalTime, 0)
 
         
         

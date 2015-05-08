@@ -152,22 +152,23 @@ class RangeProducer(object):
             self.dc.cancel()
 
     def pauseProducing(self):
-        self.stopProducing()
+        self.produce = False
 
     def resumeProducing(self):
         self.produce = True
-        self.setNextCall()
 
     def nextValue(self):
+        self.setNextCall()
+        if not self.produce:
+            return
         if self.k < self.N:
             self.consumer.write(self.k)
-            print "NV"
+            print "NV: {}".format(self.k)
             self.k += 1
         if self.k == self.N:
             self.consumer.unregisterProducer()
+            self.stopProducing()
             self.d.callback(time.time() - self.t0)
-        elif self.produce:
-            self.setNextCall()
 
         
 class IterationConsumer(MsgBase):

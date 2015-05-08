@@ -339,8 +339,6 @@ class Consumerator(object):
         self.tLock = threading.Lock()
         self.tEvent = threading.Event()
         self.cEvent = threading.Event()
-        self.thread = threading.Thread(name=repr(self), target=self.loop)
-        self.thread.start()
     
     def loop(self):
         """
@@ -352,27 +350,30 @@ class Consumerator(object):
             # Wait for an iteration from the IConsumer interface
             print "CE-W"
             self.cEvent.wait()
+            self.cEvent.clear()
             # Wait for the blocking-iterator thread to be ready for
             # this iteration
-            print "TL-A"
-            self.tLock.acquire()        
-            # Get a local reference to the iteration value (before it
-            # is changed) and allow my producer to produce another one
-            # in the main thread
+            print "TL-A (iteration)"
+            self.tLock.acquire()     
+            # Get a local reference to the iteration value, before it
+            # is changed
             value = self.iterationValue
-            print "DL-R"
-            self.dLock.release()
-            # Signal the blocking-iterator thread that another
-            # iteration is ready.
-            print "TE-S"
+            print "IV: {}".format(value)
+            # Let the blocking-iterator thread proceed with this
+            # iteration
             self.tEvent.set()
             if isinstance(value, self.IterationStopper):
                 # This was the post-iteration signal; we're done after
                 # the blocking-iterator thread gets done dealing with
                 # its StopIteration
-                print "TL-A"
+                print "TL-A (post-iteration)"
                 self.tLock.acquire()
                 break
+            # The main-thread consumer interface may now overwrite
+            # self.iterationValue and set cEvent
+            print "DL-R"
+            self.dLock.release()
+        print "DONE"
     
     # --- IConsumer implementation --------------------------------------------
     
@@ -384,21 +385,20 @@ class Consumerator(object):
             raise RuntimeError()
         if not streaming:
             raise TypeError("I only work with push producers")
+        print "RP"
         self.producer = producer
+        self.thread = threading.Thread(name=repr(self), target=self.loop)
+        self.thread.start()
 
     def unregisterProducer(self):
         """
         L{IConsumer} implementation
         """
-        def gotLock(null):
-            self.iterationValue = self.IterationStopper()
-            print "CE-S"
-            self.cEvent.set()
-        
-        if hasattr(self, 'producer'):
-            del self.producer
-        print "DL-A"
-        return self.dLock.acquire().addCallback(gotLock)
+        def done(null):
+            if hasattr(self, 'producer'):
+                del self.producer
+        print "UP"
+        return self.write(self.IterationStopper()).addCallback(done)
 
     @defer.inlineCallbacks
     def write(self, data):
@@ -409,13 +409,13 @@ class Consumerator(object):
             thisData = self.readBuffer.pop(0)
             # "Wait" for my subthread to get done waiting for the
             # blocking-iterator thread to process the last iteration
-            print "DL-A"
+            print "DL-A: {}".format(thisData)
             return self.dLock.acquire().addCallback(ready, thisData)
 
         def ready(null, x):
             # Give it the new iteration value and tell it one is ready
             self.iterationValue = x
-            print "CE-S"
+            print "CE-S: {}".format(x)
             self.cEvent.set()
 
         if not hasattr(self, 'producer'):
@@ -442,11 +442,13 @@ class Consumerator(object):
         # Wait for the next iteration to be produced
         print "TE-W"
         self.tEvent.wait()
+        self.tEvent.clear()
         # Get a local reference to the iteration value (before it is
         # changed)
         value = self.iterationValue
-        # Allow my iteration subthread to produce another iteration
-        print "TL-R"
+        # My iteration subthread may now overwrite the value with that
+        # of another iteration or an IterationStopper
+        print "TL-R: {}".format(value)
         self.tLock.release()
         if isinstance(value, self.IterationStopper):
             # We are done iterating
