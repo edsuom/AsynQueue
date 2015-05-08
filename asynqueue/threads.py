@@ -326,15 +326,26 @@ class ThreadLooper(object):
 class Consumerator(object):
     """
     I act like an L{IConsumer} for your Twisted code and an iterator
-    for your blocking code running via a L{ThreadWorker}.
+    for your blocking code running via a L{ThreadWorker}. This is
+    handy when you are using a conventional library that relies on an
+    iterator as its input::
+
+      def render(request):
+          w = png.Writer()
+          c = asynqueue.Consumerator()
+          c.deferUntilDone().addCallback(lambda _: request.finish())
+          p = self.producePixelRows(c)
+          w.write(request, c)
+          return server.NOT_DONE_YET
+
     """
     implements(IConsumer)
 
     class IterationStopper:
         pass
     
-    def __init__(self):
-        self.readBuffer = []
+    def __init__(self, producer=None):
+        self.d = defer.Deferred()
         self.dLock = util.DeferredLock()
         # Locks for my iteration-consuming thread, the
         # blocking-iterator thread, and the next-iteration event
@@ -345,9 +356,11 @@ class Consumerator(object):
         # iteration is received
         self.cLock.acquire()
         self.bLock.acquire()
-        # Leave the next-iteration lock unlocked; the
+        # We leave the next-iteration lock unlocked; the
         # iteration-consuming thread will lock it to overwrite the
         # blocking-iterator thread's value of each iteration
+        if producer:
+            self.registerProducer(producer, True)
     
     def loop(self):
         """
@@ -372,7 +385,19 @@ class Consumerator(object):
                 # This was the post-iteration signal; this loop is now
                 # done.
                 break
-    
+        # Wait until we know the iteration stopper was noticed and the
+        # blocking iterations stopped.
+        self.nLock.acquire()
+        self.d.callback(None)
+
+    def deferUntilDone(self):
+        """
+        Returns a deferred that fires when I am done consuming iterations.
+        """
+        d = defer.Deferred()
+        self.d.chainDeferred(d)
+        return d
+        
     # --- IConsumer implementation --------------------------------------------
     
     def registerProducer(self, producer, streaming):
@@ -429,7 +454,8 @@ class Consumerator(object):
         # loop to do so
         self.nLock.release()
         if isinstance(value, self.IterationStopper):
-            # We are done iterating
+            # We are done iterating. The blocking caller will
+            # immediately exit its loop.
             raise StopIteration
         # This is a legit iteration value, return it. Since this
         # method runs in the blocking-iterator thread, it won't

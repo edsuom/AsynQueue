@@ -126,6 +126,7 @@ available.
 
 import sys, time
 
+import png
 import weave
 from weave.base_info import custom_info
 import numpy as np
@@ -135,6 +136,7 @@ import matplotlib.pyplot as plt
 from twisted.internet import defer, reactor
 
 import asynqueue
+from asynqueue.threads import Consumerator
 
 
 class my_info(custom_info):
@@ -306,6 +308,8 @@ class ResultsManager(object):
         Handles a I{row} (1-D array) from one of the processes at row
         index I{k}.
         """
+        # TODO: Do colormapping here and produce the row as an
+        # iteration to the png.Writer().write(...) method
         def f_hr():
             self.z[k,:] = np.power(row, self.power)
         return self.q.call(f_hr, series='thread')

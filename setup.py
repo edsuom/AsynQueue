@@ -31,7 +31,7 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version':'0.8.2',
+kw = {'version':'0.8.3',
       'license':'GPL',
       'platforms':'OS Independent',
 

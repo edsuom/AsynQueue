@@ -358,7 +358,7 @@ class TestThreadLooper(TestCase):
 
 
 class TestConsumerator(TaskMixin, TestCase):
-    verbose = True
+    verbose = False
 
     def setUp(self):
         self.q = threads.ThreadQueue()
@@ -387,6 +387,7 @@ class TestConsumerator(TaskMixin, TestCase):
         self.assertEqual(len(values), N)
         self.assertEqual(values, range(0, 2*N, 2))
         self.assertAlmostEqual(timeSpent, totalTime, 2)
+        yield self.c.deferUntilDone()
 
         
         
