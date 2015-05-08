@@ -358,7 +358,7 @@ class TestThreadLooper(TestCase):
 
 
 class TestConsumerator(TaskMixin, TestCase):
-    verbose = False
+    verbose = True
 
     def setUp(self):
         self.q = threads.ThreadQueue()
@@ -378,7 +378,7 @@ class TestConsumerator(TaskMixin, TestCase):
     @defer.inlineCallbacks
     def test_basics(self):
         print "\n\n"
-        N = 3
+        N = 10
         totalTime = 2.0
         producer = RangeProducer(self.c, N, totalTime/N)
         values = yield self.q.call(self._blockingIteratorUser, self.c)
@@ -388,7 +388,7 @@ class TestConsumerator(TaskMixin, TestCase):
             len(values), timeSpent)
         self.assertEqual(len(values), N)
         self.assertEqual(values, range(0, 2*N, 2))
-        self.assertAlmostEqual(timeSpent, totalTime, 0)
+        self.assertAlmostEqual(timeSpent, totalTime, 2)
 
         
         

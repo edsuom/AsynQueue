@@ -336,9 +336,19 @@ class Consumerator(object):
     def __init__(self):
         self.readBuffer = []
         self.dLock = util.DeferredLock()
-        self.tLock = threading.Lock()
-        self.tEvent = threading.Event()
-        self.cEvent = threading.Event()
+        # Locks for my iteration-consuming thread, the
+        # blocking-iterator thread, and the next-iteration event
+        self.cLock = threading.Lock()
+        self.bLock = threading.Lock()
+        self.nLock = threading.Lock()
+        # Lock both of my iteration-processing loops until an
+        # iteration is received
+        print "CL/BL-A (init)"
+        self.cLock.acquire()
+        self.bLock.acquire()
+        # Leave the next-iteration lock unlocked; the
+        # iteration-consuming thread will lock it to overwrite the
+        # blocking-iterator thread's value of each iteration
     
     def loop(self):
         """
@@ -348,31 +358,23 @@ class Consumerator(object):
         """
         while True:
             # Wait for an iteration from the IConsumer interface
-            print "CE-W"
-            self.cEvent.wait()
-            self.cEvent.clear()
-            # Wait for the blocking-iterator thread to be ready for
-            # this iteration
-            print "TL-A (iteration)"
-            self.tLock.acquire()     
-            # Get a local reference to the iteration value, before it
-            # is changed
-            value = self.iterationValue
-            print "IV: {}".format(value)
-            # Let the blocking-iterator thread proceed with this
+            print "CL-A"
+            self.cLock.acquire()
+            # Get a copy of the value
+            value = self.cIterationValue
+            # Release the consumer interface to write another
             # iteration
-            self.tEvent.set()
-            if isinstance(value, self.IterationStopper):
-                # This was the post-iteration signal; we're done after
-                # the blocking-iterator thread gets done dealing with
-                # its StopIteration
-                print "TL-A (post-iteration)"
-                self.tLock.acquire()
-                break
-            # The main-thread consumer interface may now overwrite
-            # self.iterationValue and set cEvent
-            print "DL-R"
+            print "DL-R: {}".format(value)
             self.dLock.release()
+            # Wait until it's safe to overwrite the blocking-iterator loop's copy
+            self.nLock.acquire()
+            # Now do so and release it to work on the new copy
+            self.bIterationValue = value
+            self.bLock.release()
+            if isinstance(value, self.IterationStopper):
+                # This was the post-iteration signal; this loop is now
+                # done.
+                break
         print "DONE"
     
     # --- IConsumer implementation --------------------------------------------
@@ -394,43 +396,30 @@ class Consumerator(object):
         """
         L{IConsumer} implementation
         """
-        def done(null):
-            if hasattr(self, 'producer'):
-                del self.producer
         print "UP"
-        return self.write(self.IterationStopper()).addCallback(done)
+        if not hasattr(self, 'producer'):
+            return
+        return self.write(self.IterationStopper())
 
-    @defer.inlineCallbacks
     def write(self, data):
         """
         Emits this chunk of I{data} from my blocking end as an iteration.
         """
-        def handleData():
-            thisData = self.readBuffer.pop(0)
-            # "Wait" for my subthread to get done waiting for the
-            # blocking-iterator thread to process the last iteration
-            print "DL-A: {}".format(thisData)
-            return self.dLock.acquire().addCallback(ready, thisData)
+        def handleData(null, x):
+            self.cIterationValue = x
+            # Release my iteration-consuming loop to work on this next
+            # iteration value
+            print "CL-R: {}".format(x)
+            self.cLock.release()
+            # The producer can write another iteration now
+            self.producer.resumeProducing()
 
-        def ready(null, x):
-            # Give it the new iteration value and tell it one is ready
-            self.iterationValue = x
-            print "CE-S: {}".format(x)
-            self.cEvent.set()
-
-        if not hasattr(self, 'producer'):
-            return
-        # Buffer this data
-        self.readBuffer.append(data)
         # Tell the producer to hold off on any more iteration values
         # for the moment while everything it's sent (and may yet send)
         # gets processed
         self.producer.pauseProducing()
-        while self.readBuffer:
-            yield handleData()
-        # The producer can now give me another iteration value
-        self.producer.resumeProducing()
-
+        # Handle the data in the order received
+        return self.dLock.acquire().addCallback(handleData, data)
         
     # Iterator implementation -------------------------------------------------
     # Call in a *different* thread via ThreadWorker
@@ -440,16 +429,13 @@ class Consumerator(object):
 
     def next(self):
         # Wait for the next iteration to be produced
-        print "TE-W"
-        self.tEvent.wait()
-        self.tEvent.clear()
-        # Get a local reference to the iteration value (before it is
-        # changed)
-        value = self.iterationValue
-        # My iteration subthread may now overwrite the value with that
-        # of another iteration or an IterationStopper
-        print "TL-R: {}".format(value)
-        self.tLock.release()
+        print "BL-A"
+        self.bLock.acquire()
+        # Get a local reference to the iteration value
+        value = self.bIterationValue
+        # Now it can be changed, so release my iteration-consuming
+        # loop to do so
+        self.nLock.release()
         if isinstance(value, self.IterationStopper):
             # We are done iterating
             raise StopIteration
@@ -458,7 +444,3 @@ class Consumerator(object):
         # get called again until the caller is ready for another
         # iteration.
         return value
-    
-    
-            
-
