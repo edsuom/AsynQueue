@@ -370,14 +370,12 @@ class TestConsumerator(TaskMixin, TestCase):
     def _blockingIteratorUser(self, iterator):
         self.values = []
         for x in iterator:
-            print "BI: {}".format(x)
             # Doesn't this just seem rude after using Twisted a while?
             self.values.append(self._blockingTask(x))
         return self.values
 
     @defer.inlineCallbacks
     def test_basics(self):
-        print "\n\n"
         N = 10
         totalTime = 2.0
         producer = RangeProducer(self.c, N, totalTime/N)

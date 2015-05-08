@@ -163,7 +163,6 @@ class RangeProducer(object):
             return
         if self.k < self.N:
             self.consumer.write(self.k)
-            print "NV: {}".format(self.k)
             self.k += 1
         if self.k == self.N:
             self.consumer.unregisterProducer()

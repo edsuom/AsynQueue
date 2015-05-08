@@ -343,7 +343,6 @@ class Consumerator(object):
         self.nLock = threading.Lock()
         # Lock both of my iteration-processing loops until an
         # iteration is received
-        print "CL/BL-A (init)"
         self.cLock.acquire()
         self.bLock.acquire()
         # Leave the next-iteration lock unlocked; the
@@ -358,13 +357,11 @@ class Consumerator(object):
         """
         while True:
             # Wait for an iteration from the IConsumer interface
-            print "CL-A"
             self.cLock.acquire()
             # Get a copy of the value
             value = self.cIterationValue
             # Release the consumer interface to write another
             # iteration
-            print "DL-R: {}".format(value)
             self.dLock.release()
             # Wait until it's safe to overwrite the blocking-iterator loop's copy
             self.nLock.acquire()
@@ -375,7 +372,6 @@ class Consumerator(object):
                 # This was the post-iteration signal; this loop is now
                 # done.
                 break
-        print "DONE"
     
     # --- IConsumer implementation --------------------------------------------
     
@@ -387,7 +383,6 @@ class Consumerator(object):
             raise RuntimeError()
         if not streaming:
             raise TypeError("I only work with push producers")
-        print "RP"
         self.producer = producer
         self.thread = threading.Thread(name=repr(self), target=self.loop)
         self.thread.start()
@@ -396,7 +391,6 @@ class Consumerator(object):
         """
         L{IConsumer} implementation
         """
-        print "UP"
         if not hasattr(self, 'producer'):
             return
         return self.write(self.IterationStopper())
@@ -409,7 +403,6 @@ class Consumerator(object):
             self.cIterationValue = x
             # Release my iteration-consuming loop to work on this next
             # iteration value
-            print "CL-R: {}".format(x)
             self.cLock.release()
             # The producer can write another iteration now
             self.producer.resumeProducing()
@@ -429,7 +422,6 @@ class Consumerator(object):
 
     def next(self):
         # Wait for the next iteration to be produced
-        print "BL-A"
         self.bLock.acquire()
         # Get a local reference to the iteration value
         value = self.bIterationValue
