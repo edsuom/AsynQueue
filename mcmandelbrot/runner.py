@@ -127,8 +127,6 @@ import png
 import weave
 from weave.base_info import custom_info
 import numpy as np
-import matplotlib.cm as cm
-import matplotlib.pyplot as plt
 
 from zope.interface import implements
 from twisted.internet import defer, reactor
@@ -156,6 +154,9 @@ class ImageBuilder(object):
         self.produce = True
 
     def runWriter(self):
+        """
+        Runs the blocking PNG writer in the queue via a thread worker.
+        """
         def func():
             writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
             writer.write(fh, self.consumerator)
@@ -167,11 +168,12 @@ class ImageBuilder(object):
         Handles a I{row} (unsigned byte array of RGB triples) from one of
         the processes at row index I{k}.
         """
+        print "HR: {:d} vs. {:d}: {}".format(k, self.rowCount, self.produce)
         if k == self.rowCount and self.produce:
             self.consumerator.write(row)
             self.rowCount += 1
             return
-        if self.produce = None:
+        if self.produce is None:
             return
         self.rowBuffer[k] = row
 
@@ -182,6 +184,7 @@ class ImageBuilder(object):
         self.produce = False
 
     def resumeProducing(self):
+        print "RP: {:d}".format(len(self.rowBuffer))
         while self.rowCount in self.rowBuffer:
             if not self.produce:
                 return
@@ -200,15 +203,16 @@ class Runner(object):
     power = 5.0
     N_values = 1000
     N_processes = 7
+    N_threads = 1
 
     def __init__(self, N_values=None, stats=False):
         if N_values is None:
             N_values = self.N_values
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
-        self.q.attachWorker(asynqueue.ThreadWorker())
-        self.mv = MandelbrotValuer(N_values)
+        for k in xrange(self.N_threads):
+            self.q.attachWorker(asynqueue.ThreadWorker())
+        self.mv = MandelbrotValuer(N_values, self.power)
 
-    @defer.inlineCallbacks
     def run(self, fh, Nx, xMin, xMax, yMin, yMax):
         """
         Runs my L{compute} method to generate a PNG image of the
@@ -237,7 +241,7 @@ class Runner(object):
           written and you can close the file handle.
         """
         ib = ImageBuilder(self.q, fh, xSpan[2], ySpan[2])
-        dList = [self.ib.runWriter()]
+        dList = [ib.runWriter()]
         crMin, crMax, Nx = xSpan
         # "The pickle module keeps track of the objects it has already
         # serialized, so that later references to the same object t be
@@ -292,26 +296,47 @@ def run(*args, **kw):
     C{imageFile}. In that case, prints some stats about the
     multiprocessing computation to stdout.
 
-    @keyword stopWhenDone: Set C{True} to stop the reactor when done.
+    @keyword N_values: Integer number of possible values for
+      Mandelbrot points during iteration. Can set with the C{-N
+      values} arg instead.
+    
+    @keyword stopWhenDone: Set C{True} to stop the reactor when
+      done. If there is no output file, this is what happens anyhow,
+      since the PNG data is written to stdout.
     """
     def reallyRun():
-        runner = Runner(*newArgs, **kw)
-        d = runner.run(*args[5:])
+        runner = Runner(N_values, stats)
+        d = runner.run(fh, Nx, xMin, xMax, yMin, yMax)
         if stopWhenDone:
             d.addCallback(lambda _: reactor.stop())
         return d
-    
+
+    stopWhenDone = kw.pop('stopWhenDone', False)
     if not args:
         args = sys.argv[1:]
-    if '-s' in args:
-        kw['stats'] = True
-        args.remove('-s')
+    args = list(args)
+    # -N values
+    if '-N' in args:
+        k = args.index('-N')
+        args.pop(k)
+        N_values = args.pop(k)
+    else:
+        N_values = kw.get('N_values', None)
+    # -o <fileName>
+    if '-o' in args:
+        k = args.index('-o')
+        stats = True
+        args.pop(k)
+        fh = open(args.pop(k), 'w')
+    else:
+        stats = False
+        fh = sys.stdout
+        stopWhenDone = True
     if len(args) < 5:
-        print "Arguments: N rMin rMax iMin iMax [imageFile [N_values]]"
+        print "Arguments: N rMin rMax iMin iMax"
         sys.exit(1)
-    newArgs = [int(args[0])]
-    newArgs.extend([float(x) for x in args[1:5]])
-    stopWhenDone = kw.pop('stopWhenDone', False)
+    Nx = int(args[0])
+    xMin, xMax, yMin, yMax = [float(x) for x in args[1:5]]
     reactor.callWhenRunning(reallyRun)
     reactor.run()
 
