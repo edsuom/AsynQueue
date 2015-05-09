@@ -148,19 +148,19 @@ class ImageBuilder(object):
     """
     implements(IPushProducer)
     
-    def __init__(self, q):
-        self.q = q
-        self.q.attachWorker(asynqueue.ThreadWorker())
+    def __init__(self, q, fh, Nx, Ny):
+        self.writeConfig = q, fh, Nx, Ny
         self.rowCount = 0
         self.rowBuffer = {}
         self.consumerator = Consumerator(self)
         self.produce = True
 
-    def runWriter(self, fh, Nx, Ny):
+    def runWriter(self):
         def func():
             writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
             writer.write(fh, self.consumerator)
-        return self.q.call(func, series='thread')
+        q, fh, Nx, Ny = self.writeConfig
+        return q.call(func, series='thread')
         
     def handleRow(self, row, k):
         """
@@ -201,62 +201,53 @@ class Runner(object):
     N_values = 1000
     N_processes = 7
 
-    def __init__(self, Nx, xMin, xMax, yMin, yMax, stats=False):
-        self.xSpan = (xMin, xMax, Nx)
-        Ny = int(Nx * (yMax - yMin) / (xMax - xMin))
-        self.ySpan = (yMin, yMax, Ny)
-        self.stats = stats
-        self.dt = asynqueue.DeferredTracker()
+    def __init__(self, N_values=None, stats=False):
+        if N_values is None:
+            N_values = self.N_values
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
-        self.ib = ImageBuilder(self.q)
+        self.q.attachWorker(asynqueue.ThreadWorker())
+        self.mv = MandelbrotValuer(N_values)
 
     @defer.inlineCallbacks
-    def run(self, *args):
+    def run(self, fh, Nx, xMin, xMax, yMin, yMax):
+        """
+        Runs my L{compute} method to generate a PNG image of the
+        Mandelbrot Set and write it to the file handle or
+        write-capable object I{fh}.
+
+        @return: A C{Deferred} that fires with the total elasped time
+          for the computation.
+        """
+        def done(null):
+            return time.time() - t0
+            
+        t0 = time.time()
+        xSpan = (xMin, xMax, Nx)
+        Ny = int(Nx * (yMax - yMin) / (xMax - xMin))
+        ySpan = (yMin, yMax, Ny)
+        return self.compute(fh, xSpan, ySpan).addCallback(done)
+        
+    def compute(self, fh, xSpan, ySpan):
         """
         Computes the Mandelbrot Set under C{Twisted} and generates a
-        pretty image.
+        pretty image, written as a PNG image to the supplied file
+        handle I{fh} one row at a time.
 
-        @param imgFilePath: The filename for saving the image instead
-          of displaying it. PNG format suggested.
-        @type imgFilePath: First argument, if any, a string.
-
-        @param N_values: The number of possible discrete values for
-          the result, i.e., the number of times to try iterations of
-          M{z = z^2 + c} to see if escape is reached and determine
-          that C{c} lies outside the Mandelbrot set.
-        @type N_values: Second argument, if any, an integer. Default
-          is 1000.
-        
+        @return: A C{Deferred} that fires when the image is completely
+          written and you can close the file handle.
         """
-        imgFilePath = args[0] if args else None
-        N_values = int(args[1]) if len(args) > 1 else self.N_values
-        self.dt.put(self.rm.init(self.xSpan[2], self.ySpan[2], N_values))
-        t0 = time.time()
-        N = yield self.compute(N_values)
-        totalTime = time.time() - t0
-        print "Computed {:d} values in {:1.1f} seconds.".format(
-            N, totalTime)
-        if self.stats:
-            stats = yield self.q.stats()
-            self.showStats(totalTime, stats)
-        
-    @defer.inlineCallbacks
-    def compute(self, N_values):
-        """
-        Computes the Mandelbrot Set for my complex region of interest and
-        returns a C{Deferred} that fires with a 2D C{NumPy} array of
-        normalized values.
-        """
-        yield self.dt.deferToAll()
-        crMin, crMax, Nx = self.xSpan
-        mv = MandelbrotValuer(N_values)
-        for k, ci in self.frange(*self.ySpan):
+        ib = ImageBuilder(self.q, fh, xSpan[2], ySpan[2])
+        dList = [self.ib.runWriter()]
+        crMin, crMax, Nx = xSpan
+        # "The pickle module keeps track of the objects it has already
+        # serialized, so that later references to the same object t be
+        # serialized again." --Python docs
+        for k, ci in self.frange(*ySpan):
             # Call one of my processes to get a row of values
-            d = self.q.call(mv, crMin, crMax, Nx, ci, series='process')
-            d.addCallback(self.rm.handleRow, k)
-            self.dt.put(d)
-        yield self.dt.deferToAll()
-        defer.returnValue(len(self.rm))
+            d = self.q.call(self.mv, crMin, crMax, Nx, ci, series='process')
+            d.addCallback(ib.handleRow, k)
+            dList.append(d)
+        return defer.DeferredList(dList)        
 
     def frange(self, minVal, maxVal, N):
         """
@@ -269,27 +260,37 @@ class Runner(object):
             yield k, val
             val += step
 
-    def showStats(self, totalTime, stats):
-        x = np.asarray(stats)
-        workerTime, processTime = [np.sum(x[:,k]) for k in (0,1)]
-        print "Run stats, with {:d} parallel ".format(self.N_processes) +\
-            "processes running {:d} calls\n{}".format(len(stats), "-"*70)
-        print "Process:\t{:7.2f} seconds, {:0.1f}% of main".format(
-            processTime, 100*processTime/totalTime)
-        print "Worker:\t\t{:7.2f} seconds, {:0.1f}% of main".format(
-            workerTime, 100*workerTime/totalTime)
-        print "Total on main:\t{:7.2f} seconds".format(totalTime)
-        diffs = 1000*(x[:,0] - x[:,1])
-        mean = np.mean(diffs)
-        print "Mean worker-to-process overhead (ms/call): {:0.7f}".format(
-            mean)
+    def showStats(self, N, totalTime):
+        """
+        Displays stats about the run on stdout
+        """
+        def gotStats(stats):
+            x = np.asarray(stats)
+            workerTime, processTime = [np.sum(x[:,k]) for k in (0,1)]
+            print "Run stats, with {:d} parallel ".format(self.N_processes) +\
+                "processes running {:d} calls\n{}".format(len(stats), "-"*70)
+            print "Process:\t{:7.2f} seconds, {:0.1f}% of main".format(
+                processTime, 100*processTime/totalTime)
+            print "Worker:\t\t{:7.2f} seconds, {:0.1f}% of main".format(
+                workerTime, 100*workerTime/totalTime)
+            print "Total on main:\t{:7.2f} seconds".format(totalTime)
+            diffs = 1000*(x[:,0] - x[:,1])
+            mean = np.mean(diffs)
+            print "Mean worker-to-process overhead (ms/call): {:0.7f}".format(
+                mean)
+
+        print "Computed {:d} values in {:1.1f} seconds.".format(
+                N, totalTime)
+        return self.q.stats().addCallback(gotStats)
 
 
 def run(*args, **kw):
     """
-    Call with [-s,] Nx, xMin, xMax, yMin, yMax[, filePath[, N_values]]
+    Call with C{[-N values] [-o imageFile] Nx, xMin, xMax, yMin, yMax}
 
-    @keyword callStats: Set C{True} to print stats about calls.
+    Writes PNG image to stdout unless -o is set, then saves it to
+    C{imageFile}. In that case, prints some stats about the
+    multiprocessing computation to stdout.
 
     @keyword stopWhenDone: Set C{True} to stop the reactor when done.
     """

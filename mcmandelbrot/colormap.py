@@ -24,7 +24,9 @@
 
 
 """
-Colormapping
+Colormapping with Kenneth Moreland's "Diverging Color Maps for
+Scientific Visualization",
+U{http://www.sandia.gov/~kmorel/documents/ColorMaps/}.
 """
 
 from array import array
@@ -36,14 +38,23 @@ class ColorMapper(object):
     """
     I map floating-point values in the range 0.0 to 1.0 to RGB byte
     triplets.
-    """
-    def __init__(self, fileName='colormap.csv'):
-        self.rgb = np.loadtxt(fileName, delimiter=',', dtype=np.uint8)
-        self.kMax = len(self.rgb) - 1
 
+    @cvar fileName: A file with a colormap of RGB triplets, one for
+      each of many linearly increasing values to be mapped, in CSV
+      format.
+    """
+    fileName = "colormap.csv"
+    
+    def __init__(self):
+        self.rgb = np.loadtxt(self.fileName, delimiter=',', dtype=np.uint8)
+        self.jMax = len(self) - 1
+
+    def __len__(self):
+        return len(self.rgb)
+        
     def __call__(self, x):
         result = array('B')
-        x = self.kMax * x
+        np.rint(self.jMax * x, x)
         for j in x.astype(np.uint16):
             result.extend(self.rgb[j,:])
         return result

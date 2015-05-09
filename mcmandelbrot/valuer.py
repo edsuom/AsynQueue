@@ -46,6 +46,9 @@ import asynqueue
 from asynqueue.threads import Consumerator
 
 
+from colormap import ColorMapper
+
+
 class my_info(custom_info):
     _extra_compile_args = ['-Wcpp']
 
@@ -76,7 +79,14 @@ class MandelbrotValuer(object):
     so that no-escape points (technically, the only points actually in
     the Mandelbrot Set) have zero value and points that escape
     immediately have the maximum value. This allows simple mapping to
-    the classic image with a black area in the middle.
+    the classic image with a black area in the middle. Then they are
+    scaled to the 0.0-1.0 range, and an exponent is applied to
+    emphasize changes at shorter escape times. Finally, they are
+    mapped to RGB triples and returned.
+
+    @ivar cm: A callable object that converts C{NumPy} array inputs in
+      the 0.0-1.0 range to an unsigned-int8 Python array of RGB
+      triples.
     """
     support_code = """
     bool region_test(double zr, double zr2, double zi2)
@@ -146,7 +156,7 @@ class MandelbrotValuer(object):
     """
     vars = ['x', 'y', 'ci', 'kmax']
 
-    def __init__(self, N_values, rgbMap, power):
+    def __init__(self, N_values, power):
         """
         Constructor:
 
@@ -156,15 +166,12 @@ class MandelbrotValuer(object):
           is evaluated with the values summed, the actual range of
           values for each point is 5 times greater.
 
-        @param rgbMap: A 256x3 float array containing the lower cutoff
-          for the scaled pixel value to have that color component.
-
         @param power: An exponent to be applied to each value after
           scaling to the 0.0-1.0 range, before color mapping.
         """
         self.N_values = N_values
-        self.rgbMap = rgbMap
         self.power = power
+        self.cm = ColorMapper()
         # The maximum possible escape value is mapped to 1.0, before
         # exponent and then color mapping are applied
         self.scale = 0.2 / N_values
@@ -176,8 +183,8 @@ class MandelbrotValuer(object):
         from I{crMin} to I{crMax}, with the constant imaginary
         component I{ci}.
 
-        @return: A 1-D C{NumPy} array of length I{N} containing the
-          escape values as 16-bit integers.
+        @return: A Python B-array I{3*N} containing RGB triples for an
+          image representing the escape values.
         """
         yy = np.zeros(N)
         quarterDiff = 0.25 * (crMax - crMin) / N
@@ -196,7 +203,7 @@ class MandelbrotValuer(object):
         # Apply exponent to emphasize details at higher escape values
         z = np.power(z, self.power)
         # Map to my RGB colormap
-        return z.astype(np.float16)
+        return self.cm(z)
 
     def computeValues(self, N, x, ci):
         """
