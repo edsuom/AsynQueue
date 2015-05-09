@@ -2,11 +2,11 @@
 #
 # mcmandelbrot
 #
-# An example module/program for AsynQueue:
+# An example package for AsynQueue:
 # Asynchronous task queueing based on the Twisted framework, with task
 # prioritization and a powerful worker interface.
 #
-# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# Copyright (C) 2015 by Edwin A. Suominen,
 # http://edsuom.com/AsynQueue
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,7 +24,7 @@
 
 
 """
-C{mcmandelbrot.py [-s] Nx xMin xMax yMin yMax [filePath [N_values]]}
+C{mcm [-s] Nx xMin xMax yMin yMax [N_values] >imagefile.png}
 
 An example of C{AsynQueue} in action. Can be fun to play with if you
 have a multicore CPU. You will need the following packages, which you
@@ -40,26 +40,23 @@ each if you want to save a gallery of images to view and zoom in
 on. Use PNG format to preserve the most detail.
 
 
-4000 -2.15 +0.70 -1.20 +1.20
-============================
+C{mcm 4000 -2.15 +0.70 -1.20 +1.20 >overview.png}
+
 Overview.
 
 
-2000 -0.757 -0.743 +0.004 +0.025
-================================
+C{mcm 2000 -0.757 -0.743 +0.004 +0.025 >spear.png}
 
 Tip of the upper "spear" separating the main part of the set from the
 big secondary bulb at the 9:00 position.
 
 
-3000 -1.43 -0.63 -0.365 +0.365
-==============================
+C{mcm 3000 -1.43 -0.63 -0.365 +0.365 >main-bulb.png}
 
 The big secondary bulb.
 
 
-3000 -1.30 -1.08 +0.192 +0.368
-==============================
+C{mcm 3000 -1.30 -1.08 +0.192 +0.368 >1100-bulb.png}
 
 The tertiary bulb at the 11:00 position on the big secondary bulb,
 with filaments and baby Mandelbrot sets sprouted along their
@@ -140,215 +137,57 @@ from twisted.internet.interfaces import IPushProducer
 import asynqueue
 from asynqueue.threads import Consumerator
 
-
-class my_info(custom_info):
-    _extra_compile_args = ['-Wcpp']
+from valuer import MandelbrotValuer
 
 
-class MandelbrotValuer(object):
+class ImageBuilder(object):
     """
-    Returns the values (number of iterations to escape, if at all,
-    inverted) of the Mandelbrot set at point cr + i*ci in the complex
-    plane, for a range of real values with a constant imaginary component.
-
-    C code adapted from Ilan Schnell's C{iterations} function at::
+    I build a PNG image from the computations, running the blocking
+    C{png.Writer.write} call in a thread via my own worker (and
+    series) in the TaskQueue.
+    """
+    implements(IPushProducer)
     
-      https://svn.enthought.com/svn/enthought/Mayavi/
-        branches/3.0.4/examples/mayavi/mandelbrot.py}
-
-    with periodicity testing and test-interval updating adapted from
-    Simpsons's code contribution at::
-
-      http://en.wikipedia.org/wiki/User:Simpsons_contributor/
-        periodicity_checking
-
-    and period-2 bulb testing from Wikibooks::
-
-      http://en.wikibooks.org/wiki/Fractals/
-        Iterations_in_the_complex_plane/Mandelbrot_set
-
-    The values are inverted, i.e., subtracted from the maximum value,
-    so that no-escape points (technically, the only points actually in
-    the Mandelbrot Set) have zero value and points that escape
-    immediately have the maximum value. This allows simple mapping to
-    the classic image with a black area in the middle.
-    """
-    support_code = """
-    bool region_test(double zr, double zr2, double zi2)
-    {
-        double q;
-        // (x+1)^2 + y2 < 1/16
-        if (zr2 + 2*zr + 1 + zi2 < 0.0625) return(true);
-        // q = (x-1/4)^2 + y^2
-        q = zr2 - 0.5*zr + 0.0625 + zi2;
-        // q*(q+(x-1/4)) < 1/4*y^2
-        q *= (q + zr - 0.25);
-        if (q < 0.25*zi2) return(true);
-        return(false);
-    }
-
-    int eval_point(int j, int N, double cr, double ci)
-    {
-        int k = 1;
-        double zr = cr;
-        double zi = ci;
-        double zr2 = zr * zr, zi2 = zi * zi;
-        // If we are in one of the two biggest "lakes," we need go no further
-        if (region_test(zr, zr2, zi2)) return N;
-        // Periodicity-testing variables
-        double zrp = 0, zip = 0;
-        int k_check = 0, N_check = 3, k_update = 0;
-        while ( k < N ) {
-            // Compute Z[n+1] = Z[n]^2 + C, with escape test
-            if ( zr2+zi2 > 16.0 ) return k;
-            zi = 2.0 * zr * zi + ci;
-            zr = zr2 - zi2 + cr;
-            k++;
-            // Periodicity test: If same point is reached as previously,
-            // there is no escape
-            if ( zr == zrp )
-                if ( zi == zip ) return N;
-            // Check if previous-value update needed
-            if ( k_check == N_check )
-            {
-                // Yes, do it
-                zrp = zr;
-                zip = zi;
-                // Check again after another N_check iterations, an
-                // interval that occasionally doubles
-                k_check = 0;
-                if ( k_update == 5 )
-                {
-                    k_update = 0;
-                    N_check *= 2;
-                }
-                k_update++;
-            }
-            k_check++;
-            // Compute squares for next iteration
-            zr2 = zr * zr;
-            zi2 = zi * zi;
-        }
-    }
-    """
-    code = """
-    #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-    int j, k;
-    for (j=0; j<Nx[0]; j++) {
-        // Evaluate the point
-        Y1(j) = eval_point(j, kmax, X1(j), ci);
-    }
-    """
-    vars = ['x', 'y', 'ci', 'kmax']
-
-    def __init__(self, N_values, rgbMap, power):
-        """
-        Constructor:
-
-        @param N_values: The number of iterations to try, hence the
-          range of integer values, for a single call to
-          L{computeValues}. Because a 5-point star around each point
-          is evaluated with the values summed, the actual range of
-          values for each point is 5 times greater.
-
-        @param rgbMap: A 256x3 float array containing the lower cutoff
-          for the scaled pixel value to have that color component.
-
-        @param power: An exponent to be applied to each value after
-          scaling to the 0.0-1.0 range, before color mapping.
-        """
-        self.N_values = N_values
-        self.rgbMap = rgbMap
-        self.power = power
-        # The maximum possible escape value is mapped to 1.0, before
-        # exponent and then color mapping are applied
-        self.scale = 0.2 / N_values
-        self.infoObj = my_info()
-    
-    def __call__(self, crMin, crMax, N, ci):
-        """
-        Computes values for I{N} points along the real (horizontal) axis
-        from I{crMin} to I{crMax}, with the constant imaginary
-        component I{ci}.
-
-        @return: A 1-D C{NumPy} array of length I{N} containing the
-          escape values as 16-bit integers.
-        """
-        yy = np.zeros(N)
-        quarterDiff = 0.25 * (crMax - crMin) / N
-        for dx, dy in (
-                ( 0.0,          0.0        ),
-                (-quarterDiff, -quarterDiff),
-                (+quarterDiff, -quarterDiff),
-                (-quarterDiff, +quarterDiff),
-                (+quarterDiff, +quarterDiff)):
-            x = np.linspace(crMin+dx, crMax+dx, N, dtype=np.float64)
-            y = self.computeValues(N, x, ci+dy)
-            yy += y.astype(np.float)
-        # Invert the iteration values so that trapped points have zero
-        # value, then scale to 0.0 - 1.0 range
-        z = self.scale * (5*self.N_values - yy)
-        # Apply exponent to emphasize details at higher escape values
-        z = np.power(z, self.power)
-        # Map to my RGB colormap
-        return z.astype(np.float16)
-
-    def computeValues(self, N, x, ci):
-        """
-        Computes and returns a row vector of escape iterations, integer
-        values.
-        """
-        kmax = self.N_values - 1
-        y = np.zeros(N, dtype=np.int16)
-        weave.inline(
-            self.code, self.vars,
-            customize=self.infoObj, support_code=self.support_code)
-        return y
-        
-
-class ResultsManager(object):
-    """
-    I manage the array results from the computations, running
-    everything in a thread via my own worker (and series) in the
-    TaskQueue.
-    """
-    colorMap = cm.jet
-    
-    def __init__(self, q, power):
+    def __init__(self, q):
         self.q = q
-        self.power = power
         self.q.attachWorker(asynqueue.ThreadWorker())
+        self.rowCount = 0
+        self.rowBuffer = {}
+        self.consumerator = Consumerator(self)
+        self.produce = True
 
-    def __len__(self):
-        return self.z.size
+    def runWriter(self, fh, Nx, Ny):
+        def func():
+            writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
+            writer.write(fh, self.consumerator)
+        return self.q.call(func, series='thread')
         
-    def init(self, Nx, Ny, N_values):
-        def f_i():
-            self.z = np.zeros((Ny, Nx))
-        return self.q.call(f_i, series='thread')
-
     def handleRow(self, row, k):
         """
-        Handles a I{row} (1-D array) from one of the processes at row
-        index I{k}.
+        Handles a I{row} (unsigned byte array of RGB triples) from one of
+        the processes at row index I{k}.
         """
-        # TODO: Do colormapping here and produce the row as an
-        # iteration to the png.Writer().write(...) method
-        def f_hr():
-            self.z[k,:] = np.power(row, self.power)
-        return self.q.call(f_hr, series='thread')
+        if k == self.rowCount and self.produce:
+            self.consumerator.write(row)
+            self.rowCount += 1
+            return
+        if self.produce = None:
+            return
+        self.rowBuffer[k] = row
 
-    def plot(self, extent, imgFilePath=None):
-        """
-        Color-maps values in the 2D array I{z} and renders a pseudocolor plot.
-        """
-        def f_p():
-            if imgFilePath:
-                plt.imsave(
-                    imgFilePath, self.z, origin='lower', cmap=self.colorMap)
+    def stopProducing(self):
+        self.produce = None
+
+    def pauseProducing(self):
+        self.produce = False
+
+    def resumeProducing(self):
+        while self.rowCount in self.rowBuffer:
+            if not self.produce:
                 return
-            return self.colorMap
-        return self.q.call(f_p, series='thread')
+            row = self.rowBuffer.pop(self.rowCount)
+            self.consumerator.write(row)
+            self.rowCount += 1
         
 
 class Runner(object):
@@ -369,7 +208,7 @@ class Runner(object):
         self.stats = stats
         self.dt = asynqueue.DeferredTracker()
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
-        self.rm = ResultsManager(self.q, self.power)
+        self.ib = ImageBuilder(self.q)
 
     @defer.inlineCallbacks
     def run(self, *args):
@@ -400,17 +239,6 @@ class Runner(object):
         if self.stats:
             stats = yield self.q.stats()
             self.showStats(totalTime, stats)
-        extent = [
-            self.xSpan[0], self.xSpan[1],
-            self.ySpan[0], self.ySpan[1]]
-        colorMap = yield self.rm.plot(extent, imgFilePath)
-        if colorMap:
-            fig = plt.figure()
-            plt.imshow(
-                self.rm.z,
-                origin='lower', extent=extent, aspect='equal', cmap=colorMap)
-            plt.colorbar()
-            plt.show()
         
     @defer.inlineCallbacks
     def compute(self, N_values):
