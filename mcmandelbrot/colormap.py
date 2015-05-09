@@ -38,12 +38,14 @@ class ColorMapper(object):
     triplets.
     """
     def __init__(self, fileName='colormap.csv'):
-        self.rgb = np.loadtxt(fileName, delimiter=',')
+        self.rgb = np.loadtxt(fileName, delimiter=',', dtype=np.uint8)
+        self.kMax = len(self.rgb) - 1
 
     def __call__(self, x):
         result = array('B')
-        for j in np.searchsorted(self.rgb[:,0], x):
-            result.extend(self.rgb[j,1:])
+        x = self.kMax * x
+        for j in x.astype(np.uint16):
+            result.extend(self.rgb[j,:])
         return result
 
     
