@@ -159,8 +159,14 @@ class ImageBuilder(object):
         Runs the blocking PNG writer in the queue via a thread worker.
         """
         def func():
-            writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
-            writer.write(fh, self.consumerator)
+            prevRow = -1
+            for row in self.consumerator:
+                if row != prevRow + 1:
+                    raise Exception("BOGUS: {:d} vs {:d}".format(row, prevRow))
+                prevRow = row
+            print "RW DONE"
+            #writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
+            #writer.write(fh, self.consumerator)
         def done(result):
             if isinstance(result, str):
                 print str
@@ -172,13 +178,23 @@ class ImageBuilder(object):
         Handles a I{row} (unsigned byte array of RGB triples) from one of
         the processes at row index I{k}.
         """
+        # DEBUG
+        row = k
+        print "-> {:d}, {:d}".format(self.rowCount, row)
         if k == self.rowCount and self.produce:
-            self.consumerator.write(row)
+            self.writeRow(row)
             return
         if self.produce is None:
             return
         self.rowBuffer[k] = row
+        self.flushBuffer()
 
+    def writeRow(self, row):
+        print "WR: {:d}, {:d}".format(self.rowCount, row)
+        self.consumerator.write(row)
+        self.rowCount += 1
+        self.flushBuffer()
+        
     def done(self):
         return self.d.addCallback(lambda _: self.consumerator.stop())
     
@@ -189,18 +205,21 @@ class ImageBuilder(object):
         self.produce = False
 
     def resumeProducing(self):
-        self.rowCount += 1
-        if self.rowCount == self.writeConfig[-1]:
-            # We're done
-            self.d.callback(None)
-            return
-        # More to write
-        if self.rowCount in self.rowBuffer:
-            row = self.rowBuffer.pop(self.rowCount)
-            # This results in another call here, with nesting
-            self.consumerator.write(row)
-        # More to produce
         self.produce = True
+
+    def flushBuffer(self):
+        print "RP: [{}]".format(','.join([str(x) for x in self.rowBuffer.keys()]))
+        if self.rowCount < self.writeConfig[-1]:
+            # More to write
+            if self.rowCount in self.rowBuffer:
+                row = self.rowBuffer.pop(self.rowCount)
+                # This will result in another call to resumeProducing
+                self.writeRow(row)
+        else:
+            # We're done
+            if not self.d.called:
+                print "DONE"
+                self.d.callback(None)
         
 
 class Runner(object):
@@ -264,8 +283,11 @@ class Runner(object):
             d.addCallback(ib.handleRow, k)
             dList.append(d)
         yield defer.DeferredList(dList)
+        print "A"
         yield ib.done()
+        print "B"
         yield dWriter
+        print "C"
 
     def frange(self, minVal, maxVal, N):
         """

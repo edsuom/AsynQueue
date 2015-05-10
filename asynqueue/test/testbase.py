@@ -125,7 +125,7 @@ class RangeProducer(object):
     """
     implements(IProducer)
 
-    def __init__(self, consumer, N, interval, streaming):
+    def __init__(self, consumer, N, streaming, minInterval, maxInterval=None):
         """
         Constructs an instance of me to produce a range of I{N} integer
         values with the specified I{interval} between them.
@@ -134,7 +134,8 @@ class RangeProducer(object):
             raise errors.ImplementationError(
                 "Object {} isn't a consumer".format(repr(consumer)))
         self.produce = False
-        self.interval = interval
+        self.minInterval = minInterval
+        self.maxInterval = maxInterval
         self.consumer = consumer
         self.k, self.N = 0, N
         self.streaming = streaming
@@ -144,6 +145,12 @@ class RangeProducer(object):
             self.resumeProducing()
         consumer.registerProducer(self, streaming)
 
+    @property
+    def interval(self):
+        if self.maxInterval is None:
+            return self.minInterval
+        return random.uniform(self.minInterval, self.maxInterval)
+        
     def setNextCall(self):
         if not hasattr(self, 'dc') or not self.dc.active():
             self.dc = reactor.callLater(self.interval, self.nextValue)

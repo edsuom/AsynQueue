@@ -31,8 +31,8 @@ from testbase import deferToDelay, RangeProducer, IterationConsumer, TestCase
 
 
 class TaskMixin:
-    def _blockingTask(self, x):
-        delay = random.uniform(0.0, 0.2)
+    def _blockingTask(self, x, maxTime=0.2):
+        delay = random.uniform(0.0, maxTime)
         self.msg(
             "Running {:f} sec. task in thread {}",
             delay, threading.currentThread().getName())
@@ -359,7 +359,7 @@ class TestThreadLooper(TestCase):
 
 
 class TestConsumerator(TaskMixin, TestCase):
-    verbose = True
+    verbose = False
 
     def setUp(self):
         self.q = threads.ThreadQueue()
@@ -368,18 +368,18 @@ class TestConsumerator(TaskMixin, TestCase):
     def tearDown(self):
         return self.q.shutdown()
 
-    def _blockingIteratorUser(self, iterator):
+    def _blockingIteratorUser(self, iterator, maxTime=0.2):
         self.values = []
         for x in iterator:
             # Doesn't this just seem rude after using Twisted a while?
-            self.values.append(self._blockingTask(x))
+            self.values.append(self._blockingTask(x, maxTime))
         return self.values
         
     @defer.inlineCallbacks
     def test_withPushProducer(self):
         N = 10
         totalTime = 2.0
-        producer = RangeProducer(self.c, N, totalTime/N, True)
+        producer = RangeProducer(self.c, N, True, totalTime/N)
         values = yield self.q.call(self._blockingIteratorUser, self.c)
         timeSpent = yield producer.d
         self.msg(
@@ -394,7 +394,7 @@ class TestConsumerator(TaskMixin, TestCase):
     def test_withPullProducer(self):
         N = 20
         totalTime = 2.0
-        producer = RangeProducer(self.c, N, totalTime/N, False)
+        producer = RangeProducer(self.c, N, False, totalTime/N)
         values = yield self.q.call(self._blockingIteratorUser, self.c)
         timeSpent = yield producer.d
         self.msg(
@@ -405,6 +405,15 @@ class TestConsumerator(TaskMixin, TestCase):
         self.assertAlmostEqual(timeSpent, 1.05*totalTime, 2)
         yield self.c.deferUntilDone()
         
-        
+    @defer.inlineCallbacks
+    def test_randomTiming(self):
+        N = 400
+        totalTime = 2.0
+        producer = RangeProducer(self.c, N, True, totalTime/(4*N), totalTime/N)
+        values = yield self.q.call(self._blockingIteratorUser, self.c, 0.03)
+        yield self.c.deferUntilDone()
+        self.assertEqual(len(values), N)
+        self.assertEqual(values, range(0, 2*N, 2))
+        yield producer.d
 
         

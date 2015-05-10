@@ -342,6 +342,8 @@ class Consumerator(object):
     can construct me with an instance of the former and I'll get
     started right away. Otherwise, call my L{registerProducer} method
     with the producer and whether it is streaming (push) or not.
+
+    @ivar runState: 'init', 'running', 'stopping', 'stopped'
     """
     implements(IConsumer)
 
@@ -357,7 +359,7 @@ class Consumerator(object):
         @param debug: Set C{True} to get a message printed before each
           iteration is returned from L{next}.
         """
-        self._stopped = False
+        self.runState = 'init'
         self.d = defer.Deferred()
         self.dLock = util.DeferredLock()
         # Locks for my iteration-consuming thread, the
@@ -382,6 +384,7 @@ class Consumerator(object):
         iterations. The loop exits when I get an instance of
         L{self.IterationStopper}.
         """
+        self.runState = 'running'
         while True:
             # Wait for an iteration from the IConsumer interface
             self.cLock.acquire()
@@ -402,8 +405,11 @@ class Consumerator(object):
                 break
         # Wait until we know the iteration stopper was noticed and the
         # blocking iterations stopped.
+        self.runState = 'stopping'
         self.nLock.acquire()
         self.d.callback(None)
+        self.runState = 'stopped'
+        del self.producer
 
     def deferUntilDone(self):
         """
@@ -439,18 +445,20 @@ class Consumerator(object):
 
     def write(self, data):
         """
-        Emits this chunk of I{data} from my blocking end as an iteration.
+        The producer calls this with a chunk of I{data}. It goes through
+        two stages to emerge from my blocking end as an iteration, via
+        L{next}.
         """
         def handleData(null, x):
             self.cIterationValue = x
-            # Release my iteration-consuming loop to work on this next
-            # iteration value
-            self.cLock.release()
-            # The producer can and should write another iteration now
-            if not self._stopped:
+            if self.runState == 'running':
+                # Release my iteration-consuming loop to work on the next
+                # iteration value
+                self.cLock.release()
+                # The producer can and should write another iteration now
                 self.producer.resumeProducing()
 
-        if self.streaming and not self._stopped:
+        if self.streaming and self.runState == 'running':
             # The producer is a IPushProducer, so tell it to hold off
             # on any more iteration values for the moment while
             # everything it's sent (and may yet send) gets processed
@@ -472,7 +480,7 @@ class Consumerator(object):
         if self.debug:
             if not hasattr(self, 'iCount'):
                 self.iCount = 0
-            print("Iteration {:03d}: \n{}".format(self.iCount, repr(value)))
+            print("{:03d}: {}".format(self.iCount, repr(value)))
             self.iCount += 1
         # Now it can be changed, so release my iteration-consuming
         # loop to do so
@@ -500,7 +508,6 @@ class Consumerator(object):
         letting whatever is producing the iterations know that there
         won't be any more of them.
         """
-        self._stopped = True
         if hasattr(self, 'producer'):
             self.producer.stopProducing()
         self.unregisterProducer()
