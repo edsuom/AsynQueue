@@ -511,3 +511,79 @@ class Consumerator(object):
         if hasattr(self, 'producer'):
             self.producer.stopProducing()
         return self.unregisterProducer()
+
+
+class OrderedItemProducer(object):
+    """
+    @ivar i: My L{Consumerator} instance, which acts like an iterator
+      for whatever function you supply to L{run}.
+    """
+    implements(IPushProducer)
+    
+    def __init__(self, q):
+        self.q = q
+        self.seriesID = hash(self)
+        self.k = 0
+        self.itemBuffer = {}
+        self.i = Consumerator(self)
+        self.produce = True
+        self.dt = util.DeferredTracker()
+
+    def start(self, f, *args, **kw):
+        """
+        """
+        def gotID(workerID):
+            self.workerID = workerID
+            kw['series'] = self.seriesID
+            self.d = self.q.call(f, *args, **kw)
+        worker = ThreadWorker([self.seriesID])
+        return self.q.attachWorker(worker).addCallback(gotID)
+        
+    def produceItem(self, f, *args, **kw):
+        """
+        @return: A C{Deferred} that fires with a 2-tuple containing the
+          item index values (0, 1, 2, ...) before and after the call to
+          I{f}.
+        """
+        def gotItem(item, k):
+            if k == self.k and self.produce:
+                self._writeItem(item)
+                return
+            if self.produce is None:
+                return
+            self.itemBuffer[k] = item
+            self._flushBuffer()
+            return k, self.k
+        kNow = self.k
+        d = defer.maybeDeferred(f, *args, **kw).addCallback(gotItem, kNow)
+        self.dt.put(d)
+        return d
+
+    @defer.inlineCallbacks
+    def stop(self):
+        yield self.dt.deferToAll()
+        yield self.i.stop()
+        result = yield self.d
+        yield self.q.detachWorker(self.workerID)
+        defer.returnValue(result)
+        
+    def _writeItem(self, item):
+        self.i.write(row)
+        self.k += 1
+        self._flushBuffer()
+
+    def _flushBuffer(self):
+        if self.k in self.itemBuffer:
+            item = self.itemBuffer.pop(self.k)
+            # This will result in another call to resumeProducing
+            self._writeItem(item)
+        
+    def stopProducing(self):
+        self.produce = None
+
+    def pauseProducing(self):
+        self.produce = False
+
+    def resumeProducing(self):
+        self.produce = True
+
