@@ -159,14 +159,8 @@ class ImageBuilder(object):
         Runs the blocking PNG writer in the queue via a thread worker.
         """
         def func():
-            prevRow = -1
-            for row in self.consumerator:
-                if row != prevRow + 1:
-                    raise Exception("BOGUS: {:d} vs {:d}".format(row, prevRow))
-                prevRow = row
-            print "RW DONE"
-            #writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
-            #writer.write(fh, self.consumerator)
+            writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
+            writer.write(fh, self.consumerator)
         def done(result):
             if isinstance(result, str):
                 print str
@@ -178,9 +172,6 @@ class ImageBuilder(object):
         Handles a I{row} (unsigned byte array of RGB triples) from one of
         the processes at row index I{k}.
         """
-        # DEBUG
-        row = k
-        print "-> {:d}, {:d}".format(self.rowCount, row)
         if k == self.rowCount and self.produce:
             self.writeRow(row)
             return
@@ -190,7 +181,6 @@ class ImageBuilder(object):
         self.flushBuffer()
 
     def writeRow(self, row):
-        print "WR: {:d}, {:d}".format(self.rowCount, row)
         self.consumerator.write(row)
         self.rowCount += 1
         self.flushBuffer()
@@ -208,7 +198,6 @@ class ImageBuilder(object):
         self.produce = True
 
     def flushBuffer(self):
-        print "RP: [{}]".format(','.join([str(x) for x in self.rowBuffer.keys()]))
         if self.rowCount < self.writeConfig[-1]:
             # More to write
             if self.rowCount in self.rowBuffer:
@@ -218,7 +207,6 @@ class ImageBuilder(object):
         else:
             # We're done
             if not self.d.called:
-                print "DONE"
                 self.d.callback(None)
         
 

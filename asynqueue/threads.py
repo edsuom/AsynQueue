@@ -510,5 +510,4 @@ class Consumerator(object):
         """
         if hasattr(self, 'producer'):
             self.producer.stopProducing()
-        self.unregisterProducer()
-        
+        return self.unregisterProducer()
