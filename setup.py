@@ -41,9 +41,13 @@ kw = {'version':'0.8.3',
       'maintainer':'Edwin A. Suominen',
 
       'install_requires':required,
-      'packages':['asynqueue'],
+      'packages':['asynqueue', 'mcmandelbrot'],
+      'entry_points':{
+          'console_scripts': [
+              'mcm = mcmandelbrot.runner:run'],
+      },
       
-      'zip_safe':True
+      'zip_safe':True,
       }
 
 kw['keywords'] = [

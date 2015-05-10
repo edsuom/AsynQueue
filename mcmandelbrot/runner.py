@@ -152,13 +152,13 @@ class ImageBuilder(object):
         self.rowBuffer = {}
         self.consumerator = Consumerator(self)
         self.produce = True
+        self.d = defer.Deferred()
 
     def runWriter(self):
         """
         Runs the blocking PNG writer in the queue via a thread worker.
         """
         def func():
-            print "FH: {}".format(fh)
             writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
             writer.write(fh, self.consumerator)
         def done(result):
@@ -172,10 +172,7 @@ class ImageBuilder(object):
         Handles a I{row} (unsigned byte array of RGB triples) from one of
         the processes at row index I{k}.
         """
-        print "HR: row <{:d}>, k = {:d} vs. {:d}: {}".format(
-            sum(row), k, self.rowCount, self.produce)
         if k == self.rowCount and self.produce:
-            print "WRITE: {:d}".format(k)
             self.consumerator.write(row)
             return
         if self.produce is None:
@@ -183,33 +180,27 @@ class ImageBuilder(object):
         self.rowBuffer[k] = row
 
     def done(self):
-        self.consumerator.stop()
-        
+        return self.d.addCallback(lambda _: self.consumerator.stop())
+    
     def stopProducing(self):
-        print "SP"
         self.produce = None
 
     def pauseProducing(self):
-        print "PP"
         self.produce = False
 
     def resumeProducing(self):
         self.rowCount += 1
-        self.produce = True
-        print "RP: [{}]".format(
-            ",".join([str(x) for x in self.rowBuffer.keys()]))
-        self.tryFlushBuffer()
-
-    def tryFlushBuffer(self):
-        print "TFB: {:d} [{}]".format(
-            self.rowCount,
-            ",".join([str(x) for x in self.rowBuffer.keys()]))
+        if self.rowCount == self.writeConfig[-1]:
+            # We're done
+            self.d.callback(None)
+            return
+        # More to write
         if self.rowCount in self.rowBuffer:
-            print "RP-i: {}".format(self.produce)
-            if not self.produce:
-                return
             row = self.rowBuffer.pop(self.rowCount)
+            # This results in another call here, with nesting
             self.consumerator.write(row)
+        # More to produce
+        self.produce = True
         
 
 class Runner(object):
@@ -273,7 +264,7 @@ class Runner(object):
             d.addCallback(ib.handleRow, k)
             dList.append(d)
         yield defer.DeferredList(dList)
-        ib.done()
+        yield ib.done()
         yield dWriter
 
     def frange(self, minVal, maxVal, N):
@@ -323,18 +314,17 @@ def run(*args, **kw):
       Mandelbrot points during iteration. Can set with the C{-N
       values} arg instead.
     
-    @keyword stopWhenDone: Set C{True} to stop the reactor when
-      done. If there is no output file, this is what happens anyhow,
-      since the PNG data is written to stdout.
+    @keyword leaveRunning: Set C{True} to let the reactor stay running
+      when done.
     """
     def reallyRun():
         runner = Runner(N_values, stats)
         d = runner.run(fh, Nx, xMin, xMax, yMin, yMax)
-        if stopWhenDone:
+        if not leaveRunning:
             d.addCallback(lambda _: reactor.stop())
         return d
 
-    stopWhenDone = kw.pop('stopWhenDone', False)
+    leaveRunning = kw.pop('leaveRunning', False)
     if not args:
         args = sys.argv[1:]
     args = list(args)
@@ -354,9 +344,8 @@ def run(*args, **kw):
     else:
         stats = False
         fh = sys.stdout
-        stopWhenDone = True
     if len(args) < 5:
-        print "Arguments: N rMin rMax iMin iMax"
+        print "Usage: [-N values] [-o imageFile] N rMin rMax iMin iMax"
         sys.exit(1)
     Nx = int(args[0])
     xMin, xMax, yMin, yMax = [float(x) for x in args[1:5]]
@@ -365,4 +354,4 @@ def run(*args, **kw):
 
 
 if __name__ == '__main__':
-    run(stopWhenDone=True)
+    run()
