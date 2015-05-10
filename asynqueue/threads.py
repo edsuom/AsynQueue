@@ -348,7 +348,16 @@ class Consumerator(object):
     class IterationStopper:
         pass
     
-    def __init__(self, producer=None):
+    def __init__(self, producer=None, debug=False):
+        """
+        @param producer: The producer for me to register, if you want to
+          supply an C{IPushProducer} one on instantiation. Otherwise,
+          use L{registerProducer}.
+
+        @param debug: Set C{True} to get a message printed before each
+          iteration is returned from L{next}.
+        """
+        self._stopped = False
         self.d = defer.Deferred()
         self.dLock = util.DeferredLock()
         # Locks for my iteration-consuming thread, the
@@ -365,6 +374,7 @@ class Consumerator(object):
         # blocking-iterator thread's value of each iteration
         if producer:
             self.registerProducer(producer, True)
+        self.debug = debug
     
     def loop(self):
         """
@@ -403,7 +413,7 @@ class Consumerator(object):
         d = defer.Deferred()
         self.d.chainDeferred(d)
         return d
-        
+    
     # --- IConsumer implementation --------------------------------------------
     
     def registerProducer(self, producer, streaming):
@@ -437,9 +447,10 @@ class Consumerator(object):
             # iteration value
             self.cLock.release()
             # The producer can and should write another iteration now
-            self.producer.resumeProducing()
+            if not self._stopped:
+                self.producer.resumeProducing()
 
-        if self.streaming:
+        if self.streaming and not self._stopped:
             # The producer is a IPushProducer, so tell it to hold off
             # on any more iteration values for the moment while
             # everything it's sent (and may yet send) gets processed
@@ -458,6 +469,11 @@ class Consumerator(object):
         self.bLock.acquire()
         # Get a local reference to the iteration value
         value = self.bIterationValue
+        if self.debug:
+            if not hasattr(self, 'iCount'):
+                self.iCount = 0
+            print("Iteration {:03d}: \n{}".format(self.iCount, repr(value)))
+            self.iCount += 1
         # Now it can be changed, so release my iteration-consuming
         # loop to do so
         self.nLock.release()
@@ -470,3 +486,22 @@ class Consumerator(object):
         # get called again until the caller is ready for another
         # iteration.
         return value
+
+    def stop(self):
+        """
+        Good manners urge you to call this to cleanly break out of a loop
+        of my iterations so that my producer doesn't keep working for
+        nothing. Calling this method at the Twisted main-loop level is
+        also a fine way to quit producing and iterating when you know
+        you're done.
+
+        Not part of the official iterator implementation, but
+        useful for a Twisted way of iterating. You need a way of
+        letting whatever is producing the iterations know that there
+        won't be any more of them.
+        """
+        self._stopped = True
+        if hasattr(self, 'producer'):
+            self.producer.stopProducing()
+        self.unregisterProducer()
+        

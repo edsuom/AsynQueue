@@ -158,39 +158,58 @@ class ImageBuilder(object):
         Runs the blocking PNG writer in the queue via a thread worker.
         """
         def func():
+            print "FH: {}".format(fh)
             writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
             writer.write(fh, self.consumerator)
+        def done(result):
+            if isinstance(result, str):
+                print str
         q, fh, Nx, Ny = self.writeConfig
-        return q.call(func, series='thread')
+        return q.call(func, series='thread').addCallback(done)
         
     def handleRow(self, row, k):
         """
         Handles a I{row} (unsigned byte array of RGB triples) from one of
         the processes at row index I{k}.
         """
-        print "HR: {:d} vs. {:d}: {}".format(k, self.rowCount, self.produce)
+        print "HR: row <{:d}>, k = {:d} vs. {:d}: {}".format(
+            sum(row), k, self.rowCount, self.produce)
         if k == self.rowCount and self.produce:
+            print "WRITE: {:d}".format(k)
             self.consumerator.write(row)
-            self.rowCount += 1
             return
         if self.produce is None:
             return
         self.rowBuffer[k] = row
 
+    def done(self):
+        self.consumerator.stop()
+        
     def stopProducing(self):
+        print "SP"
         self.produce = None
 
     def pauseProducing(self):
+        print "PP"
         self.produce = False
 
     def resumeProducing(self):
-        print "RP: {:d}".format(len(self.rowBuffer))
-        while self.rowCount in self.rowBuffer:
+        self.rowCount += 1
+        self.produce = True
+        print "RP: [{}]".format(
+            ",".join([str(x) for x in self.rowBuffer.keys()]))
+        self.tryFlushBuffer()
+
+    def tryFlushBuffer(self):
+        print "TFB: {:d} [{}]".format(
+            self.rowCount,
+            ",".join([str(x) for x in self.rowBuffer.keys()]))
+        if self.rowCount in self.rowBuffer:
+            print "RP-i: {}".format(self.produce)
             if not self.produce:
                 return
             row = self.rowBuffer.pop(self.rowCount)
             self.consumerator.write(row)
-            self.rowCount += 1
         
 
 class Runner(object):
@@ -230,7 +249,8 @@ class Runner(object):
         Ny = int(Nx * (yMax - yMin) / (xMax - xMin))
         ySpan = (yMin, yMax, Ny)
         return self.compute(fh, xSpan, ySpan).addCallback(done)
-        
+
+    @defer.inlineCallbacks
     def compute(self, fh, xSpan, ySpan):
         """
         Computes the Mandelbrot Set under C{Twisted} and generates a
@@ -241,17 +261,20 @@ class Runner(object):
           written and you can close the file handle.
         """
         ib = ImageBuilder(self.q, fh, xSpan[2], ySpan[2])
-        dList = [ib.runWriter()]
+        dWriter = ib.runWriter()
         crMin, crMax, Nx = xSpan
         # "The pickle module keeps track of the objects it has already
         # serialized, so that later references to the same object t be
         # serialized again." --Python docs
+        dList = []
         for k, ci in self.frange(*ySpan):
             # Call one of my processes to get a row of values
             d = self.q.call(self.mv, crMin, crMax, Nx, ci, series='process')
             d.addCallback(ib.handleRow, k)
             dList.append(d)
-        return defer.DeferredList(dList)        
+        yield defer.DeferredList(dList)
+        ib.done()
+        yield dWriter
 
     def frange(self, minVal, maxVal, N):
         """
