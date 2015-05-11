@@ -440,7 +440,7 @@ class Consumerator(object):
         L{IConsumer} implementation
         """
         if not hasattr(self, 'producer'):
-            return
+            return defer.succeed(None)
         return self.write(self.IterationStopper())
 
     def write(self, data):
@@ -515,56 +515,116 @@ class Consumerator(object):
 
 class OrderedItemProducer(object):
     """
+    I am an implementor of Twisted's C{IPushProducer} interface that
+    produces an iteration to a blocking call I{fb} for every time you
+    call a non-blocking item-generating function I{fb} via my
+    L{produceItem} method.
+
+    Start things off by constructing an instance of me, with an
+    existing task queue if you have one you want me to use, and then
+    running L{start} with your blocking f-args-kw combination. Then
+    call L{produceItem} repeatedly with whatever f-args-kw combination
+    results (eventually) in new items to iterate. These calls may
+    return deferred results and should not block.
+
+    When you are done having me produe iterations, call L{stop}.
+    
     @ivar i: My L{Consumerator} instance, which acts like an iterator
       for whatever function you supply to L{run}.
     """
     implements(IPushProducer)
     
-    def __init__(self, q):
-        self.q = q
-        self.seriesID = hash(self)
+    def __init__(self, q=None):
         self.k = 0
         self.itemBuffer = {}
+        self.seriesID = hash(self)
         self.i = Consumerator(self)
+        self.q = TaskQueue() if q is None else q
+        self.dLock = defer.DeferredLock()
+        self.dLock.acquire()
         self.produce = True
-        self.dt = util.DeferredTracker()
 
-    def start(self, f, *args, **kw):
+    def start(self, fb, *args, **kw):
         """
+        Starts the blocking function call C{fb(i, *args, **kw)} that
+        relies on my L{Consumerator} instance I{i} for iterations, in
+        traditional blocking fashion. The function must accept C{i} as
+        its first argument, and can also accept further arguments
+        C{*args) and keywords C{**kw}, which you can specify in your
+        call to L{start}.
+
+        @return: A C{Deferred} that fires when the blocking call has
+          started in a dedicated thread. If you have a busy queue,
+          this might take a non-negligible amount of time.
         """
         def gotID(workerID):
             self.workerID = workerID
             kw['series'] = self.seriesID
-            self.d = self.q.call(f, *args, **kw)
+            self.dFinished = self.q.call(runner)
+            return dStarted
+        def runner():
+            dStarted.callback(None)
+            self.dLock.release()
+            # The actual blocking call
+            result = fb(self.i, *args, **kw)
+            self.stopProducing()
+            return result
+        dStarted = defer.Deferred()
         worker = ThreadWorker([self.seriesID])
         return self.q.attachWorker(worker).addCallback(gotID)
         
-    def produceItem(self, f, *args, **kw):
+    def produceItem(self, fp, *args, **kw):
         """
-        @return: A C{Deferred} that fires with a 2-tuple containing the
-          item index values (0, 1, 2, ...) before and after the call to
-          I{f}.
+        Runs C{fp(*args, **kw) to generate an item that I produce as an
+        iteration to whatever blocking call was (or will be) set
+        running via L{start}.
+
+        While I am running, the returned C{Deferred} fires after the
+        call to I{fp} with a 2-tuple containing the item index values
+        (0, 1, 2, ...) before and after the call to I{f}.
+
+        If my L{stopProducing} method has been called, I no longer
+        produce iterations and calls to this method do not run
+        I{fp}. The returned C{Deferred} fires immediately.
         """
-        def gotItem(item, k):
-            if k == self.k and self.produce:
+        def gotLock(lock):
+            return defer.maybeDeferred(fp, *args, **kw).addCallback(gotItem)
+        def gotItem(item):
+            if self.k == kWhenCalled and self.produce:
                 self._writeItem(item)
-                return
-            if self.produce is None:
-                return
-            self.itemBuffer[k] = item
-            self._flushBuffer()
-            return k, self.k
-        kNow = self.k
-        d = defer.maybeDeferred(f, *args, **kw).addCallback(gotItem, kNow)
-        self.dt.put(d)
-        return d
+            elif self.produce is not None:
+                self.itemBuffer[kWhenCalled] = item
+                self._flushBuffer()
+            self.dLock.release()
+            return kWhenCalled, self.k
+        if self.produce is None:
+            return defer.succeed((self.k, self.k))
+        kWhenCalled = self.k
+        return self.dLock.acquire().addCallback(gotLock)
 
     @defer.inlineCallbacks
     def stop(self):
-        yield self.dt.deferToAll()
+        """
+        Call this to inidcate that iterations are done. My L{Consumerator}
+        will raise L{StopIteration} for the blocking iteration-caller
+        in I{fb} and that function should exit. Whatever value it
+        returns will fire the C{Deferred} that is returned here.
+
+        If I{fb} exited early for some reason, the C{Deferred} this
+        method returns will have fired already.
+
+        Repeated calls to this method make no sense and will be
+        rewarded with deferreds immediately firing with C{None}.
+        """
+        yield self.dLock.acquire()
         yield self.i.stop()
-        result = yield self.d
-        yield self.q.detachWorker(self.workerID)
+        if hasattr(self, 'dFinished'):
+            result = yield self.dFinished
+            del self.dFinished
+            yield self.q.detachWorker(self.workerID)
+        else:
+            result = None
+        self.dLock.release()
         defer.returnValue(result)
         
     def _writeItem(self, item):
