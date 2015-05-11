@@ -31,6 +31,10 @@ from testbase import deferToDelay, RangeProducer, IterationConsumer, TestCase
 
 
 class TaskMixin:
+    def _producterator(self, x, N=7):
+        for y in xrange(N):
+            yield x*y
+
     def _blockingTask(self, x, maxTime=0.2):
         delay = random.uniform(0.0, maxTime)
         self.msg(
@@ -38,10 +42,13 @@ class TaskMixin:
             delay, threading.currentThread().getName())
         time.sleep(delay)
         return 2*x
-
-    def _producterator(self, x, N=7):
-        for y in xrange(N):
-            yield x*y
+            
+    def _blockingIteratorUser(self, iterator, maxTime=0.2):
+        self.values = []
+        for x in iterator:
+            # Doesn't this just seem rude after using Twisted a while?
+            self.values.append(self._blockingTask(x, maxTime))
+        return self.values
 
 
 class TestThreadQueue(TaskMixin, TestCase):
@@ -367,13 +374,6 @@ class TestConsumerator(TaskMixin, TestCase):
 
     def tearDown(self):
         return self.q.shutdown()
-
-    def _blockingIteratorUser(self, iterator, maxTime=0.2):
-        self.values = []
-        for x in iterator:
-            # Doesn't this just seem rude after using Twisted a while?
-            self.values.append(self._blockingTask(x, maxTime))
-        return self.values
         
     @defer.inlineCallbacks
     def test_withPushProducer(self):
@@ -417,3 +417,53 @@ class TestConsumerator(TaskMixin, TestCase):
         yield producer.d
 
         
+class TestOrderedItemProducer(TaskMixin, TestCase):
+    verbose = True
+
+    def setUp(self):
+        self.p = threads.OrderedItemProducer()
+
+    def tearDown(self):
+        return self.p.q.shutdown()
+
+    def fb(self, i):
+        result = []
+        for item in i:
+            result.append(item)
+        return result
+        
+    def fp(self, x, delay):
+        print "FP: {:d}, {:f}".format(x, delay)
+        return deferToDelay(delay).addCallback(lambda _: x)
+
+    def test_produceItem(self):
+        def started(null):
+            return self.p.produceItem(
+                self.fp, value, 0.1).addCallback(produced)
+        def produced(item):
+            self.assertEqual(item, value)
+            print "P: {}".format(item)
+            return self.p.stop().addCallback(stopped)
+        def stopped(returnValue):
+            self.assertEqual(returnValue, [value])
+            print "S"
+        value = 15
+        return self.p.start(self.fb).addCallback(started)
+        
+    @defer.inlineCallbacks
+    def test_oneAtATime(self):
+        pDelay = 0.05
+        bDelay = 0.0
+        yield self.p.start(self._blockingIteratorUser, maxTime=bDelay)
+        inputs2x = []
+        for x in xrange(10):
+            delay = random.uniform(0, pDelay)
+            print "A: {:d}, {:f}".format(x, delay)
+            item = yield self.p.produceItem(self.fp, x, delay)
+            print "B: {:d}".format(item)
+            inputs2x.append(2*item)
+        outputs = yield self.p.stop()
+        self.assertEqual(outputs, inputs2x)
+        
+                                   
+                                   

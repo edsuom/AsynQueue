@@ -29,7 +29,7 @@ import threading
 from zope.interface import implements
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
-from twisted.internet.interfaces import IConsumer
+from twisted.internet.interfaces import IConsumer, IPushProducer
 
 
 from base import TaskQueue
@@ -392,7 +392,7 @@ class Consumerator(object):
             value = self.cIterationValue
             # Release the consumer interface to write another
             # iteration
-            self.dLock.release()
+            reactor.callFromThread(self.dLock.release)
             # Wait until it's safe to overwrite the blocking-iterator
             # loop's copy
             self.nLock.acquire()
@@ -407,9 +407,9 @@ class Consumerator(object):
         # blocking iterations stopped.
         self.runState = 'stopping'
         self.nLock.acquire()
-        self.d.callback(None)
+        reactor.callFromThread(self.d.callback, None)
         self.runState = 'stopped'
-        del self.producer
+        reactor.callFromThread(delattr, self, 'producer')
 
     def deferUntilDone(self):
         """
@@ -515,10 +515,16 @@ class Consumerator(object):
 
 class OrderedItemProducer(object):
     """
+    Produces blocking iterations in the order they are requested via
+    an asynchronous function call.
+    
     I am an implementor of Twisted's C{IPushProducer} interface that
     produces an iteration to a blocking call I{fb} for every time you
     call a non-blocking item-generating function I{fb} via my
-    L{produceItem} method.
+    L{produceItem} method. Significantly, the items are buffered as
+    needed so that the iterations appear in the order of the calls to
+    L{produceItem} that generated them, B{not} necessarily in the
+    order in which they are actually generated.
 
     Start things off by constructing an instance of me, with an
     existing task queue if you have one you want me to use, and then
@@ -527,10 +533,17 @@ class OrderedItemProducer(object):
     results (eventually) in new items to iterate. These calls may
     return deferred results and should not block.
 
-    When you are done having me produe iterations, call L{stop}.
+    When you are done having me produce iterations, call
+    L{stop}. Whatever loop the blocking-iterator call is in will then
+    terminate and function I{fb} should end.
     
     @ivar i: My L{Consumerator} instance, which acts like an iterator
-      for whatever function you supply to L{run}.
+      for whatever function you supply to L{start}.
+
+    @ivar q: The L{TaskQueue} instance I use, either supplied by you
+      during construction or instantiated by me. Either way, you will
+      have to call L{TaskQueue.shutdown} on this eventually when
+      you're done with the queue.
     """
     implements(IPushProducer)
     
@@ -542,6 +555,7 @@ class OrderedItemProducer(object):
         self.q = TaskQueue() if q is None else q
         self.dLock = defer.DeferredLock()
         self.dLock.acquire()
+        print "DL-A1"
         self.produce = True
 
     def start(self, fb, *args, **kw):
@@ -559,15 +573,19 @@ class OrderedItemProducer(object):
         """
         def gotID(workerID):
             self.workerID = workerID
-            kw['series'] = self.seriesID
-            self.dFinished = self.q.call(runner)
+            self.dFinished = self.q.call(runner, series=self.seriesID)
             return dStarted
-        def runner():
-            dStarted.callback(None)
+        def signalIsRunning():
             self.dLock.release()
+            dStarted.callback(None)
+        def runner():
+            # This function runs via the queue in my dedicated thread
+            print "DL-R1"
+            reactor.callFromThread(signalIsRunning)
+            print "DL-R1b"
             # The actual blocking call
             result = fb(self.i, *args, **kw)
-            self.stopProducing()
+            reactor.callFromThread(self.stopProducing)
             return result
         dStarted = defer.Deferred()
         worker = ThreadWorker([self.seriesID])
@@ -580,25 +598,28 @@ class OrderedItemProducer(object):
         running via L{start}.
 
         While I am running, the returned C{Deferred} fires after the
-        call to I{fp} with a 2-tuple containing the item index values
-        (0, 1, 2, ...) before and after the call to I{f}.
+        call to I{fp} with the item value produced by the call to
+        I{f}.
 
         If my L{stopProducing} method has been called, I no longer
         produce iterations and calls to this method do not run
-        I{fp}. The returned C{Deferred} fires immediately.
+        I{fp}. The returned C{Deferred} fires immediately with C{None}.
         """
         def gotLock(lock):
+            print "DL-A2"
             return defer.maybeDeferred(fp, *args, **kw).addCallback(gotItem)
         def gotItem(item):
+            print "GI: {}".format(repr(item))
             if self.k == kWhenCalled and self.produce:
                 self._writeItem(item)
             elif self.produce is not None:
                 self.itemBuffer[kWhenCalled] = item
                 self._flushBuffer()
             self.dLock.release()
-            return kWhenCalled, self.k
+            print "DL-R2"
+            return item
         if self.produce is None:
-            return defer.succeed((self.k, self.k))
+            return defer.succeed(None)
         kWhenCalled = self.k
         return self.dLock.acquire().addCallback(gotLock)
 
@@ -617,6 +638,7 @@ class OrderedItemProducer(object):
         rewarded with deferreds immediately firing with C{None}.
         """
         yield self.dLock.acquire()
+        print "DL-A3"
         yield self.i.stop()
         if hasattr(self, 'dFinished'):
             result = yield self.dFinished
@@ -625,14 +647,17 @@ class OrderedItemProducer(object):
         else:
             result = None
         self.dLock.release()
+        print "DL-R3"
         defer.returnValue(result)
         
     def _writeItem(self, item):
-        self.i.write(row)
+        self.i.write(item)
         self.k += 1
         self._flushBuffer()
 
     def _flushBuffer(self):
+        print "FB: {:d}, [{}]".format(
+            self.k, ",".join([str(x) for x in self.itemBuffer.keys()]))
         if self.k in self.itemBuffer:
             item = self.itemBuffer.pop(self.k)
             # This will result in another call to resumeProducing
