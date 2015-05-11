@@ -418,7 +418,7 @@ class TestConsumerator(TaskMixin, TestCase):
 
         
 class TestOrderedItemProducer(TaskMixin, TestCase):
-    verbose = True
+    verbose = False
 
     def setUp(self):
         self.p = threads.OrderedItemProducer()
@@ -433,7 +433,6 @@ class TestOrderedItemProducer(TaskMixin, TestCase):
         return result
         
     def fp(self, x, delay):
-        print "FP: {:d}, {:f}".format(x, delay)
         return deferToDelay(delay).addCallback(lambda _: x)
 
     def test_produceItem(self):
@@ -442,28 +441,42 @@ class TestOrderedItemProducer(TaskMixin, TestCase):
                 self.fp, value, 0.1).addCallback(produced)
         def produced(item):
             self.assertEqual(item, value)
-            print "P: {}".format(item)
             return self.p.stop().addCallback(stopped)
         def stopped(returnValue):
             self.assertEqual(returnValue, [value])
-            print "S"
         value = 15
         return self.p.start(self.fb).addCallback(started)
         
     @defer.inlineCallbacks
     def test_oneAtATime(self):
-        pDelay = 0.05
-        bDelay = 0.0
+        pDelay = 0.02
+        bDelay = 0.04
         yield self.p.start(self._blockingIteratorUser, maxTime=bDelay)
         inputs2x = []
-        for x in xrange(10):
+        for x in xrange(100):
             delay = random.uniform(0, pDelay)
-            print "A: {:d}, {:f}".format(x, delay)
             item = yield self.p.produceItem(self.fp, x, delay)
-            print "B: {:d}".format(item)
             inputs2x.append(2*item)
         outputs = yield self.p.stop()
         self.assertEqual(outputs, inputs2x)
-        
+
+    @defer.inlineCallbacks
+    def test_allAtOnce(self):
+        def produced(item):
+            inputs2x.append(2*item)
+        pDelay = 0.02
+        bDelay = 0.04
+        yield self.p.start(self._blockingIteratorUser, maxTime=bDelay)
+        inputs2x = []
+        dList = []
+        for x in xrange(100):
+            delay = random.uniform(0, pDelay)
+            d = self.p.produceItem(
+                self.fp, x, delay).addCallback(produced)
+            dList.append(d)
+        yield defer.DeferredList(dList)
+        outputs = yield self.p.stop()
+        self.assertEqual(outputs, inputs2x)
+
                                    
                                    

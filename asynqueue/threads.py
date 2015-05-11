@@ -548,14 +548,13 @@ class OrderedItemProducer(object):
     implements(IPushProducer)
     
     def __init__(self, q=None):
-        self.k = 0
         self.itemBuffer = {}
+        self.k1, self.k2 = 0, 0
         self.seriesID = hash(self)
         self.i = Consumerator(self)
         self.q = TaskQueue() if q is None else q
         self.dLock = defer.DeferredLock()
         self.dLock.acquire()
-        print "DL-A1"
         self.produce = True
 
     def start(self, fb, *args, **kw):
@@ -580,9 +579,7 @@ class OrderedItemProducer(object):
             dStarted.callback(None)
         def runner():
             # This function runs via the queue in my dedicated thread
-            print "DL-R1"
             reactor.callFromThread(signalIsRunning)
-            print "DL-R1b"
             # The actual blocking call
             result = fb(self.i, *args, **kw)
             reactor.callFromThread(self.stopProducing)
@@ -606,21 +603,19 @@ class OrderedItemProducer(object):
         I{fp}. The returned C{Deferred} fires immediately with C{None}.
         """
         def gotLock(lock):
-            print "DL-A2"
             return defer.maybeDeferred(fp, *args, **kw).addCallback(gotItem)
         def gotItem(item):
-            print "GI: {}".format(repr(item))
-            if self.k == kWhenCalled and self.produce:
+            if self.k2 == k1 and self.produce:
                 self._writeItem(item)
             elif self.produce is not None:
-                self.itemBuffer[kWhenCalled] = item
+                self.itemBuffer[k1] = item
                 self._flushBuffer()
             self.dLock.release()
-            print "DL-R2"
             return item
         if self.produce is None:
             return defer.succeed(None)
-        kWhenCalled = self.k
+        k1 = self.k1
+        self.k1 += 1
         return self.dLock.acquire().addCallback(gotLock)
 
     @defer.inlineCallbacks
@@ -638,7 +633,6 @@ class OrderedItemProducer(object):
         rewarded with deferreds immediately firing with C{None}.
         """
         yield self.dLock.acquire()
-        print "DL-A3"
         yield self.i.stop()
         if hasattr(self, 'dFinished'):
             result = yield self.dFinished
@@ -647,19 +641,18 @@ class OrderedItemProducer(object):
         else:
             result = None
         self.dLock.release()
-        print "DL-R3"
         defer.returnValue(result)
         
     def _writeItem(self, item):
         self.i.write(item)
-        self.k += 1
+        self.k2 += 1
         self._flushBuffer()
 
     def _flushBuffer(self):
         print "FB: {:d}, [{}]".format(
-            self.k, ",".join([str(x) for x in self.itemBuffer.keys()]))
-        if self.k in self.itemBuffer:
-            item = self.itemBuffer.pop(self.k)
+            self.k2, ",".join([str(x) for x in self.itemBuffer.keys()]))
+        if self.k2 in self.itemBuffer:
+            item = self.itemBuffer.pop(self.k2)
             # This will result in another call to resumeProducing
             self._writeItem(item)
         
