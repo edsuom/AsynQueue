@@ -462,21 +462,19 @@ class TestOrderedItemProducer(TaskMixin, TestCase):
 
     @defer.inlineCallbacks
     def test_allAtOnce(self):
-        def produced(item):
-            inputs2x.append(2*item)
+        def produced(item, k):
+            inputs2x.append((k, 2*item))
         pDelay = 0.02
         bDelay = 0.04
         yield self.p.start(self._blockingIteratorUser, maxTime=bDelay)
         inputs2x = []
-        dList = []
         for x in xrange(100):
             delay = random.uniform(0, pDelay)
-            d = self.p.produceItem(
-                self.fp, x, delay).addCallback(produced)
-            dList.append(d)
-        yield defer.DeferredList(dList)
+            self.p.produceItem(
+                self.fp, x, delay).addCallback(produced, x)
         outputs = yield self.p.stop()
-        self.assertEqual(outputs, inputs2x)
+        inputs2x.sort(key=lambda x: x[0])
+        self.assertEqual(outputs, [x[1] for x in inputs2x])
 
                                    
                                    

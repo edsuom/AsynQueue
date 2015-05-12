@@ -133,82 +133,10 @@ from twisted.internet import defer, reactor
 from twisted.internet.interfaces import IPushProducer
 
 import asynqueue
-from asynqueue.threads import Consumerator
+from asynqueue.threads import OrderedItemProducer
 
 from valuer import MandelbrotValuer
 
-
-class ImageBuilder(object):
-    """
-    I build a PNG image from the computations, running the blocking
-    C{png.Writer.write} call in a thread via my own worker (and
-    series) in the TaskQueue.
-    """
-    implements(IPushProducer)
-    
-    def __init__(self, q, fh, Nx, Ny):
-        self.writeConfig = q, fh, Nx, Ny
-        self.rowCount = 0
-        self.rowBuffer = {}
-        self.consumerator = Consumerator(self)
-        self.produce = True
-        self.d = defer.Deferred()
-
-    def runWriter(self):
-        """
-        Runs the blocking PNG writer in the queue via a thread worker.
-        """
-        def func():
-            writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
-            writer.write(fh, self.consumerator)
-        def done(result):
-            if isinstance(result, str):
-                print str
-        q, fh, Nx, Ny = self.writeConfig
-        return q.call(func, series='thread').addCallback(done)
-        
-    def handleRow(self, row, k):
-        """
-        Handles a I{row} (unsigned byte array of RGB triples) from one of
-        the processes at row index I{k}.
-        """
-        if k == self.rowCount and self.produce:
-            self.writeRow(row)
-            return
-        if self.produce is None:
-            return
-        self.rowBuffer[k] = row
-        self.flushBuffer()
-
-    def writeRow(self, row):
-        self.consumerator.write(row)
-        self.rowCount += 1
-        self.flushBuffer()
-        
-    def done(self):
-        return self.d.addCallback(lambda _: self.consumerator.stop())
-    
-    def stopProducing(self):
-        self.produce = None
-
-    def pauseProducing(self):
-        self.produce = False
-
-    def resumeProducing(self):
-        self.produce = True
-
-    def flushBuffer(self):
-        if self.rowCount < self.writeConfig[-1]:
-            # More to write
-            if self.rowCount in self.rowBuffer:
-                row = self.rowBuffer.pop(self.rowCount)
-                # This will result in another call to resumeProducing
-                self.writeRow(row)
-        else:
-            # We're done
-            if not self.d.called:
-                self.d.callback(None)
-        
 
 class Runner(object):
     """
@@ -220,17 +148,14 @@ class Runner(object):
     power = 5.0
     N_values = 1000
     N_processes = 7
-    N_threads = 1
 
     def __init__(self, N_values=None, stats=False):
         if N_values is None:
             N_values = self.N_values
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
-        for k in xrange(self.N_threads):
-            self.q.attachWorker(asynqueue.ThreadWorker())
         self.mv = MandelbrotValuer(N_values, self.power)
 
-    def run(self, fh, Nx, xMin, xMax, yMin, yMax):
+    def run(self, fh, xMin, xMax, Nx, yMin, yMax, Ny):
         """
         Runs my L{compute} method to generate a PNG image of the
         Mandelbrot Set and write it to the file handle or
@@ -244,7 +169,6 @@ class Runner(object):
             
         t0 = time.time()
         xSpan = (xMin, xMax, Nx)
-        Ny = int(Nx * (yMax - yMin) / (xMax - xMin))
         ySpan = (yMin, yMax, Ny)
         return self.compute(fh, xSpan, ySpan).addCallback(done)
 
@@ -258,24 +182,23 @@ class Runner(object):
         @return: A C{Deferred} that fires when the image is completely
           written and you can close the file handle.
         """
-        ib = ImageBuilder(self.q, fh, xSpan[2], ySpan[2])
-        dWriter = ib.runWriter()
+        def f(rows):
+            writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
+            writer.write(fh, rows)
+
         crMin, crMax, Nx = xSpan
+        ciMin, ciMax, Ny = ySpan
+        p = OrderedItemProducer(self.q)
+        yield p.start(f)
         # "The pickle module keeps track of the objects it has already
         # serialized, so that later references to the same object t be
         # serialized again." --Python docs
-        dList = []
-        for k, ci in self.frange(*ySpan):
+        for k, ci in self.frange(ciMin, ciMax, Ny):
             # Call one of my processes to get a row of values
-            d = self.q.call(self.mv, crMin, crMax, Nx, ci, series='process')
-            d.addCallback(ib.handleRow, k)
-            dList.append(d)
-        yield defer.DeferredList(dList)
-        print "A"
-        yield ib.done()
-        print "B"
-        yield dWriter
-        print "C"
+            p.produceItem(
+                self.q.call, self.mv, crMin, crMax, Nx, ci,
+                series='process')
+        yield p.stop()
 
     def frange(self, minVal, maxVal, N):
         """
@@ -288,7 +211,7 @@ class Runner(object):
             yield k, val
             val += step
 
-    def showStats(self, N, totalTime):
+    def showStats(self, totalTime, N):
         """
         Displays stats about the run on stdout
         """
@@ -306,7 +229,6 @@ class Runner(object):
             mean = np.mean(diffs)
             print "Mean worker-to-process overhead (ms/call): {:0.7f}".format(
                 mean)
-
         print "Computed {:d} values in {:1.1f} seconds.".format(
                 N, totalTime)
         return self.q.stats().addCallback(gotStats)
@@ -329,7 +251,10 @@ def run(*args, **kw):
     """
     def reallyRun():
         runner = Runner(N_values, stats)
-        d = runner.run(fh, Nx, xMin, xMax, yMin, yMax)
+        Ny = int(Nx * (yMax - yMin) / (xMax - xMin))
+        d = runner.run(fh, xMin, xMax, Nx, yMin, yMax, Ny)
+        if stats:
+            d.addCallback(runner.showStats, Nx*Ny)
         if not leaveRunning:
             d.addCallback(lambda _: reactor.stop())
         return d

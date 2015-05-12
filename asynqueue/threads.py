@@ -554,6 +554,7 @@ class OrderedItemProducer(object):
         self.i = Consumerator(self)
         self.q = TaskQueue() if q is None else q
         self.dLock = defer.DeferredLock()
+        self.dt = util.DeferredTracker()
         self.dLock.acquire()
         self.produce = True
 
@@ -596,15 +597,19 @@ class OrderedItemProducer(object):
 
         While I am running, the returned C{Deferred} fires after the
         call to I{fp} with the item value produced by the call to
-        I{f}.
+        I{f}. You don't need to do anything with these deferreds if
+        you don't want to use them for concurrency limiting; they are
+        accounted for in L{stop}.
 
         If my L{stopProducing} method has been called, I no longer
         produce iterations and calls to this method do not run
         I{fp}. The returned C{Deferred} fires immediately with C{None}.
         """
-        def gotLock(lock):
-            return defer.maybeDeferred(fp, *args, **kw).addCallback(gotItem)
         def gotItem(item):
+            # We have a result, but we need to wait our turn to
+            # actually produce it
+            return self.dLock.acquire().addCallback(gotLock, item)
+        def gotLock(lock, item):
             if self.k2 == k1 and self.produce:
                 self._writeItem(item)
             elif self.produce is not None:
@@ -616,15 +621,18 @@ class OrderedItemProducer(object):
             return defer.succeed(None)
         k1 = self.k1
         self.k1 += 1
-        return self.dLock.acquire().addCallback(gotLock)
+        d = defer.maybeDeferred(fp, *args, **kw).addCallback(gotItem)
+        self.dt.put(d)
+        return d
 
     @defer.inlineCallbacks
     def stop(self):
         """
-        Call this to inidcate that iterations are done. My L{Consumerator}
-        will raise L{StopIteration} for the blocking iteration-caller
-        in I{fb} and that function should exit. Whatever value it
-        returns will fire the C{Deferred} that is returned here.
+        Call this to indicate that iterations are done. After any pending
+        calls from L{produceItem} are done, my L{Consumerator} will
+        raise L{StopIteration} for the blocking iteration-caller in
+        I{fb} and that function should exit. Whatever value it returns
+        will fire the C{Deferred} that is returned here.
 
         If I{fb} exited early for some reason, the C{Deferred} this
         method returns will have fired already.
@@ -632,6 +640,7 @@ class OrderedItemProducer(object):
         Repeated calls to this method make no sense and will be
         rewarded with deferreds immediately firing with C{None}.
         """
+        yield self.dt.deferToAll()
         yield self.dLock.acquire()
         yield self.i.stop()
         if hasattr(self, 'dFinished'):
@@ -649,8 +658,6 @@ class OrderedItemProducer(object):
         self._flushBuffer()
 
     def _flushBuffer(self):
-        print "FB: {:d}, [{}]".format(
-            self.k2, ",".join([str(x) for x in self.itemBuffer.keys()]))
         if self.k2 in self.itemBuffer:
             item = self.itemBuffer.pop(self.k2)
             # This will result in another call to resumeProducing
