@@ -259,21 +259,12 @@ def run(*args, **kw):
     if not args:
         args = sys.argv[1:]
     args = list(args)
-    # -s steepness
-    steepness = getOpt('s', 1.0)
-    # -N values
-    if '-N' in args:
-        k = args.index('-N')
-        args.pop(k)
-        N_values = int(args.pop(k))
-    else:
-        N_values = kw.get('N_values', None)
-    # -o <fileName>
-    if '-o' in args:
-        k = args.index('-o')
+    steepness = getOpt('s', 5.0)
+    N_values = getOpt('N', 2000)
+    fileName = getOpt('o', "")
+    if fileName:
         stats = True
-        args.pop(k)
-        fh = open(args.pop(k), 'w')
+        fh = open(fileName, 'w')
     else:
         stats = False
         fh = sys.stdout

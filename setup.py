@@ -32,7 +32,7 @@ required = ['Twisted']
 
 ### Define setup options
 kw = {'version':'0.8.3',
-      'license':'GPL',
+      'license':'Apache License (2.0)',
       'platforms':'OS Independent',
 
       'url':"http://edsuom.com/{}.html".format(NAME),
@@ -42,9 +42,13 @@ kw = {'version':'0.8.3',
 
       'install_requires':required,
       'packages':['asynqueue', 'mcmandelbrot'],
+      'package_data':{
+          'mcmandelbrot': ['*.csv', '*.css'],
+          },
       'entry_points':{
           'console_scripts': [
-              'mcm = mcmandelbrot.runner:run'],
+              'mcm = mcmandelbrot.runner:run',
+          ],
       },
       
       'zip_safe':True,
@@ -61,7 +65,7 @@ kw['classifiers'] = [
     'Intended Audience :: Developers',
     'Intended Audience :: Science/Research',
     
-    'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
+    'License :: OSI Approved :: Apache Software License',
     'Operating System :: OS Independent',
     'Programming Language :: Python',
     'Framework :: Twisted',

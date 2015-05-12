@@ -198,19 +198,19 @@ class MandelbrotValuer(object):
             y = self.computeValues(N, x, ci+dy)
             yy += y.astype(np.float)
         # Invert the iteration values so that trapped points have zero
-        # value, then scale to the range [0.0, +1.0]
-        z = self.scale * (5*self.N_values - yy)
-        # Apply a modified sigmoid function that reaches +/- 1.0 at
-        # the endpoints of the range, to emphasize details in the middle
-        z = self.sigmoid(self.steepness, z)
+        # value, then scale to the range [-1.0, +1.0]
+        z = 2*self.scale * (5*self.N_values - yy) - 1.0
+        # Transform to emphasize details in the middle
+        z = self.transform(z, self.steepness)
+        # [-1.0, +1.0] --> [0.0, 1.0]
+        z = 0.5*(z + 1.0)
         # Map to my RGB colormap
         return self.cm(z)
 
-    def sigmoid(self, k, x):
+    def transform(self, x, k):
         """
         """
-        scale = 1.0# + np.exp(-0.5*k)
-        return x #1.0 + np.exp(-k*(x-0.5))
+        return np.power(x, k)
     
     def computeValues(self, N, x, ci):
         """
