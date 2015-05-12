@@ -124,8 +124,6 @@ available.
 import sys, time, array
 
 import png
-import weave
-from weave.base_info import custom_info
 import numpy as np
 
 from zope.interface import implements
@@ -145,15 +143,14 @@ class Runner(object):
     @cvar N_processes: The number of processes to use, disregarded if
       I{useThread} is set C{True} in my constructor.
     """
-    power = 5.0
-    N_values = 1000
-    N_processes = 7
+    N_values = 2000
+    N_processes = 6
 
-    def __init__(self, N_values=None, stats=False):
+    def __init__(self, N_values=None, stats=False, steepness=1.0):
         if N_values is None:
             N_values = self.N_values
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
-        self.mv = MandelbrotValuer(N_values, self.power)
+        self.mv = MandelbrotValuer(N_values, steepness)
 
     def run(self, fh, xMin, xMax, Nx, yMin, yMax, Ny):
         """
@@ -193,23 +190,13 @@ class Runner(object):
         # "The pickle module keeps track of the objects it has already
         # serialized, so that later references to the same object t be
         # serialized again." --Python docs
-        for k, ci in self.frange(ciMin, ciMax, Ny):
-            # Call one of my processes to get a row of values
+        for k, ci in enumerate(np.linspace(ciMax, ciMin, Ny)):
+            # Call one of my processes to get each row of values,
+            # starting from the top
             p.produceItem(
                 self.q.call, self.mv, crMin, crMax, Nx, ci,
                 series='process')
         yield p.stop()
-
-    def frange(self, minVal, maxVal, N):
-        """
-        Iterates over a range of I{N} evenly spaced floats from I{minVal}
-        to I{maxVal}, yielding the iteration index and the value.
-        """
-        val = float(minVal)
-        step = (float(maxVal) - val) / N
-        for k in xrange(N):
-            yield k, val
-            val += step
 
     def showStats(self, totalTime, N):
         """
@@ -250,7 +237,7 @@ def run(*args, **kw):
       when done.
     """
     def reallyRun():
-        runner = Runner(N_values, stats)
+        runner = Runner(N_values, stats, steepness)
         Ny = int(Nx * (yMax - yMin) / (xMax - xMin))
         d = runner.run(fh, xMin, xMax, Nx, yMin, yMax, Ny)
         if stats:
@@ -259,15 +246,26 @@ def run(*args, **kw):
             d.addCallback(lambda _: reactor.stop())
         return d
 
+    def getOpt(opt, default):
+        optCode = "-{}".format(opt)
+        if optCode in args:
+            k = args.index(optCode)
+            args.pop(k)
+            optType = type(default)
+            return optType(args.pop(k))
+        return default
+        
     leaveRunning = kw.pop('leaveRunning', False)
     if not args:
         args = sys.argv[1:]
     args = list(args)
+    # -s steepness
+    steepness = getOpt('s', 1.0)
     # -N values
     if '-N' in args:
         k = args.index('-N')
         args.pop(k)
-        N_values = args.pop(k)
+        N_values = int(args.pop(k))
     else:
         N_values = kw.get('N_values', None)
     # -o <fileName>
@@ -280,7 +278,9 @@ def run(*args, **kw):
         stats = False
         fh = sys.stdout
     if len(args) < 5:
-        print "Usage: [-N values] [-o imageFile] N rMin rMax iMin iMax"
+        print(
+            "Usage: [-s steepness] [-N values] [-o imageFile] " +\
+            "N rMin rMax iMin iMax")
         sys.exit(1)
     Nx = int(args[0])
     xMin, xMax, yMin, yMax = [float(x) for x in args[1:5]]

@@ -35,8 +35,6 @@ import png
 import weave
 from weave.base_info import custom_info
 import numpy as np
-import matplotlib.cm as cm
-import matplotlib.pyplot as plt
 
 from zope.interface import implements
 from twisted.internet import defer, reactor
@@ -156,7 +154,7 @@ class MandelbrotValuer(object):
     """
     vars = ['x', 'y', 'ci', 'kmax']
 
-    def __init__(self, N_values, power):
+    def __init__(self, N_values, steepness):
         """
         Constructor:
 
@@ -166,11 +164,13 @@ class MandelbrotValuer(object):
           is evaluated with the values summed, the actual range of
           values for each point is 5 times greater.
 
-        @param power: An exponent to be applied to each value after
-          scaling to the 0.0-1.0 range, before color mapping.
+        @param steepness: The amount to rescale the values after
+          scaling to the -0.5 to 0.5 range and before applying the
+          logistic function and color mapping.
         """
         self.N_values = N_values
-        self.power = power
+        
+        self.steepness = steepness
         self.cm = ColorMapper()
         # The maximum possible escape value is mapped to 1.0, before
         # exponent and then color mapping are applied
@@ -198,13 +198,20 @@ class MandelbrotValuer(object):
             y = self.computeValues(N, x, ci+dy)
             yy += y.astype(np.float)
         # Invert the iteration values so that trapped points have zero
-        # value, then scale to 0.0 - 1.0 range
+        # value, then scale to the range [0.0, +1.0]
         z = self.scale * (5*self.N_values - yy)
-        # Apply exponent to emphasize details at higher escape values
-        z = np.power(z, self.power)
+        # Apply a modified sigmoid function that reaches +/- 1.0 at
+        # the endpoints of the range, to emphasize details in the middle
+        z = self.sigmoid(self.steepness, z)
         # Map to my RGB colormap
         return self.cm(z)
 
+    def sigmoid(self, k, x):
+        """
+        """
+        scale = 1.0# + np.exp(-0.5*k)
+        return x #1.0 + np.exp(-k*(x-0.5))
+    
     def computeValues(self, N, x, ci):
         """
         Computes and returns a row vector of escape iterations, integer
