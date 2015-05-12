@@ -21,12 +21,14 @@
 # governing permissions and limitations under the License.
 
 """
-L{SocketWorker} and its support staff. B{Unsupported}, not yet
-working, and probably unnecessary. It turned into a real mess. See
-L{process} instead.
+L{WireWorker} and its support staff. B{Unsupported} and not yet
+working. It's turned into a real mess. For most applications, you can
+use L{process} instead.
+
+You need to start a server that 
 """
 
-import sys, os.path, tempfile, shutil
+import sys, os.path, tempfile, shutil, inspect
 
 from zope.interface import implements
 from twisted.internet import reactor, defer, endpoints
@@ -41,35 +43,28 @@ from interfaces import IWorker
 from threads import ThreadLooper
 
 
-@defer.inlineCallbacks
-def killProcess(pid):
-    """
-    Kills the process with the supplied PID, returning a deferred that
-    fires when it's no longer running. The return value is C{True} if
-    the process was alive and had to be killed, C{False} if it was
-    already dead.
-    """
-    pidString = str(pid)
-    pp = ProcessProtocol()
-    args = ("/bin/ps", '-p', pidString, '--no-headers')
-    pt = reactor.spawnProcess(pp, args[0], args)
-    stdout = yield pp.waitUntilReady()
-    pt.loseConnection()
-    if pidString in stdout:
-        os.kill(pid, signal.SIGTERM)
-        result = True
-    result = False
-    defer.returnValue(result)
 
 
-class SocketWorker(object):
+class WireWorkerUniverse(object):
     """
-    I implement an L{IWorker} that runs tasks in a subordinate or
-    remote Python interpreter via Twisted's Asynchronous Messaging
-    Protocol.
+    Subclass me in code that runs on the remote
+    interpreter, and then call that 
+    """
 
-    You do know that I am basically a mess and do not work, right? See
-    L{process.ProcessWorker} instead.
+class WireWorker(object):
+    """
+    Runs tasks over the wire, via a TCP/IP connection and Twisted AMP.
+    
+    I implement an L{IWorker} that runs named tasks in a remote Python
+    interpreter via Twisted's Asynchronous Messaging Protocol over
+    TCP/IP. The task callable must be a method of a subclass of
+    L{WireWorkerUniverse} that has been imported globally, as
+    C{UNIVERSE}, into the same module as the one in which your
+    instance of me is constructed. No pickled callables are sent over
+    the wire, just strings defining the method name of that class
+    instance.
+
+    For most applications, see L{process.ProcessWorker} instead.
 
     You can also supply a I{series} keyword containing a list of one
     or more task series that I am qualified to handle.
@@ -86,7 +81,7 @@ class SocketWorker(object):
     tempDir = []
     cQualified = ['process', 'network']
     
-    def __init__(self, series=[], sFile=None, reconnect=False, raw=False):
+    def __init__(self, host, port, series=[], reconnect=False, raw=False):
         self.ap = None
         self.tasks = []
         self.raw = raw
@@ -96,26 +91,6 @@ class SocketWorker(object):
         # Acquire lock until subordinate spawning and AMP connection
         self.dLock = util.DeferredLock()
         self._spawnAndConnect(sFile)
-        
-    def _newSocketFile(self):
-        """
-        Assigns a unique name to a socket file in a temporary directory
-        common to all instances of me, which will be removed with all
-        socket files after reactor shutdown. Doesn't actually create
-        the socket file; the server does that.
-        """
-        # The process name
-        pName = "worker-{:03d}".format(len(self.pList))
-        # A unique temp directory for all instances' socket files
-        if self.tempDir:
-            tempDir = self.tempDir[0]
-        else:
-            tempDir = tempfile.mkdtemp()
-            reactor.addSystemEventTrigger(
-                'after', 'shutdown',
-                shutil.rmtree, tempDir, ignore_errors=True)
-            self.tempDir.append(tempDir)
-        return os.path.join(tempDir, "{}.sock".format(pName))
     
     def _spawnAndConnect(self, sFile=None):
         """
@@ -276,31 +251,24 @@ class SocketWorker(object):
         return self.tasks
 
 
-class SetNamespace(amp.Command):
-    """
-    Sets the namespace for named callables used in L{RunTask}.
-
-    Supply either a pickled object with one or more methods you want
-    to use or a fully named module-global callable that can be
-    imported via L{twisted.python.reflect.namedObject}.
-    """
-    arguments = [
-        ('np', amp.String())
-    ]
-    response = [
-        ('status', amp.String())
-    ]
-
 class RunTask(amp.Command):
     """
     Runs a task and returns the status and result.
 
-    The callable is either a pickled callable object or the name of a
-    callable, either in a previously set namespace or the global
-    namespace (with any intervening modules imported automatically).
+    The I{methodName} is a string specifying the name of a method of a
+    subclass of L{WireWorkerUniverse} that has been imported globally
+    as C{UNIVERSE} into your AMP server. No callable will run that is
+    not a regular, user-defined method of that object (no internal
+    methods like C{__sizeof__}).
 
-    The args and kw are all pickled strings. The args and kw can be
-    empty strings, indicating no args or kw.
+    But, see the I{Apache License}, section 8 ("Limitation of
+    Liability"). There might be gaping security holes in this, and you
+    should limit who you accept connections from in any event,
+    preferably encrypting them.
+
+    The args and kw are all pickled strings. (Be careful about
+    allowing your methods to do arbitrary things with them!) The args
+    and kw can be empty strings, indicating no args or kw.
 
     The response has the following status/result structure::
 
@@ -319,7 +287,7 @@ class RunTask(amp.Command):
            value. So you get an ID string for calls to C{GetNext.
     """
     arguments = [
-        ('fn', amp.String()),
+        ('methodName', amp.String()),
         ('args', amp.String()),
         ('kw', amp.String()),
     ]

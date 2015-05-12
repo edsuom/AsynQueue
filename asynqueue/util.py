@@ -40,7 +40,7 @@ import cPickle as pickle
 import cProfile as profile
 from contextlib import contextmanager
 
-from twisted.internet import defer
+from twisted.internet import defer, reactor, protocol
 from twisted.python.failure import Failure
 
 import errors, info, iteration
@@ -92,6 +92,25 @@ def callAfterDeferred(namespace, dName, f, *args, **kw):
     d.chainDeferred(d2)
     return d2
 
+def killProcess(pid):
+    """
+    Kills the process with the supplied PID, returning a deferred that
+    fires when it's no longer running. The return value is C{True} if
+    the process was alive and had to be killed, C{False} if it was
+    already dead.
+    """
+    def ready(stdout):
+        pt.loseConnection()
+        if pidString in stdout:
+            os.kill(pid, signal.SIGTERM)
+            return True
+        return False
+    pidString = str(pid)
+    pp = protocol.ProcessProtocol()
+    args = ("/bin/ps", '-p', pidString, '--no-headers')
+    pt = reactor.spawnProcess(pp, args[0], args)
+    return pp.waitUntilReady().addCallback(ready)
+    
 
 # For Testing
 # ----------------------------------------------------------------------------
