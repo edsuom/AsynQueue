@@ -259,7 +259,7 @@ def run(*args, **kw):
     if not args:
         args = sys.argv[1:]
     args = list(args)
-    steepness = getOpt('s', 5.0)
+    steepness = getOpt('s', 3.0)
     N_values = getOpt('N', 2000)
     fileName = getOpt('o', "")
     if fileName:
