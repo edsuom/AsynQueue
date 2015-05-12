@@ -1,0 +1,6 @@
+include NOTICE
+include LICENSE.txt
+
+recursive-include asynqueue/test *.py
+include mcmandelbrot/colormap.csv
+exclude mcmandelbrot/diverging_map.py
