@@ -327,6 +327,10 @@ class ThreadLooper(object):
 
 class IterationGetter(object):
     """
+    Abstract base class for objects that munch data on one end and act
+    like iterators to yield it on the other end.
+
+    @see L{Consumerator} and L{Filerator}.
     """
     class IterationStopper:
         pass
@@ -532,13 +536,16 @@ class Filerator(IterationGetter):
     Acts like a file handle to a blocking call in one thread and an
     iterator in another thread. Hook me up to an
     L{iteration.Deferator} to stream data over a worker interface.
-
     """
     def __init__(self):
         super(Filerator, self).__init__()
         self.itemBuffer = []
         self.start()
 
+    @property
+    def closed(self):
+        return self.runState == 'stopped'
+        
     def loop(self):
         """
         Runs a loop in a dedicated thread that waits for new iterations to
@@ -572,10 +579,14 @@ class Filerator(IterationGetter):
         This is called with a chunk of I{data}. It goes through two stages
         to emerge from my blocking end as an iteration, via L{next}.
         """
+        if self.closed:
+            raise ValueError("Closed, not accepting writes")
         self.itemBuffer.append(x)
         if self.runState == 'running':
             # Release my iteration-consuming loop to work on the next
-            # iteration value
+            # iteration value. The cLock object is actually a
+            # semaphore, so it's OK if this gets called multiple times
+            # before the other loop can acquire it again.
             self.cLock.release()
         
     def writelines(self, lines):
@@ -596,7 +607,7 @@ class Filerator(IterationGetter):
         Closing me as a "file" tells me that I can stop iterating once the
         buffer is flushed.
         """
-        self.write(self.IterationStopper)
+        self.write(self.IterationStopper())
 
 
 class OrderedItemProducer(object):

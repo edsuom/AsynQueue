@@ -18,3 +18,68 @@
 # IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 # express or implied. See the License for the specific language
 # governing permissions and limitations under the License.
+
+"""
+Unit tests for asynqueue.interfaces
+"""
+
+import multiprocessing as mp
+import zope.interface
+from twisted.internet import defer
+
+import errors, interfaces
+from testbase import TestCase
+
+
+VERBOSE = True
+
+
+class NoCAttr(object):
+    zope.interface.implements(interfaces.IWorker)
+    def __init__(self):
+        self.iQualified = []
+
+class NoIAttr(object):
+    zope.interface.implements(interfaces.IWorker)
+    cQualified = []
+
+class AttrBogus(object):
+    zope.interface.implements(interfaces.IWorker)
+    cQualified = 'foo'
+    def __init__(self):
+        iQualified = 'bar'
+
+class AttrOK(object):
+    zope.interface.implements(interfaces.IWorker)
+    cQualified = ['foo']
+    def __init__(self):
+        self.iQualified = ['bar']
+
+
+class TestIWorker(TestCase):
+    def testInvariantCheckClassAttribute(self):
+        worker = AttrOK()
+        try:
+            interfaces.IWorker.validateInvariants(worker)
+        except:
+            self.fail(
+                "Acceptable class attribute shouldn't raise an exception")
+        for worker in [x() for x in (NoCAttr, NoIAttr, AttrBogus)]:
+            self.failUnlessRaises(
+                errors.InvariantError,
+                interfaces.IWorker.validateInvariants, worker)
+    
+    def testInvariantCheckInstanceAttribute(self):
+        worker = AttrOK()
+        for attr in (None, []):
+            if attr is not None:
+                worker.iQualified = attr
+            try:
+                interfaces.IWorker.validateInvariants(worker)
+            except:
+                self.fail(
+                    "Acceptable instance attribute shouldn't raise exception")
+        worker.iQualified = 'foo'
+        self.failUnlessRaises(
+            errors.InvariantError,
+            interfaces.IWorker.validateInvariants, worker)
