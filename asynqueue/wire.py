@@ -32,9 +32,10 @@ import sys, os.path, tempfile, shutil, inspect
 
 from zope.interface import implements
 from twisted.internet import reactor, defer, endpoints
-from twisted.internet.protocol import Factory
-from twisted.python import reflect
 from twisted.protocols import amp
+from twisted.internet.protocol import Factory
+from twisted.application.service import Application
+from twisted.application.internet import StreamServerEndpointService
 
 from info import Info
 from util import o2p, p2o
@@ -112,7 +113,16 @@ class WireWorkerUniverse(amp.CommandLocator):
 
     Only methods you define in subclasses of this method, with names
     that don't start with an underscore, will be called.
+
+    I come with one trivial method you can use for testing, L{add}.
     """
+    @classmethod
+    def check(cls, instance):
+        if not isinstance(instance, cls):
+            raise TypeError(
+                "You must construct me with a WireWorkerUniverse "+\
+                "subclass instance")
+    
     @RunTask.responder
     def runTask(self, methodName, args, kw):
         """
@@ -147,6 +157,12 @@ class WireWorkerUniverse(amp.CommandLocator):
         """
         return self.u.getNext(ID)
 
+    def add(self, x, y):
+        """
+        Example method that adds the two arguments and returns the sum.
+        """
+        return x+y
+
 
 class WireWorker(object):
     """
@@ -168,26 +184,25 @@ class WireWorker(object):
 
     When running tasks via me, don't assume that you can just call
     blocking code because it's done remotely. The AMP server on the
-    other end runs under Twisted, too, and the result of the call may
-    be a deferred. If the call is a blocking one, set the I{thread}
-    keyword C{True} for it and it will run via an instance of
-    L{threads.ThreadLooper}.
+    other end runs under Twisted, too. (The result of the call may be
+    a C{Deferred}, and that's fine.) If the call is a blocking one,
+    set the I{thread} keyword C{True} for it and it will run via an
+    instance of L{threads.ThreadLooper}.
+
+    B{TODO:} Implement I{reconnect} option.
     """
     implements(IWorker)
     pList = []
     tempDir = []
     cQualified = ['process', 'network']
     
-    def __init__(self, wwu, description, series=[], reconnect=False, raw=False):
-        if not isinstance(wwu, WireWorkerUniverse):
-            raise TypeError(
-                "You must construct me with a WireWorkerUniverse "+\
-                "subclass instance")
+    def __init__(self, wwu, description, series=[], raw=False, reconnect=False):
+        WireWorkerUniverse.check(wwu)
         self.ap = None
         self.tasks = []
         self.raw = raw
         self.iQualified = series
-        # TODO: Implement reconnect option?
+        # TODO: Implement reconnect option
         self.reconnect = reconnect
         # Lock that is acquired until AMP connection made
         self.dLock = util.DeferredLock()
@@ -243,8 +258,9 @@ class WireWorker(object):
 
     def setResignator(self, callableObject):
         """
-        This doesn't currently accomplish anything; Twisted endpoints
-        don't seem to tell you if they disconnect.
+        This doesn't accomplish anything, but if the I{reconnect}
+        constructor keyword gets implemented, it will. Note: Twisted
+        endpoints don't seem to tell you if they disconnect.
         """
         self.resignator = callableObject
     
@@ -460,54 +476,45 @@ class TaskUniverse(object):
         return self.dt.deferToAll()
 
 
-class TaskServer(amp.AMP):
+class WireServer(object):
     """
-    The AMP server protocol for running tasks.
-    """
-    multiverse = {}
-    shutdownDelay = 0.1
-
-    def makeConnection(self, transport):
-        self.info = util.Info()
-        self.u = TaskUniverse()
-        self.multiverse[id(transport)] = self.u
-        return super(TaskServer, self).makeConnection(transport)
+    An AMP server for the remote end of a L{WireWorker}.
     
-    def connectionLost(self, reason):
-        super(TaskServer, self).connectionLost(reason)
-        return self.quitRunning()
-
-
-class TaskServerFactory(Factory):
+    Construct me with an instance of L{WireWorkerUniverse} and then
+    call my L{run} method with an endpoint description string to
+    obtain a C{service} that I can start directly or include in the
+    C{application} of a C{.tac} file, thus accepting connections to
+    run tasks.
     """
-    I am a factory for a L{TaskServer} protocol, sending a handshaking
-    code on stdout when a new AMP connection is made.
+    def __init__(self, wwu):
+        WireWorkerUniverse.check(wwu)
+        self.factory = Factory()
+        self.factory.protocol = lambda: amp.AMP(locator=wwu)
+
+    def run(self, description):
+        """
+        Does B{no} encryption or credential checking (unless you use SSL
+        endpoints).
+        """
+        endpoint = endpoints.serverFromString(reactor, description)
+        service = StreamServerEndpointService(endpoint, self.factory)
+        return service
+
+
+def runServer(description=b"unix:/var/run/wire"):
     """
-    protocol = TaskServer
-                 
-    def startFactory(self):
-        """
-        Now that I'm ready to accept connections, sends the "OK"
-        handshaking code to the ProcessWorker in my spawning Python
-        interpreter via stdout.
-
-        Might do something with hashing an authentication code here
-        someday. Or not.
-        """
-        print "OK"
-        sys.stdout.flush()
-                 
-
-def start(address):
-    pf = TaskServerFactory()
-    # Currently the security of UNIX domain sockets is the only
-    # security we have!
-    port = reactor.listenUNIX(address, pf)
-    reactor.addSystemEventTrigger('before', 'shutdown', port.stopListening)
+    Runs a L{WireServer}, listening at the specified endpoint
+    I{description} without bothering with an C{application}.
+    """
+    ws = WireServer(WireWorkerUniverse())
+    service = ws.run(description)
+    service.startService()
     reactor.run()
 
-
+        
 if __name__ == '__main__':
-    address = sys.argv[-1]
-    start(address)
-    
+    if len(sys.argv) > 1:
+        runServer(sys.argv[1])
+    else:
+        runServer()
+

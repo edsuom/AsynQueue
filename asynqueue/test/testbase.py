@@ -184,6 +184,54 @@ class RangeProducer(object):
             self.stopProducing()
             self.consumer.unregisterProducer()
 
+
+class RangeWriter(object):
+    """
+    Writes an integer range of values like C{xrange} to a file-like
+    object I{fh} and then closes it.
+
+    Fires a C{Deferred} accessible via my I{d} attribute when the
+    range has been written.
+    """
+    implements(IProducer)
+
+    def __init__(self, fh, N, minInterval, maxInterval=None):
+        """
+        Constructs an instance of me to produce a range of I{N} integer
+        values with the specified I{interval} between them.
+        """
+        self.fh = fh
+        self.produce = True
+        self.minInterval = minInterval
+        self.maxInterval = maxInterval
+        self.k, self.N = 0, N
+        self.t0 = time.time()
+        self.d = defer.Deferred()
+        self.setNextCall()
+
+    @property
+    def interval(self):
+        if self.maxInterval is None:
+            return self.minInterval
+        return random.uniform(self.minInterval, self.maxInterval)
+        
+    def setNextCall(self):
+        if not hasattr(self, 'dc') or not self.dc.active():
+            self.dc = reactor.callLater(self.interval, self.nextValue)
+
+    def nextValue(self):
+        if not self.produce:
+            self.fh.close()
+            if not self.d.called:
+                self.d.callback(time.time() - self.t0)
+            return
+        self.setNextCall()
+        if self.k < self.N:
+            self.fh.write(self.k)
+            self.k += 1
+        if self.k == self.N:
+            self.produce = False
+            
         
 class IterationConsumer(MsgBase):
     implements(IConsumer)

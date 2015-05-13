@@ -42,14 +42,17 @@ def blockingTask(x, delay=None):
 def divide(x, y):
     return float(x) / y
 
+
+class WireWorkerUniverse(util.TestStuff, wire.WireWorkerUniverse):
+    pass
+
         
-class TestSocketWorker(TestCase):
+class TestWireWorker(TestCase):
     verbose = True
     
     def setUp(self):
-        from util import TestStuff
-        self.stuff = TestStuff()
-        self.worker = wire.SocketWorker()
+        self.wwu = WireWorkerUniverse()
+        self.worker = wire.WireWorker(self.wwu)
         self.queue = base.TaskQueue()
         self.queue.attachWorker(self.worker)
 
@@ -59,14 +62,8 @@ class TestSocketWorker(TestCase):
         
     @defer.inlineCallbacks
     def test_basic(self):
-        result = yield self.queue.call(sum, [1,2,3])
-        self.assertEqual(result, 6)
-
-    @defer.inlineCallbacks
-    def test_namespace(self):
-        result = yield self.queue.call(
-            self.stuff.blockingTask, 1, 0.5, thread=True)
-        self.assertEqual(result, 2)
+        result = yield self.queue.call('add', 1, 2)
+        self.assertEqual(result, 3)
 
 
 class TestChunkyString(TestCase):

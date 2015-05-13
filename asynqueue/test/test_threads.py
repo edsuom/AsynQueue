@@ -30,7 +30,8 @@ from twisted.internet import defer, reactor
 
 from util import TestStuff
 import base, tasks, iteration, threads
-from testbase import deferToDelay, RangeProducer, IterationConsumer, TestCase
+from testbase import deferToDelay, RangeProducer, RangeWriter, \
+    IterationConsumer, TestCase
 
 
 class TaskMixin:
@@ -424,28 +425,54 @@ class TestFilerator(TaskMixin, TestCase):
     verbose = False
 
     def setUp(self):
-        self.q = threads.ThreadQueue()
-        self.c = threads.Consumerator()
+        self.q = threads.TaskQueue()
+        for series in ('writer', 'iterator'):
+            worker = threads.ThreadWorker(series=[series])
+            self.q.attachWorker(worker)
+        self.f = threads.Filerator()
 
     def tearDown(self):
         return self.q.shutdown()
         
     @defer.inlineCallbacks
-    def test_withPushProducer(self):
+    def test_inMainThread(self):
         N = 10
         totalTime = 2.0
-        producer = RangeProducer(self.c, N, True, totalTime/N)
-        values = yield self.q.call(self._blockingIteratorUser, self.c)
-        timeSpent = yield producer.d
+        writer = RangeWriter(self.f, N, totalTime/N)
+        values = yield self.q.call(
+            self._blockingIteratorUser, self.f, series='iterator')
+        timeSpent = yield writer.d
         self.msg(
             "Consumed {:d} iterations in {:f} seconds",
             len(values), timeSpent)
         self.assertEqual(len(values), N)
         self.assertEqual(values, range(0, 2*N, 2))
         self.assertAlmostEqual(timeSpent, 1.1*totalTime, 2)
-        yield self.c.deferUntilDone()
+        yield self.f.deferUntilDone()
 
-        
+    @defer.inlineCallbacks
+    def test_inBlockingThread(self):
+        def blockingWriter(interval):
+            t0 = time.time()
+            for x in xrange(N):
+                self.f.write(x)
+                time.sleep(interval)
+            self.f.close()
+            return time.time() - t0
+        N = 10
+        totalTime = 2.0
+        d1 = self.q.call(blockingWriter, totalTime/N, series='writer')
+        values = yield self.q.call(
+            self._blockingIteratorUser, self.f, series='iterator')
+        timeSpent = yield d1
+        self.msg(
+            "Consumed {:d} iterations in {:f} seconds",
+            len(values), timeSpent)
+        self.assertEqual(len(values), N)
+        self.assertEqual(values, range(0, 2*N, 2))
+        self.assertAlmostEqual(timeSpent, totalTime, 2)
+        yield self.f.deferUntilDone()
+
         
 class TestOrderedItemProducer(TaskMixin, TestCase):
     verbose = False

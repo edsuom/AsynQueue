@@ -126,6 +126,8 @@ class TestStuff(object):
     @staticmethod
     def divide(x, y):
         return x/y
+    def add(self, x, y):
+        return x+y
     def accumulate(self, y):
         if not hasattr(self, 'x'):
             self.x = 0

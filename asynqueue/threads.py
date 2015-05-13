@@ -337,6 +337,7 @@ class IterationGetter(object):
     
     def __init__(self):
         self.runState = 'init'
+        self.d = defer.Deferred()
         # Locks for my iteration-consuming thread, the
         # blocking-iterator thread, and the next-iteration event
         self.cLock = threading.Semaphore()
@@ -362,6 +363,14 @@ class IterationGetter(object):
         @see L{Consumerator.loop} and L{Filerator.loop}
         """
         raise NotImplementedError("You must override this in a subclass")
+
+    def deferUntilDone(self):
+        """
+        Returns a C{Deferred} that fires when I am done iterating.
+        """
+        d = defer.Deferred()
+        self.d.chainDeferred(d)
+        return d
         
     # Iterator implementation -------------------------------------------------
     # Call in its own thread
@@ -421,7 +430,6 @@ class Consumerator(IterationGetter):
           use L{registerProducer}.
         """
         super(Consumerator, self).__init__()
-        self.d = defer.Deferred()
         self.dLock = util.DeferredLock()
         if producer:
             self.registerProducer(producer, True)
@@ -459,14 +467,6 @@ class Consumerator(IterationGetter):
         reactor.callFromThread(self.d.callback, None)
         self.runState = 'stopped'
         reactor.callFromThread(delattr, self, 'producer')
-
-    def deferUntilDone(self):
-        """
-        Returns a C{Deferred} that fires when I am done iterating.
-        """
-        d = defer.Deferred()
-        self.d.chainDeferred(d)
-        return d
         
     def stop(self):
         """
@@ -533,9 +533,14 @@ class Consumerator(IterationGetter):
 
 class Filerator(IterationGetter):
     """
-    Acts like a file handle to a blocking call in one thread and an
-    iterator in another thread. Hook me up to an
-    L{iteration.Deferator} to stream data over a worker interface.
+    Stream data to me in one end and I will iterate it out the other.
+    
+    Acts like a file handle for writing in one thread (even the main
+    one under the Twisted event loop) and an iterator in another
+    thread. Hook me up to an L{iteration.Deferator} to stream data
+    over a worker interface.
+
+    You must call my L{close} method to stop me from iterating.
     """
     def __init__(self):
         super(Filerator, self).__init__()
@@ -573,7 +578,8 @@ class Filerator(IterationGetter):
         self.runState = 'stopping'
         self.nLock.acquire()
         self.runState = 'stopped'
-        
+        reactor.callFromThread(self.d.callback, None)
+    
     def write(self, data):
         """
         This is called with a chunk of I{data}. It goes through two stages
@@ -581,7 +587,7 @@ class Filerator(IterationGetter):
         """
         if self.closed:
             raise ValueError("Closed, not accepting writes")
-        self.itemBuffer.append(x)
+        self.itemBuffer.append(data)
         if self.runState == 'running':
             # Release my iteration-consuming loop to work on the next
             # iteration value. The cLock object is actually a
@@ -607,7 +613,8 @@ class Filerator(IterationGetter):
         Closing me as a "file" tells me that I can stop iterating once the
         buffer is flushed.
         """
-        self.write(self.IterationStopper())
+        if not self.closed:
+            self.write(self.IterationStopper())
 
 
 class OrderedItemProducer(object):
