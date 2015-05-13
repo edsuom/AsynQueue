@@ -137,7 +137,7 @@ class WireWorkerUniverse(amp.CommandLocator):
         """
         if not hasattr(self, 'u'):
             self.u = TaskUniverse()
-            self.info = util.Info()
+            self.info = Info()
         # The method must be a named attribute of my subclass
         # instance. No funny business with special '__foo__' type
         # methods, either.
@@ -584,6 +584,7 @@ def runServer(description=DEFAULT_SOCKET):
     """
     def running():
         print "AsynQueue WireServer listening at {}".format(description)
+        sys.stdout.flush()
     
     ws = WireServer(WireWorkerUniverse())
     service = ws.run(description)

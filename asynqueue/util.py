@@ -35,6 +35,7 @@ unless perhaps you come up with an entirely new kind of
 L{interfaces.IWorker} implementation.
 """
 
+import os, signal
 from time import time
 import cPickle as pickle
 import cProfile as profile
