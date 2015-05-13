@@ -324,8 +324,67 @@ class ThreadLooper(object):
         self.dLock.addStopper(self.thread.join)
         return self.dLock.stop()
 
+
+class IterationGetter(object):
+    """
+    """
+    class IterationStopper:
+        pass
+    
+    def __init__(self):
+        self.runState = 'init'
+        # Locks for my iteration-consuming thread, the
+        # blocking-iterator thread, and the next-iteration event
+        self.cLock = threading.Semaphore()
+        self.bLock = threading.Lock()
+        self.nLock = threading.Lock()
+        # Lock both of my iteration-processing loops until an
+        # iteration is received
+        self.cLock.acquire()
+        self.bLock.acquire()
+        # We leave the next-iteration lock unlocked; the
+        # iteration-consuming thread will lock it to overwrite the
+        # blocking-iterator thread's value of each iteration
+
+    def start(self):
+        """
+        Call this when I should start listening for iterations.
+        """
+        self.thread = threading.Thread(name=repr(self), target=self.loop)
+        self.thread.start()
+
+    def loop(self):
+        """
+        @see L{Consumerator.loop} and L{Filerator.loop}
+        """
+        raise NotImplementedError("You must override this in a subclass")
         
-class Consumerator(object):
+    # Iterator implementation -------------------------------------------------
+    # Call in its own thread
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        # Wait for the next iteration to be produced
+        self.bLock.acquire()
+        # Get a local reference to the iteration value
+        value = self.bIterationValue
+        # Now it can be changed, so release my iteration-consuming
+        # loop to do so
+        self.nLock.release()
+        if isinstance(value, self.IterationStopper):
+            # We are done iterating. The blocking caller will
+            # immediately exit its loop.
+            raise StopIteration
+        # This is a legit iteration value, return it. Since this
+        # method runs in the blocking-iterator thread, it won't
+        # get called again until the caller is ready for another
+        # iteration.
+        return value
+
+
+class Consumerator(IterationGetter):
     """
     I act like an L{IConsumer} for your Twisted code and an iterator
     for your blocking code running via a L{ThreadWorker}. This is
@@ -346,49 +405,33 @@ class Consumerator(object):
     with the producer and whether it is streaming (push) or not.
 
     @ivar runState: 'init', 'running', 'stopping', 'stopped'
+
+    @ivar d: A C{Deferred} that fires when iterations are done.
     """
     implements(IConsumer)
 
-    class IterationStopper:
-        pass
-    
-    def __init__(self, producer=None, debug=False):
+    def __init__(self, producer=None):
         """
         @param producer: The producer for me to register, if you want to
           supply an C{IPushProducer} one on instantiation. Otherwise,
           use L{registerProducer}.
-
-        @param debug: Set C{True} to get a message printed before each
-          iteration is returned from L{next}.
         """
-        self.runState = 'init'
+        super(Consumerator, self).__init__()
         self.d = defer.Deferred()
         self.dLock = util.DeferredLock()
-        # Locks for my iteration-consuming thread, the
-        # blocking-iterator thread, and the next-iteration event
-        self.cLock = threading.Lock()
-        self.bLock = threading.Lock()
-        self.nLock = threading.Lock()
-        # Lock both of my iteration-processing loops until an
-        # iteration is received
-        self.cLock.acquire()
-        self.bLock.acquire()
-        # We leave the next-iteration lock unlocked; the
-        # iteration-consuming thread will lock it to overwrite the
-        # blocking-iterator thread's value of each iteration
         if producer:
             self.registerProducer(producer, True)
-        self.debug = debug
-    
+
     def loop(self):
         """
-        Runs a loop in a dedicated thread that waits for new
-        iterations. The loop exits when I get an instance of
-        L{self.IterationStopper}.
+        Runs a loop in a dedicated thread that waits for new iterations to
+        be produced. When I get an instance of
+        L{self.IterationStopper}, the loop exits. I then call my "all
+        done" C{Deferred} and delete my reference to the producer.
         """
         self.runState = 'running'
         while True:
-            # Wait for an iteration from the IConsumer interface
+            # Wait for an iteration
             self.cLock.acquire()
             # Get a copy of the value
             value = self.cIterationValue
@@ -415,35 +458,30 @@ class Consumerator(object):
 
     def deferUntilDone(self):
         """
-        Returns a C{Deferred} that fires when I am done consuming
-        iterations.
+        Returns a C{Deferred} that fires when I am done iterating.
         """
         d = defer.Deferred()
         self.d.chainDeferred(d)
         return d
-    
-    # --- IConsumer implementation --------------------------------------------
-    
-    def registerProducer(self, producer, streaming):
+        
+    def stop(self):
         """
-        L{IConsumer} implementation
+        Good manners urge you to call this to cleanly break out of a loop
+        of my iterations so that my producer doesn't keep working for
+        nothing. Calling this method at the Twisted main-loop level is
+        also a fine way to quit producing and iterating when you know
+        you're done.
+
+        Not part of the official iterator implementation, but
+        useful for a Twisted way of iterating. You need a way of
+        letting whatever is producing the iterations know that there
+        won't be any more of them.
         """
         if hasattr(self, 'producer'):
-            raise RuntimeError()
-        self.producer = producer
-        self.streaming = streaming
-        if not streaming:
-            producer.resumeProducing()
-        self.thread = threading.Thread(name=repr(self), target=self.loop)
-        self.thread.start()
-
-    def unregisterProducer(self):
-        """
-        L{IConsumer} implementation
-        """
-        if not hasattr(self, 'producer'):
-            return defer.succeed(None)
-        return self.write(self.IterationStopper())
+            self.producer.stopProducing()
+        return self.unregisterProducer()
+        
+    # --- IConsumer implementation --------------------------------------------
 
     def write(self, data):
         """
@@ -467,52 +505,98 @@ class Consumerator(object):
             self.producer.pauseProducing()
         # Handle the data in the order received
         return self.dLock.acquire().addCallback(handleData, data)
-        
-    # Iterator implementation -------------------------------------------------
-    # Call in a *different* thread via ThreadWorker
-
-    def __iter__(self):
-        return self
-
-    def next(self):
-        # Wait for the next iteration to be produced
-        self.bLock.acquire()
-        # Get a local reference to the iteration value
-        value = self.bIterationValue
-        if self.debug:
-            if not hasattr(self, 'iCount'):
-                self.iCount = 0
-            print("{:03d}: {}".format(self.iCount, repr(value)))
-            self.iCount += 1
-        # Now it can be changed, so release my iteration-consuming
-        # loop to do so
-        self.nLock.release()
-        if isinstance(value, self.IterationStopper):
-            # We are done iterating. The blocking caller will
-            # immediately exit its loop.
-            raise StopIteration
-        # This is a legit iteration value, return it. Since this
-        # method runs in the blocking-iterator thread, it won't
-        # get called again until the caller is ready for another
-        # iteration.
-        return value
-
-    def stop(self):
+    
+    def registerProducer(self, producer, streaming):
         """
-        Good manners urge you to call this to cleanly break out of a loop
-        of my iterations so that my producer doesn't keep working for
-        nothing. Calling this method at the Twisted main-loop level is
-        also a fine way to quit producing and iterating when you know
-        you're done.
-
-        Not part of the official iterator implementation, but
-        useful for a Twisted way of iterating. You need a way of
-        letting whatever is producing the iterations know that there
-        won't be any more of them.
+        L{IConsumer} implementation
         """
         if hasattr(self, 'producer'):
-            self.producer.stopProducing()
-        return self.unregisterProducer()
+            raise RuntimeError()
+        self.producer = producer
+        self.streaming = streaming
+        if not streaming:
+            producer.resumeProducing()
+        self.start()
+
+    def unregisterProducer(self):
+        """
+        L{IConsumer} implementation
+        """
+        if not hasattr(self, 'producer'):
+            return defer.succeed(None)
+        return self.write(self.IterationStopper())
+        
+
+class Filerator(IterationGetter):
+    """
+    Acts like a file handle to a blocking call in one thread and an
+    iterator in another thread. Hook me up to an
+    L{iteration.Deferator} to stream data over a worker interface.
+
+    """
+    def __init__(self):
+        super(Filerator, self).__init__()
+        self.itemBuffer = []
+        self.start()
+
+    def loop(self):
+        """
+        Runs a loop in a dedicated thread that waits for new iterations to
+        be written. When I get an instance of
+        L{self.IterationStopper}, the loop exits.
+        """
+        self.runState = 'running'
+        while True:
+            # Wait for an iteration
+            self.cLock.acquire()
+            # Get the oldest value in the FIFO buffer
+            value = self.itemBuffer.pop(0)
+            # Wait until it's safe to overwrite the blocking-iterator
+            # loop's copy
+            self.nLock.acquire()
+            # Now do so and release it to work on the new copy
+            self.bIterationValue = value
+            self.bLock.release()
+            if isinstance(value, self.IterationStopper):
+                # This was the post-iteration signal; this loop is now
+                # done.
+                break
+        # Wait until we know the iteration stopper was noticed and the
+        # blocking iterations stopped.
+        self.runState = 'stopping'
+        self.nLock.acquire()
+        self.runState = 'stopped'
+        
+    def write(self, data):
+        """
+        This is called with a chunk of I{data}. It goes through two stages
+        to emerge from my blocking end as an iteration, via L{next}.
+        """
+        self.itemBuffer.append(x)
+        if self.runState == 'running':
+            # Release my iteration-consuming loop to work on the next
+            # iteration value
+            self.cLock.release()
+        
+    def writelines(self, lines):
+        """
+        Adds a list full of data chunks to my buffer.
+        """
+        for line in lines:
+            self.write(line)
+    
+    def flush(self):
+        """
+        Doesn't do anything, because I am always trying to flush my buffer
+        by iterating its contents.
+        """
+        
+    def close(self):
+        """
+        Closing me as a "file" tells me that I can stop iterating once the
+        buffer is flushed.
+        """
+        self.write(self.IterationStopper)
 
 
 class OrderedItemProducer(object):
@@ -673,4 +757,3 @@ class OrderedItemProducer(object):
 
     def resumeProducing(self):
         self.produce = True
-

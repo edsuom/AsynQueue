@@ -2,7 +2,7 @@
 # Asynchronous task queueing based on the Twisted framework, with task
 # prioritization and a powerful worker/manager interface.
 #
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
+# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen
 #
 # See edsuom.com for API documentation as well as information about
 # Ed's background and other projects, software and otherwise.
