@@ -25,7 +25,8 @@ L{WireWorker} and its support staff. B{Unsupported} and not yet
 working. It's turned into a real mess. For most applications, you can
 use L{process} instead.
 
-You need to start a server that 
+You need to start another Python interpreter somewhere using
+L{WireServer} and have L{WireWorker} connect to it via Twisted AMP.
 """
 
 import sys, os.path, tempfile, shutil, inspect
@@ -44,6 +45,9 @@ from interfaces import IWorker
 from threads import ThreadLooper
 
 
+DEFAULT_SOCKET = b"unix:/var/run/wire"
+
+
 class RunTask(amp.Command):
     """
     Runs a task and returns the status and result.
@@ -58,9 +62,9 @@ class RunTask(amp.Command):
     should limit who you accept connections from in any event,
     preferably encrypting them.
 
-    The args and kw are all pickled strings. (Be careful about
+    The I{args} and I{kw} are all pickled strings. (Be careful about
     allowing your methods to do arbitrary things with them!) The args
-    and kw can be empty strings, indicating no args or kw.
+    and kw can be empty strings, indicating no arguments or keywords.
 
     The response has the following status/result structure::
 
@@ -206,13 +210,14 @@ class WireWorker(object):
         self.reconnect = reconnect
         # Lock that is acquired until AMP connection made
         self.dLock = util.DeferredLock()
+        self.dLock.addStopper(self._stopper)
         self._connect(wwu, description)
 
     @defer.inlineCallbacks
     def _connect(self, wwu, description):
         """
-        Spawn a subordinate Python interpreter and connects to it via the
-        AMP protocol and a client connection specified by
+        Connects to a L{WireServer} running on another Python interpreter
+        via the AMP protocol and a client connection specified by
         I{description}.
         """
         if not self.ap:
@@ -325,8 +330,9 @@ class WireWorker(object):
             raise ValueError("Unknown status {}".format(status))
 
     def stop(self):
-        self._ignoreDisconnection = True
-        self.dLock.addStopper(self._stopper)
+        if getattr(self, '_stopped', False):
+            return
+        self._stopped = True
         return self.dLock.stop()
 
     def crash(self):
@@ -500,15 +506,89 @@ class WireServer(object):
         service = StreamServerEndpointService(endpoint, self.factory)
         return service
 
+        
+class ServerManager(object):
+    """
+    I spawn one or more new Python interpreters that run a
+    L{WireServer} on the local machine.
+    """
+    def __init__(self):
+        self.processInfo = {}
+        reactor.addSystemEventTrigger('before', 'shutdown', self.done)
+            
+    def spawn(self, description=None):
+        """
+        Spawns a subordinate Python interpreter.
 
-def runServer(description=b"unix:/var/run/wire"):
+        @param description: A server description string of the form
+          used by Twisted's C{endpoints.serverFromString}. Default is
+          "unix:/var/run/wire".
+
+        @return: A C{Deferred} that fires with the PID of the new
+          process if it connected OK, or C{None} if not.
+        """
+        def ready(response):
+            print "READY: {}".format(response)
+            self.processInfo[pt.pid] = {'pt':pt}
+            if "AsynQueue WireServer listening" in response:
+                return pt.pid
+            self.done(pt.pid)
+
+        # Spawn the AMP server and "wait" for it to indicate it's OK
+        args = [sys.executable, "-m", "asynqueue.wire"]
+        if description:
+            args.append(description)
+        pp = util.ProcessProtocol(self.done)
+        pt = reactor.spawnProcess(pp, sys.executable, args)
+        return pp.d.addCallback(ready)
+
+    def newSocket(self):
+        """
+        Assigns a unique name to a socket file in a temporary directory
+        common to all processes spawned by me, which will be removed
+        with all socket files after reactor shutdown. Doesn't actually
+        create the socket file; the server does that.
+
+        @return: An endpoint description using the new socket filename.
+        """
+        # The process name
+        pName = "worker-{:03d}".format(len(self.processInfo))
+        # A unique temp directory for all instances' socket files
+        if not hasattr(self, 'tempDir'):
+            self.tempDir = tempfile.mkdtemp()
+            reactor.addSystemEventTrigger(
+                'after', 'shutdown',
+                shutil.rmtree, self.tempDir, ignore_errors=True)
+        socketFile = os.path.join(self.tempDir, "{}.sock".format(pName))
+        return b"unix:{}".format(socketFile)
+
+    @defer.inlineCallbacks
+    def done(self, pid=None):
+        if pid is None:
+            for pid in self.processInfo.keys():
+                yield self.done(pid)
+        elif pid in self.processInfo:
+            thisInfo = self.processInfo[pid]
+            if 'ap' in thisInfo:
+                yield thisInfo['ap'].transport.loseConnection()
+            if 'pt' in thisInfo:
+                yield thisInfo['pt'].loseConnection()
+            yield util.killProcess(pid)
+            del self.processInfo[pid]
+
+        
+def runServer(description=DEFAULT_SOCKET):
     """
     Runs a L{WireServer}, listening at the specified endpoint
     I{description} without bothering with an C{application}.
     """
+    def running():
+        print "AsynQueue WireServer listening at {}".format(description)
+    
     ws = WireServer(WireWorkerUniverse())
     service = ws.run(description)
     service.startService()
+    reactor.callWhenRunning(running)
     reactor.run()
 
         

@@ -42,23 +42,26 @@ def blockingTask(x, delay=None):
 def divide(x, y):
     return float(x) / y
 
-
-class WireWorkerUniverse(util.TestStuff, wire.WireWorkerUniverse):
-    pass
-
         
 class TestWireWorker(TestCase):
     verbose = True
-    
+
+    @defer.inlineCallbacks
     def setUp(self):
-        self.wwu = WireWorkerUniverse()
-        self.worker = wire.WireWorker(self.wwu)
+        self.wwu = wire.WireWorkerUniverse()
+        self.wm = wire.ServerManager()
+        description = self.wm.newSocket()
+        print description
+        PID = yield self.wm.spawn(description)
+        print "PID: {}".format(PID)
+        self.worker = wire.WireWorker(self.wwu, description)
         self.queue = base.TaskQueue()
         self.queue.attachWorker(self.worker)
 
     @defer.inlineCallbacks
     def tearDown(self):
         yield self.queue.shutdown()
+        yield self.wm.done()
         
     @defer.inlineCallbacks
     def test_basic(self):

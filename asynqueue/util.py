@@ -106,10 +106,10 @@ def killProcess(pid):
             return True
         return False
     pidString = str(pid)
-    pp = protocol.ProcessProtocol()
+    pp = ProcessProtocol()
     args = ("/bin/ps", '-p', pidString, '--no-headers')
     pt = reactor.spawnProcess(pp, args[0], args)
-    return pp.waitUntilReady().addCallback(ready)
+    return pp.d.addCallback(ready)
     
 
 # For Testing
@@ -144,7 +144,38 @@ class TestStuff(object):
         time.sleep(delay)
         return 2*x
 # ----------------------------------------------------------------------------
-    
+
+class ProcessProtocol(object):
+    """
+    I am a simple protocol for spawning a subordinate process.
+
+    @ivar d: A C{Deferred} that fires with an initial chunch of stdout
+    from the process.
+    """
+    def __init__(self, stopper=None):
+        self.stopper = lambda x: None if stopper is None else stopper
+        self.d = defer.Deferred()
+        
+    def makeConnection(self, pt):
+        print "MC", pt.pid
+        self.pid = pt.pid
+        
+    def childDataReceived(self, childFD, data):
+        data = data.strip()
+        print "DATA: {}".format(data)
+        if childFD == 1:
+            if data and not self.d.called:
+                self.d.callback(data)
+        if childFD == 2:
+            self.stopper(self.pid)
+            
+    def childConnectionLost(self, childFD):
+        self.stopper(self.pid)
+    def processExited(self, reason):
+        self.stopper(self.pid)
+    def processEnded(self, reason):
+        self.stopper(self.pid)
+
 
 class DeferredTracker(object):
     """
