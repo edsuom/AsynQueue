@@ -644,12 +644,11 @@ class OrderedItemProducer(object):
     """
     implements(IPushProducer)
     
-    def __init__(self, q=None):
+    def __init__(self):
         self.itemBuffer = {}
         self.k1, self.k2 = 0, 0
         self.seriesID = hash(self)
         self.i = Consumerator(self)
-        self.q = TaskQueue() if q is None else q
         self.dLock = defer.DeferredLock()
         self.dt = util.DeferredTracker()
         self.dLock.acquire()
@@ -665,27 +664,26 @@ class OrderedItemProducer(object):
         call to L{start}.
 
         @return: A C{Deferred} that fires when the blocking call has
-          started in a dedicated thread. If you have a busy queue,
-          this might take a non-negligible amount of time.
+          started in a dedicated thread. Shouldn't take long at all.
         """
-        def gotID(workerID):
-            self.workerID = workerID
-            self.dFinished = self.q.call(runner, series=self.seriesID)
-            return dStarted
-        def signalIsRunning():
+        def started():
             self.dLock.release()
             dStarted.callback(None)
         def runner():
             # This function runs via the queue in my dedicated thread
-            reactor.callFromThread(signalIsRunning)
+            reactor.callFromThread(started)
             # The actual blocking call
             result = fb(self.i, *args, **kw)
-            reactor.callFromThread(self.stopProducing)
-            return result
+            reactor.callFromThread(finished, result)
+        def finished(result):
+            self.dFinished.callback(result)
+            self.stopProducing()
         dStarted = defer.Deferred()
-        worker = ThreadWorker([self.seriesID])
-        return self.q.attachWorker(worker).addCallback(gotID)
-        
+        self.dFinished = defer.Deferred()
+        thread = threading.Thread(name=repr(self), target=runner)
+        thread.start()
+        return dStarted
+    
     def produceItem(self, fp, *args, **kw):
         """
         Runs C{fp(*args, **kw) to generate an item that I produce as an
@@ -743,7 +741,6 @@ class OrderedItemProducer(object):
         if hasattr(self, 'dFinished'):
             result = yield self.dFinished
             del self.dFinished
-            yield self.q.detachWorker(self.workerID)
         else:
             result = None
         self.dLock.release()

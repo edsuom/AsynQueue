@@ -2,7 +2,8 @@
 # Asynchronous task queueing based on the Twisted framework, with task
 # prioritization and a powerful worker/manager interface.
 #
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
+# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# http://edsuom.com/AsynQueue
 #
 # See edsuom.com for API documentation as well as information about
 # Ed's background and other projects, software and otherwise.
@@ -418,15 +419,39 @@ class TestConsumerator(TaskMixin, TestCase):
         self.assertEqual(values, range(0, 2*N, 2))
         yield producer.d
 
+
+class TestFilerator(TaskMixin, TestCase):
+    verbose = False
+
+    def setUp(self):
+        self.q = threads.ThreadQueue()
+        self.c = threads.Consumerator()
+
+    def tearDown(self):
+        return self.q.shutdown()
+        
+    @defer.inlineCallbacks
+    def test_withPushProducer(self):
+        N = 10
+        totalTime = 2.0
+        producer = RangeProducer(self.c, N, True, totalTime/N)
+        values = yield self.q.call(self._blockingIteratorUser, self.c)
+        timeSpent = yield producer.d
+        self.msg(
+            "Consumed {:d} iterations in {:f} seconds",
+            len(values), timeSpent)
+        self.assertEqual(len(values), N)
+        self.assertEqual(values, range(0, 2*N, 2))
+        self.assertAlmostEqual(timeSpent, 1.1*totalTime, 2)
+        yield self.c.deferUntilDone()
+
+        
         
 class TestOrderedItemProducer(TaskMixin, TestCase):
     verbose = False
 
     def setUp(self):
         self.p = threads.OrderedItemProducer()
-
-    def tearDown(self):
-        return self.p.q.shutdown()
 
     def fb(self, i):
         result = []
