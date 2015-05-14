@@ -391,7 +391,10 @@ class TaskHandler(object):
 
         The method generates an integer ID uniquely identifying the
         worker, and gives the worker an I{ID} attribute with the ID
-        for its own reference, The ID is returned as well.
+        for its own reference.
+
+        @return: A C{Deferred} that fires with the worker's ID when it
+          has been hired and is ready for assignments.
         """
         @defer.inlineCallbacks
         def readyToRun():

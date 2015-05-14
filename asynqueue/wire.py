@@ -21,17 +21,18 @@
 # governing permissions and limitations under the License.
 
 """
-L{WireWorker} and its support staff. B{Unsupported} and not yet
-working. It's turned into a real mess. For most applications, you can
+L{WireWorker} and its support staff. For most applications, you can
 use L{process} instead.
 
 You need to start another Python interpreter somewhere using
-L{WireServer} and have L{WireWorker} connect to it via Twisted AMP.
+L{WireServer} and have L{WireWorker} connect to it via Twisted AMP. My
+L{ServerManager} is just the thing for that.
 """
 
 import sys, os.path, tempfile, shutil, inspect
 
 from zope.interface import implements
+from twisted.python import reflect
 from twisted.internet import reactor, defer, endpoints
 from twisted.protocols import amp
 from twisted.internet.protocol import Factory
@@ -46,6 +47,7 @@ from threads import ThreadLooper
 
 
 DEFAULT_SOCKET = b"unix:/var/run/wire"
+DEFAULT_WWU_FQN = "asynqueue.wire.WireWorkerUniverse"
 
 
 class RunTask(amp.Command):
@@ -117,15 +119,15 @@ class WireWorkerUniverse(amp.CommandLocator):
 
     Only methods you define in subclasses of this method, with names
     that don't start with an underscore, will be called.
-
-    I come with one trivial method you can use for testing, L{add}.
     """
     @classmethod
     def check(cls, instance):
-        if not isinstance(instance, cls):
-            raise TypeError(
-                "You must construct me with a WireWorkerUniverse "+\
-                "subclass instance")
+        for baseClass in inspect.getmro(instance.__class__):
+            fqn = reflect.fullyQualifiedName(baseClass)
+            if fqn == DEFAULT_WWU_FQN:
+                return True
+        raise TypeError(
+            "You must provide a WireWorkerUniverse subclass instance")
     
     @RunTask.responder
     def runTask(self, methodName, args, kw):
@@ -135,18 +137,18 @@ class WireWorkerUniverse(amp.CommandLocator):
         interpreter, with the supplied list I{args} of arguments and
         dict of keywords I{kw}, which may be empty.
         """
-        if not hasattr(self, 'u'):
-            self.u = TaskUniverse()
+        if not hasattr(self, 'wr'):
+            self.wr = WireRunner()
             self.info = Info()
         # The method must be a named attribute of my subclass
         # instance. No funny business with special '__foo__' type
         # methods, either.
         func = None if methodName.startswith('_') \
                else getattr(self, methodName, None)
+        args = p2o(args, [])
+        kw = p2o(kw, {})
         if callable(func):
-            args = p2o(args, [])
-            kw = p2o(kw, {})
-            return self.u.call(func, *args, **kw)
+            return self.wr.call(func, *args, **kw)
         # Wasn't a legit method call
         text = self.info.setCall(methodName, args, kw).aboutCall()
         return {
@@ -159,27 +161,22 @@ class WireWorkerUniverse(amp.CommandLocator):
         """
         @see L{GetNext}
         """
-        return self.u.getNext(ID)
-
-    def add(self, x, y):
-        """
-        Example method that adds the two arguments and returns the sum.
-        """
-        return x+y
-
+        return self.wr.getNext(ID)
+        
 
 class WireWorker(object):
     """
-    Runs tasks over the wire, via a TCP/IP connection and Twisted AMP.
+    Runs tasks "over the wire," via Twisted AMP running on an
+    C{endpoint} connection.
     
     I implement an L{IWorker} that runs named tasks in a remote Python
-    interpreter via Twisted's Asynchronous Messaging Protocol over
-    TCP/IP. The task callable must be a method of a subclass of
-    L{WireWorkerUniverse} that has been imported globally, as
-    C{UNIVERSE}, into the same module as the one in which your
-    instance of me is constructed. No pickled callables are sent over
-    the wire, just strings defining the method name of that class
-    instance.
+    interpreter via Twisted's Asynchronous Messaging Protocol over an
+    endpoint that can be a UNIX socket, TCP/IP, SSL, etc. The task
+    callable must be a method of a subclass of L{WireWorkerUniverse}
+    that has been imported globally, as C{UNIVERSE}, into the same
+    module as the one in which your instance of me is constructed. No
+    pickled callables are sent over the wire, just strings defining
+    the method name of that class instance.
 
     For most applications, see L{process.ProcessWorker} instead.
 
@@ -192,45 +189,51 @@ class WireWorker(object):
     a C{Deferred}, and that's fine.) If the call is a blocking one,
     set the I{thread} keyword C{True} for it and it will run via an
     instance of L{threads.ThreadLooper}.
-
-    B{TODO:} Implement I{reconnect} option.
     """
     implements(IWorker)
     pList = []
     tempDir = []
-    cQualified = ['process', 'network']
+    cQualified = ['wire', 'remote']
+
+    class AMP(amp.AMP):
+        """
+        Special disconnection-alerting AMP protocol. When my connection is
+        made, I construct a C{Deferred} referenced as I{d_lcww}, which
+        I will fire it if I get disconnected.
+        """
+        def connectionMade(self):
+            self.d_lcww = defer.Deferred()
+        def connectionLost(self, reason):
+            if hasattr(self, 'd_lcww'):
+                self.d_lcww.callback(None)
+                del self.d_lcww
+            return super(amp.AMP, self).connectionLost(reason)
     
-    def __init__(self, wwu, description, series=[], raw=False, reconnect=False):
+    def __init__(self, wwu, description, series=[], raw=False):
+        """
+        Constructs me with a reference I{wwu} to a L{WireWorkerUniverse}
+        and a client connection I{description} and immediately
+        connects to a L{WireServer} running on another Python
+        interpreter via the AMP protocol.
+        """
+        def connected(ap):
+            self.ap = ap
+            self.dLock.release()
+        
         WireWorkerUniverse.check(wwu)
-        self.ap = None
         self.tasks = []
         self.raw = raw
         self.iQualified = series
-        # TODO: Implement reconnect option
-        self.reconnect = reconnect
         # Lock that is acquired until AMP connection made
-        self.dLock = util.DeferredLock()
-        self.dLock.addStopper(self._stopper)
-        self._connect(wwu, description)
+        self.dLock = util.DeferredLock(allowZombies=True)
+        self.dLock.addStopper(self.stopper)
+        self.dLock.acquire()
+        # Make the connection
+        dest = endpoints.clientFromString(reactor, description)
+        endpoints.connectProtocol(
+            dest, self.AMP(locator=wwu)).addCallback(connected)
 
-    @defer.inlineCallbacks
-    def _connect(self, wwu, description):
-        """
-        Connects to a L{WireServer} running on another Python interpreter
-        via the AMP protocol and a client connection specified by
-        I{description}.
-        """
-        if not self.ap:
-            # This should happen right away
-            yield self.dLock.acquire()
-            dest = endpoints.clientFromString(reactor, description)
-            self.ap = yield endpoints.connectProtocol(
-                dest, amp.AMP(locator=wwu))
-            # We now have an AMP protocol object, ready for callers to
-            # use, so release the lock
-            self.dLock.release()
-
-    def _stopper(self):
+    def stopper(self):
         if hasattr(self, 'ap'):
             return self.ap.transport.loseConnection()
             
@@ -253,21 +256,29 @@ class WireWorker(object):
         wire (socket) and in Twisted fashion.
         """
         yield self.dLock.acquire(vip=True)
-        value, isValid = yield self.ap.callRemote(GetNext, ID=ID)
+        response = yield self.ap.callRemote(GetNext, ID=ID)
         self.dLock.release()
-        value = result[0] if result[1] else Failure(StopIteration)
+        value = p2o(response['value']) if response['isValid'] \
+                else Failure(StopIteration)
         defer.returnValue(value)
-            
+
+    def resign(self, *args):
+        if hasattr(self, 'resignator'):
+            self.resignator()
+            del self.resignator
+        
     # Implementation methods
     # -------------------------------------------------------------------------
-
+    
     def setResignator(self, callableObject):
         """
-        This doesn't accomplish anything, but if the I{reconnect}
-        constructor keyword gets implemented, it will. Note: Twisted
-        endpoints don't seem to tell you if they disconnect.
+        I resign if my underlying AMP connection is lost.
         """
+        def gotLock(lock):
+            self.ap.d_lcww.addCallback(self.resign)
+            lock.release()
         self.resignator = callableObject
+        self.dLock.acquire().addCallback(gotLock)
     
     @defer.inlineCallbacks
     def run(self, task):
@@ -276,24 +287,29 @@ class WireWorker(object):
         deferred to the eventual result.
         """
         def result(value):
-            task.callback((status, value))
             self.tasks.remove(task)
+            task.callback((status, value))
 
         self.tasks.append(task)
         doNext = task.callTuple[2].pop('doNext', False)
         yield self.dLock.acquire(doNext)
-        # Run the task via AMP
+        # Run the task via AMP, but only if it's connected
         #-----------------------------------------------------------
-        kw = {}
-        for k, value in enumerate(task.callTuple):
-            name = RunTask.arguments[k][0]
-            kw[name] = value if isinstance(value, str) else o2p(value)
-        if self.raw:
-            kw.setdefault('raw', True)
-        # The heart of the matter
-        print "RUN-1", kw
-        response = yield self.ap.callRemote(RunTask, **kw)
-        print "RUN-2", response
+        if not self.ap.transport.connected:
+            response = {'status':'d', 'result':None}
+        else:
+            kw = {}
+            consumer = task.callTuple[2].pop('consumer', None)
+            for k, value in enumerate(task.callTuple):
+                name = RunTask.arguments[k][0]
+                kw[name] = value if isinstance(value, str) else o2p(value)
+            if self.raw:
+                kw.setdefault('raw', True)
+            # The heart of the matter
+            try:
+                response = yield self.ap.callRemote(RunTask, **kw)
+            except:
+                response = {'status':'d', 'result':None}
         #-----------------------------------------------------------
         # At this point, we can permit another remote call to get
         # going for a separate task.
@@ -309,8 +325,10 @@ class WireWorker(object):
             pf = iteration.Prefetcherator(x)
             ok = yield pf.setup(self.next, x)
             if ok:
-                dr = iteration.Deferator(pf)
-                returnThis = iteration.IterationProducer(dr)
+                returnThis = iteration.Deferator(pf)
+                if consumer:
+                    returnThis = iteration.IterationProducer(
+                        returnThis, consumer)
             else:
                 # The subordinate returned an iterator, but it's not 
                 # one I could prefetch from. Probably empty.
@@ -324,8 +342,9 @@ class WireWorker(object):
             result(p2o(x))
         elif status == 'n':
             result(None)
-        elif status == 'e':
+        elif status in ('e', 'd'):
             result(x)
+            self.resign()
         else:
             raise ValueError("Unknown status {}".format(status))
 
@@ -336,8 +355,7 @@ class WireWorker(object):
         return self.dLock.stop()
 
     def crash(self):
-        if hasattr(self, 'ap') and self.ap in self.pList:
-            self._stopper()
+        self.stopper()
         return self.tasks
 
 
@@ -368,11 +386,10 @@ class ChunkyString(object):
         return thisChunk
 
 
-class TaskUniverse(object):
+class WireRunner(object):
     """
     I am the universe for all tasks running with a particular
-    connection to my L{TaskServer}.
-
+    connection to my L{WireServer}.
     """
     def __init__(self):
         self.iterators = {}
@@ -380,18 +397,29 @@ class TaskUniverse(object):
         self.info = Info()
         self.dt = util.DeferredTracker()
 
-    def _saveIterator(x):
+    def shutdown(self):
+        if hasattr(self, 't'):
+            d = self.t.stop().addCallback(lambda _: delattr(self, 't'))
+            self.dt.put(d)
+        return self.dt.deferToAll()
+        
+    def _saveIterator(self, x):
         ID = str(hash(x))
         self.iterators[ID] = x
         return ID
-        
-    @defer.inlineCallbacks
+
     def call(self, f, *args, **kw):
         """
         Run the f-args-kw combination, in the regular thread or in a
         thread running if I have one, returning a deferred to the
         status and result.
         """
+        d = self._call(f, *args, **kw)
+        self.dt.put(d)
+        return d
+
+    @defer.inlineCallbacks
+    def _call(self, f, *args, **kw):
         def oops(failureObj, ID=None):
             if ID:
                 text = self.info.aboutFailure(failureObj, ID)
@@ -437,23 +465,30 @@ class TaskUniverse(object):
         response['result'] = result
         defer.returnValue(response)
     
-    @defer.inlineCallbacks
     def getNext(self, ID):
         """
-        Gets the next item for the specified iterator, returning a
-        deferred that fires with a response containing the pickled
-        item and the isValid status indicating if the item is legit
-        (False = StopIteration).
+        Gets the next item for the iterator specified by I{ID}, returning
+        a C{Deferred} that fires with a response containing the
+        pickled item and the I{isValid} status indicating if the item
+        is legit (C{False} = L{StopIteration}).
         """
+        d = self._getNext(ID)
+        self.dt.put(d)
+        return d
+
+    @defer.inlineCallbacks
+    def _getNext(self, ID):
         def oops(failureObj, ID):
             del self.iterators[ID]
             response['isValid'] = False
-            if failureObj.type != StopIteration:
+            if failureObj.type == StopIteration:
+                response['value'] = ""
+            else:
                 response['value'] = self.info.setCall(
                     "getNext", [ID]).aboutFailure(failureObj)
 
         def bogusResponse():
-            response['value'] = None
+            response['value'] = ""
             response['isValid'] = False
             
         response = {'isValid': True}
@@ -461,12 +496,14 @@ class TaskUniverse(object):
             # Iterator
             if hasattr(self, 't'):
                 # Get next iteration in a thread
-                response['value'] = yield self.t.deferToThread(
+                value = yield self.t.deferToThread(
                     self.iterators[ID].next).addErrback(oops, ID)
+                if response['isValid']:
+                    response['value'] = o2p(value)
             else:
-                # Get next iteration in main loop
+                # Get next iteration in main loop. No blocking!
                 try:
-                    response['value'] = self.iterators[ID].next()
+                    response['value'] = o2p(self.iterators[ID].next())
                 except StopIteration:
                     del self.iterators[ID]
                     bogusResponse()
@@ -475,24 +512,20 @@ class TaskUniverse(object):
             bogusResponse()
         defer.returnValue(response)
     
-    def shutdown(self):
-        if hasattr(self, 't'):
-            d = self.t.stop().addCallback(lambda _: delattr(self, 't'))
-            self.dt.put(d)
-        return self.dt.deferToAll()
-
 
 class WireServer(object):
     """
     An AMP server for the remote end of a L{WireWorker}.
     
-    Construct me with an instance of L{WireWorkerUniverse} and then
-    call my L{run} method with an endpoint description string to
-    obtain a C{service} that I can start directly or include in the
-    C{application} of a C{.tac} file, thus accepting connections to
-    run tasks.
+    Construct me with the fully qualified name of a
+    L{WireWorkerUniverse} and then call my L{run} method with an
+    endpoint description string to obtain a C{service} that I can
+    start directly or include in the C{application} of a C{.tac} file,
+    thus accepting connections to run tasks.
     """
-    def __init__(self, wwu):
+    def __init__(self, wwuFQN):
+        klass = reflect.namedObject(wwuFQN)
+        wwu = klass()
         WireWorkerUniverse.check(wwu)
         self.factory = Factory()
         self.factory.protocol = lambda: amp.AMP(locator=wwu)
@@ -512,11 +545,12 @@ class ServerManager(object):
     I spawn one or more new Python interpreters that run a
     L{WireServer} on the local machine.
     """
-    def __init__(self):
+    def __init__(self, wwuFQN=None):
         self.processInfo = {}
+        self.wwuFQN = DEFAULT_WWU_FQN if wwuFQN is None else wwuFQN
         reactor.addSystemEventTrigger('before', 'shutdown', self.done)
             
-    def spawn(self, description=None):
+    def spawn(self, description):
         """
         Spawns a subordinate Python interpreter.
 
@@ -528,16 +562,13 @@ class ServerManager(object):
           process if it connected OK, or C{None} if not.
         """
         def ready(response):
-            print "READY: {}".format(response)
             self.processInfo[pt.pid] = {'pt':pt}
             if "AsynQueue WireServer listening" in response:
                 return pt.pid
             self.done(pt.pid)
 
         # Spawn the AMP server and "wait" for it to indicate it's OK
-        args = [sys.executable, "-m", "asynqueue.wire"]
-        if description:
-            args.append(description)
+        args = [sys.executable, "-m", "asynqueue.wire", description, self.wwuFQN]
         pp = util.ProcessProtocol(self.done)
         pt = reactor.spawnProcess(pp, sys.executable, args)
         return pp.d.addCallback(ready)
@@ -577,16 +608,19 @@ class ServerManager(object):
             del self.processInfo[pid]
 
         
-def runServer(description=DEFAULT_SOCKET):
+def runServer(description, wwuFQN):
     """
     Runs a L{WireServer}, listening at the specified endpoint
     I{description} without bothering with an C{application}.
+
+    You must specify the package.module.class fully qualified name of
+    a L{WireWorkerUniverse} subclass with I{wwu}.
     """
     def running():
         print "AsynQueue WireServer listening at {}".format(description)
         sys.stdout.flush()
     
-    ws = WireServer(WireWorkerUniverse())
+    ws = WireServer(wwuFQN)
     service = ws.run(description)
     service.startService()
     reactor.callWhenRunning(running)
@@ -594,8 +628,6 @@ def runServer(description=DEFAULT_SOCKET):
 
         
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        runServer(sys.argv[1])
-    else:
-        runServer()
+    runServer(*sys.argv[1:])
+
 

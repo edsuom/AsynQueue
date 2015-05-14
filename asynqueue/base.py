@@ -419,28 +419,34 @@ class TaskQueue(object):
         Processes the status/result tuple from a worker running a
         task. You don't need to call this directly.
 
-          - B{e}: An exception was raised; the result is a
+          - B{e}: An B{e}xception was raised; the result is a
             pretty-printed traceback string. If the keyword
             'returnFailure' was set for my constructor or this task, I
             will make it into a failure so the task's errback is
             triggered.
   
-          - B{r}: Ran fine, the result is the return value of the call.
+          - B{r}: The task B{r}an fine, the result is the return value
+            of the call.
   
-          - B{i}: Ran fine, but the result was an iterable other than a
-            standard Python one. So my result is a Deferator that yields
-            deferreds to the worker's iterations, or, if you specified a
-            consumer, an IterationProducer registered with the consumer
-            that needs to get running to write iterations to it. If the
-            iterator was empty, the result is just an empty list.
+          - B{i}: Ran fine, but the result was an B{i}terable other
+            than a standard Python one. So my result is a Deferator
+            that yields deferreds to the worker's iterations, or, if
+            you specified a consumer, an IterationProducer registered
+            with the consumer that needs to get running to write
+            iterations to it. If the iterator was empty, the result is
+            just an empty list.
   
-          - B{c}: Ran fine (on an AMP server), but the result was too
-            big for a single return value. So the result is a deferred
-            that will eventually fire with the result after all the
-            chunks of the return value have arrived and been magically
-            pieced together and unpickled.
+          - B{c}: Ran fine (on an AMP server), but the result is being
+            B{c}hunked because it was too big for a single return
+            value. So the result is a deferred that will eventually
+            fire with the result after all the chunks of the return
+            value have arrived and been magically pieced together and
+            unpickled.
           
-          - B{t}: The task timed out. I'll try to re-run it, once.
+          - B{t}: The task B{t}imed out. I'll try to re-run it, once.
+
+          - B{d}: The task B{d}idn't run, probably because there was a
+            disconnection. I'll re-run it.
         """
         @contextmanager
         def taskInfo(ID):
@@ -457,6 +463,12 @@ class TaskQueue(object):
             if self.spew:
                 taskInfo += " -> {}".format(result)
                 self.logger.info(taskInfo)
+
+        def retryTask():
+            self.tasksBeingRetried.append(task)
+            task.rush()
+            self.q.put(task)
+            return task.reset().addCallback(self.taskDone, task, **kw)
         
         status, result = statusResult
         # Deal with any info for this task call
@@ -496,10 +508,10 @@ class TaskQueue(object):
                 return Failure(
                     errors.TimeoutError(
                         "Timed out after two tries, gave up"))
-            self.tasksBeingRetried.append(task)
-            task.rush()
-            self.q.put(task)
-            return task.reset().addCallback(self.taskDone, **kw)
+            return retryTask()
+        if status == 'd':
+            # Didn't run. Try again, hopefully with a different worker.
+            return retryTask()
         return Failure(
             errors.WorkerError("Unknown status '{}'".format(status)))
 

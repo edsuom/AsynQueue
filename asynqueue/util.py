@@ -108,10 +108,10 @@ def killProcess(pid):
         return False
     pidString = str(pid)
     pp = ProcessProtocol()
-    args = ("/bin/ps", '-p', pidString, '--no-headers')
+    args = ("/bin/ps", '-p', pidString)
     pt = reactor.spawnProcess(pp, args[0], args)
     return pp.d.addCallback(ready)
-    
+
 
 # For Testing
 # ----------------------------------------------------------------------------
@@ -158,17 +158,16 @@ class ProcessProtocol(object):
         self.d = defer.Deferred()
         
     def makeConnection(self, pt):
-        print "MC", pt.pid
         self.pid = pt.pid
         
     def childDataReceived(self, childFD, data):
         data = data.strip()
-        print "DATA: {}".format(data)
         if childFD == 1:
             if data and not self.d.called:
                 self.d.callback(data)
         if childFD == 2:
-            self.stopper(self.pid)
+            print "\nERROR: {}".format(data)
+            #self.stopper(self.pid)
             
     def childConnectionLost(self, childFD):
         self.stopper(self.pid)
@@ -246,10 +245,11 @@ class DeferredLock(defer.DeferredLock):
     Raises an exception if you try to acquire the lock after a
     shutdown has been initated.
     """
-    def __init__(self):
+    def __init__(self, allowZombies=False):
         self.N_vips = 0
         self.stoppers = []
         self.running = True
+        self.allowZombies = allowZombies
         super(DeferredLock, self).__init__()
 
     @contextmanager
@@ -273,12 +273,18 @@ class DeferredLock(defer.DeferredLock):
         option. That lets you cut ahead of everyone in the regular
         waiting list and gets the next lock, after anyone else in the
         VIP line who is waiting from their own call of this method.
+
+        If I'm stopped, calling this method results in an error unless
+        I was constructed with I{allowZombies} set C{True}. Then it
+        simply returns an immediate C{Deferred}.
         """
         def transparentCallback(result):
             self.N_vips -= 1
             return result
         
         if not self.running:
+            if self.allowZombies:
+                return defer.succeed(self)
             raise errors.QueueRunError(
                 "Can't acquire from a stopped DeferredLock")
         d = defer.Deferred(canceller=self._cancelAcquire)
@@ -296,6 +302,17 @@ class DeferredLock(defer.DeferredLock):
 
     def acquireAndRelease(self, vip=False):
         return self.acquire(vip).addCallback(lambda x: x.release())
+
+    def release(self):
+        """
+        Acts like Twisted's regular C{defer.DeferredLock.release} unless
+        I'm stopped and running with the I{allowZombies} option. Then
+        calling this does nothing because the lock is acquired
+        instantly in that condition.
+        """
+        if not self.running and self.allowZombies:
+            return
+        return super(DeferredLock, self).release()
         
     def addStopper(self, f, *args, **kw):
         """
