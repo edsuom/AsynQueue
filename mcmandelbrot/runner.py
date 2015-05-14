@@ -145,12 +145,15 @@ class Runner(object):
     @cvar N_processes: The number of processes to use, disregarded if
       I{useThread} is set C{True} in my constructor.
     """
-    N_processes = 6
-
     def __init__(self, N_values, steepness, stats=False):
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
         self.mv = MandelbrotValuer(N_values, steepness)
 
+    @property
+    def N_processes(self):
+        maxValue = asynqueue.ProcessQueue.cores() - 1
+        return max([1, maxValue])
+    
     def run(self, fh, xMin, xMax, Nx, yMin, yMax, Ny):
         """
         Runs my L{compute} method to generate a PNG image of the

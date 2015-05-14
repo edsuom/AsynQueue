@@ -388,8 +388,9 @@ class ChunkyString(object):
 
 class WireRunner(object):
     """
-    I am the universe for all tasks running with a particular
-    connection to my L{WireServer}.
+    An instance of me is constructed by a L{WireWorkerUniverse} on the
+    server end of the AMP connection to run all tasks for its
+    L{WireServer}.
     """
     def __init__(self):
         self.iterators = {}
@@ -517,15 +518,16 @@ class WireServer(object):
     """
     An AMP server for the remote end of a L{WireWorker}.
     
-    Construct me with the fully qualified name of a
-    L{WireWorkerUniverse} and then call my L{run} method with an
-    endpoint description string to obtain a C{service} that I can
-    start directly or include in the C{application} of a C{.tac} file,
-    thus accepting connections to run tasks.
+    Construct me with either an instance or the fully qualified name
+    of a L{WireWorkerUniverse} subclass. Then call my L{run} method
+    with an endpoint description string to obtain a C{service} that I
+    can start directly or include in the C{application} of a C{.tac}
+    file, thus accepting connections to run tasks.
     """
-    def __init__(self, wwuFQN):
-        klass = reflect.namedObject(wwuFQN)
-        wwu = klass()
+    def __init__(self, wwu):
+        if isinstance(wwu, 'str'):
+            klass = reflect.namedObject(wwuFQN)
+            wwu = klass()
         WireWorkerUniverse.check(wwu)
         self.factory = Factory()
         self.factory.protocol = lambda: amp.AMP(locator=wwu)
@@ -568,7 +570,9 @@ class ServerManager(object):
             self.done(pt.pid)
 
         # Spawn the AMP server and "wait" for it to indicate it's OK
-        args = [sys.executable, "-m", "asynqueue.wire", description, self.wwuFQN]
+        args = [
+            sys.executable,
+            "-m", "asynqueue.wire", description, self.wwuFQN]
         pp = util.ProcessProtocol(self.done)
         pt = reactor.spawnProcess(pp, sys.executable, args)
         return pp.d.addCallback(ready)
