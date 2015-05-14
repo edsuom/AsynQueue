@@ -44,7 +44,7 @@ class AsyncWorker(object):
     I implement an L{IWorker} that runs tasks in the Twisted main
     loop.
 
-    I run each L{task.Task} one at a time but in a well-behaved
+    I run each L{tasks.Task} one at a time but in a well-behaved
     non-blocking manner. If the task callable doesn't return a
     C{Deferred}, it better get its work done fast. You just can't get
     away with blocking in the Twisted main loop.

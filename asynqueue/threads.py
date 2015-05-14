@@ -330,7 +330,7 @@ class IterationGetter(object):
     Abstract base class for objects that munch data on one end and act
     like iterators to yield it on the other end.
 
-    @see L{Consumerator} and L{Filerator}.
+    @see: L{Consumerator} and L{Filerator}.
     """
     class IterationStopper:
         pass
@@ -360,7 +360,7 @@ class IterationGetter(object):
 
     def loop(self):
         """
-        @see L{Consumerator.loop} and L{Filerator.loop}
+        @see: L{Consumerator.loop} and L{Filerator.loop}
         """
         raise NotImplementedError("You must override this in a subclass")
 
@@ -667,7 +667,7 @@ class OrderedItemProducer(object):
         relies on my L{Consumerator} instance I{i} for iterations, in
         traditional blocking fashion. The function must accept C{i} as
         its first argument, and can also accept further arguments
-        C{*args) and keywords C{**kw}, which you can specify in your
+        C{*args} and keywords C{**kw}, which you can specify in your
         call to L{start}.
 
         @return: A C{Deferred} that fires when the blocking call has
@@ -693,7 +693,7 @@ class OrderedItemProducer(object):
     
     def produceItem(self, fp, *args, **kw):
         """
-        Runs C{fp(*args, **kw) to generate an item that I produce as an
+        Runs C{fp(*args, **kw)} to generate an item that I produce as an
         iteration to whatever blocking call was (or will be) set
         running via L{start}.
 

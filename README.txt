@@ -13,8 +13,10 @@ are included for running tasks asynchronously in the main thread, in
 separate threads, and in separate Python interpreters
 (multiprocessing).
 
-Take a look at the example below and the one provided in the
-file "mcmandelbrot.py" that accompanies this README file.
+There's a detailed usage example below. Also, see the one provided in
+the example package "mcmandelbrot" that accompanies this README file
+and installs with asynqueue. There is a console entry point for
+"mcm". Give it a try and see what asynchronous multiprocessing can do.
 
 
 ###Multicore Made Easy

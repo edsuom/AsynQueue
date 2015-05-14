@@ -66,8 +66,8 @@ class ColorMapper(object):
         black to red, then red to orange, then orange to white.
         """
         ranges = [
-            [0.000, 1.0/3],  # Red component ranges
-            [0.8/3, 2.0/3],  # Green component ranges
+            [0.000, 1.2/3],  # Red component ranges
+            [1.0/3, 2.0/3],  # Green component ranges
             [1.8/3, 1.000],  # Blue component ranges
         ]
         return self._rangeMap(N, ranges)
@@ -85,7 +85,7 @@ class ColorMapper(object):
         rgb[kt[2,0]:,2] = np.linspace(0, 255, kt[2,1]-kt[2,0])
         return rgb
         
-    def csvFile(self):
+    def csvFileMap(self):
         """
         Returns an RGB colormap loaded from I{fileName} in my package
         directory.

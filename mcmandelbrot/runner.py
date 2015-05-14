@@ -145,12 +145,9 @@ class Runner(object):
     @cvar N_processes: The number of processes to use, disregarded if
       I{useThread} is set C{True} in my constructor.
     """
-    N_values = 2000
     N_processes = 6
 
-    def __init__(self, N_values=None, stats=False, steepness=1.0):
-        if N_values is None:
-            N_values = self.N_values
+    def __init__(self, N_values, steepness, stats=False):
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
         self.mv = MandelbrotValuer(N_values, steepness)
 
@@ -187,7 +184,7 @@ class Runner(object):
 
         crMin, crMax, Nx = xSpan
         ciMin, ciMax, Ny = ySpan
-        p = OrderedItemProducer(self.q)
+        p = OrderedItemProducer()
         yield p.start(f)
         # "The pickle module keeps track of the objects it has already
         # serialized, so that later references to the same object t be
@@ -239,7 +236,7 @@ def run(*args, **kw):
       when done.
     """
     def reallyRun():
-        runner = Runner(N_values, stats, steepness)
+        runner = Runner(N_values, steepness, stats)
         Ny = int(Nx * (yMax - yMin) / (xMax - xMin))
         d = runner.run(fh, xMin, xMax, Nx, yMin, yMax, Ny)
         if stats:

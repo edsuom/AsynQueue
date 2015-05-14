@@ -159,7 +159,7 @@ class WireWorkerUniverse(amp.CommandLocator):
     @GetNext.responder
     def getNext(self, ID):
         """
-        @see L{GetNext}
+        @see: L{GetNext}
         """
         return self.wr.getNext(ID)
         
