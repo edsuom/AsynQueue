@@ -50,6 +50,7 @@ class MandelbrotImageResource(resource.Resource):
         self.imager = image.Imager(verbose=VERBOSE)
         
     def render_GET(self, request):
+        request.setHeader("Content-Type", 'image/png')
         self.imager.renderImage(request)
         return server.NOT_DONE_YET
 

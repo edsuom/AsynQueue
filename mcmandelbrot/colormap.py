@@ -66,9 +66,9 @@ class ColorMapper(object):
         black to red, then red to orange, then orange to white.
         """
         ranges = [
-            [0.000, 1.2/3],  # Red component ranges
-            [1.0/3, 2.0/3],  # Green component ranges
-            [1.8/3, 1.000],  # Blue component ranges
+            [0.000, 1.7/3],  # Red component ranges
+            [1.5/3, 2.6/3],  # Green component ranges
+            [2.5/3, 1.000],  # Blue component ranges
         ]
         return self._rangeMap(N, ranges)
 

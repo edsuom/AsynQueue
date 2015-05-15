@@ -84,7 +84,7 @@ class Imager(object):
                 N = int(value[0])
                 if N > self.Nx_max:
                     N = self.Nx_max
-                self.setImageWidth(value[0])
+                self.setImageWidth(N)
             else:
                 x[name] = float(value[0])
             if name in neededNames:
@@ -95,6 +95,6 @@ class Imager(object):
                 request, self.Nx,
                 x['cr'], x['ci'], x['crpm'], ciPM)
             self.msg(
-                "({:+7.1f} +/- {:7.1f}, {:+7.1f} +/- {:7.1f}) in {:4.1f} sec.",
+                "({:+7.4f} +/- {:7.4f}, {:+7.4f} +/- {:7.4f}) in {:3.1f} sec.",
                 x['cr'], x['ci'], x['crpm'], ciPM, timeSpent)
         request.finish()
