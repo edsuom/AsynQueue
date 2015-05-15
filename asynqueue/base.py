@@ -376,8 +376,8 @@ class TaskQueue(object):
     def detachWorker(self, workerOrID, reassign=False, crash=False):
         """
         Detaches and terminates the worker supplied or specified by its
-        ID, returning a deferred that fires with a list of tasks left
-        unfinished by the worker.
+        ID, returning a C{Deferred} that fires with a list of tasks
+        left unfinished by the worker.
 
         If I{reassign} is set C{True}, any tasks left unfinished by
         the worker are put into new assignments for other or future

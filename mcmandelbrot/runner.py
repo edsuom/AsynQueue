@@ -149,47 +149,40 @@ class Runner(object):
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
         self.mv = MandelbrotValuer(N_values, steepness)
 
+    def shutdown(self):
+        return self.q.shutdown()
+        
     @property
     def N_processes(self):
         maxValue = asynqueue.ProcessQueue.cores() - 1
         return max([1, maxValue])
     
-    def run(self, fh, xMin, xMax, Nx, yMin, yMax, Ny):
+    def run(self, fh, Nx, cr, ci, crPM, ciPM):
         """
         Runs my L{compute} method to generate a PNG image of the
-        Mandelbrot Set and write it to the file handle or
+        Mandelbrot Set and write it in chunks to the file handle or
         write-capable object I{fh}.
+
+        The image is centered at location I{cr, ci} in the complex
+        plane, plus or minus I{crPM} on the real axis and I{ciPM on
+        the imaginary axis. If I{ciPM} is not specified, it is the
+        same as I{crPM}, resulting in a square image.
 
         @return: A C{Deferred} that fires with the total elasped time
           for the computation.
         """
+        def diff(k):
+            return xySpans[k][1] - xySpans[k][0]
         def done(null):
             return time.time() - t0
             
         t0 = time.time()
-        xSpan = (xMin, xMax, Nx)
-        ySpan = (yMin, yMax, Ny)
-        return self.compute(fh, xSpan, ySpan).addCallback(done)
-
-    def image(self, Nx, cr, ci, crPM, ciPM, consumer=None):
-        """
-        Runs my L{compute} method to generate a PNG image of the
-        Mandelbrot Set and write it to a C{Filerator} that iterates
-        chunks of the image data.
-
-        @return: The C{Filerator} instance.
-        """
-        def diff(k):
-            return xySpans[k][1] - xySpans[k][0]
-        
         xySpans = []
         for center, plusMinus in ((cr, crPM), (ci, ciPM)):
             xySpans.append([center - plusMinus, center + plusMinus])
         xySpans[0].append(Nx)
         xySpans[1].append(int(Nx * diff(1) / diff(0)))
-        fi = Filerator()
-        self.compute(fi, *xySpans).addCallback(lambda _: fi.close())
-        return fi
+        return self.compute(fh, *xySpans).addCallback(done)
         
     @defer.inlineCallbacks
     def compute(self, fh, xSpan, ySpan):
@@ -220,7 +213,7 @@ class Runner(object):
                 series='process')
         yield p.stop()
 
-    def showStats(self, totalTime, N):
+    def showStats(self, totalTime):
         """
         Displays stats about the run on stdout
         """
@@ -238,14 +231,14 @@ class Runner(object):
             mean = np.mean(diffs)
             print "Mean worker-to-process overhead (ms/call): {:0.7f}".format(
                 mean)
-        print "Computed {:d} values in {:1.1f} seconds.".format(
-                N, totalTime)
+        print "Total time: {:1.1f} seconds.".format(totalTime)
         return self.q.stats().addCallback(gotStats)
 
 
 def run(*args, **kw):
     """
-    Call with C{[-N values] [-o imageFile] Nx, xMin, xMax, yMin, yMax}
+    Call with
+    C{[-N values] [-s steepness] [-o imageFile] Nx, cr, ci, crPM[, ciPM]}
 
     Writes PNG image to stdout unless -o is set, then saves it to
     C{imageFile}. In that case, prints some stats about the
@@ -260,10 +253,9 @@ def run(*args, **kw):
     """
     def reallyRun():
         runner = Runner(N_values, steepness, stats)
-        Ny = int(Nx * (yMax - yMin) / (xMax - xMin))
-        d = runner.run(fh, xMin, xMax, Nx, yMin, yMax, Ny)
+        d = runner.run(fh, Nx, cr, ci, crPM, ciPM)
         if stats:
-            d.addCallback(runner.showStats, Nx*Ny)
+            d.addCallback(runner.showStats)
         if not leaveRunning:
             d.addCallback(lambda _: reactor.stop())
         return d
@@ -290,13 +282,14 @@ def run(*args, **kw):
     else:
         stats = False
         fh = sys.stdout
-    if len(args) < 5:
+    if len(args) < 4:
         print(
             "Usage: [-s steepness] [-N values] [-o imageFile] " +\
-            "N rMin rMax iMin iMax")
+            "N cr ci crPM [ciPM]")
         sys.exit(1)
     Nx = int(args[0])
-    xMin, xMax, yMin, yMax = [float(x) for x in args[1:5]]
+    cr, ci, crPM = [float(x) for x in args[1:4]]
+    ciPM = args[4] if len(args) > 4 else crPM
     reactor.callWhenRunning(reallyRun)
     reactor.run()
 

@@ -36,27 +36,30 @@ from twisted.application import internet, service
 from twisted.internet import defer
 from twisted.web import server, resource
 
-from mcmandelbrot import vroot, wire
-from mcmandelbrot import runner
+from mcmandelbrot import vroot, image
 
 
 PORT = 8080
+VERBOSE = True
 
 
 class MandelbrotImageResource(resource.Resource):
-    """
-    """
     isLeaf = True
     
-    def __init__(self, description=None):
-        self.mClient = wire.Client(description)
-        #self.runner = runner.Runner(1000, 3)
+    def __init__(self):
+        self.imager = image.Imager(verbose=VERBOSE)
         
     def render_GET(self, request):
-        self.mClient.renderImage(request)
+        self.imager.renderImage(request)
         return server.NOT_DONE_YET
 
-        
+
+class MandelbrotSite(server.Site):
+    def stopFactory(self):
+        super(MandelbrotSite, self).stopFactory()
+        return self.resource.imager.shutdown()
+
+
 if '/twistd' in sys.argv[0]:
     application = service.Application("Mandelbrot Set image server")
     resource = MandelbrotImageResource()
