@@ -525,8 +525,8 @@ class WireServer(object):
     file, thus accepting connections to run tasks.
     """
     def __init__(self, wwu):
-        if isinstance(wwu, 'str'):
-            klass = reflect.namedObject(wwuFQN)
+        if isinstance(wwu, str):
+            klass = reflect.namedObject(wwu)
             wwu = klass()
         WireWorkerUniverse.check(wwu)
         self.factory = Factory()

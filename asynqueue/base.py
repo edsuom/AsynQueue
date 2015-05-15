@@ -445,6 +445,8 @@ class TaskQueue(object):
           
           - B{t}: The task B{t}imed out. I'll try to re-run it, once.
 
+          - B{n}: The task returned [n]othing, as will I.
+
           - B{d}: The task B{d}idn't run, probably because there was a
             disconnection. I'll re-run it.
         """
@@ -502,13 +504,16 @@ class TaskQueue(object):
                 return defer.succeed(None)
             return result
         if status == 't':
-            # Timedout. Try again, once.
+            # Timed out. Try again, once.
             if task in self.tasksBeingRetried:
                 self.tasksBeingRetried.remove(task)
                 return Failure(
                     errors.TimeoutError(
                         "Timed out after two tries, gave up"))
             return retryTask()
+        if status == 'n':
+            # None object
+            return
         if status == 'd':
             # Didn't run. Try again, hopefully with a different worker.
             return retryTask()

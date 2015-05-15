@@ -133,7 +133,7 @@ from twisted.internet import defer, reactor
 from twisted.internet.interfaces import IPushProducer
 
 import asynqueue
-from asynqueue.threads import OrderedItemProducer
+from asynqueue.threads import OrderedItemProducer, Filerator
 
 from valuer import MandelbrotValuer
 
@@ -171,6 +171,26 @@ class Runner(object):
         ySpan = (yMin, yMax, Ny)
         return self.compute(fh, xSpan, ySpan).addCallback(done)
 
+    def image(self, Nx, cr, ci, crPM, ciPM, consumer=None):
+        """
+        Runs my L{compute} method to generate a PNG image of the
+        Mandelbrot Set and write it to a C{Filerator} that iterates
+        chunks of the image data.
+
+        @return: The C{Filerator} instance.
+        """
+        def diff(k):
+            return xySpans[k][1] - xySpans[k][0]
+        
+        xySpans = []
+        for center, plusMinus in ((cr, crPM), (ci, ciPM)):
+            xySpans.append([center - plusMinus, center + plusMinus])
+        xySpans[0].append(Nx)
+        xySpans[1].append(int(Nx * diff(1) / diff(0)))
+        fi = Filerator()
+        self.compute(fi, *xySpans).addCallback(lambda _: fi.close())
+        return fi
+        
     @defer.inlineCallbacks
     def compute(self, fh, xSpan, ySpan):
         """

@@ -66,12 +66,8 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
         # waiting for the old one to shut down.
         self.runner = runner.Runner(N_values, steepness)
 
-    @defer.inlineCallbacks
-    def image(self, xySpans):
-        fh = Filerator()
-        yield self.runner.compute(fh, *xySpans)
-        fh.close()
-        yield fh.deferUntilDone()
+    def image(self, *args):
+        return self.runner.image(*args)
 
 
 class Client(object):
@@ -96,7 +92,7 @@ class Client(object):
             self.stopper = self.q.shutdown
         else:
             self.q = q
-
+    
     @defer.inlineCallbacks
     def setup(self, **kw):
         """
@@ -149,36 +145,27 @@ class Client(object):
     def setImageWidth(self, N):
         self.Nx = N
 
-    def image(self, cr, ci, crPlusMinus, ciPlusMinus=None, consumer=None):
+    def image(self, cr, ci, crPM, ciPM=None, consumer=None):
         """
         Gets a new PNG image of the Mandelbrot Set at location I{cr, ci}
-        in the complex plane, +/- I{crPlusMinus, ciPlusMinus}. If
-        I{ciPlusMinus} is not specified, it is that same as
-        I{crPlusMinus}, resulting in a square image.
+        in the complex plane, +/- I{crPM, ciPM}. If I{ciPM} is not
+        specified, it is the same as I{crPM}, resulting in a square
+        image.
 
         The call creates a C{Deferator} that is converted to an
         C{IterationProducer} if you supply a I{consumer} it can
         produce to. Either way, the remote server iterates chunks of a
         PNG image as they are computed on the remote end.
         
-        @return: A C{Deferred} that fires with a C{Deferator} if not
-          consumer is supplied, or when the C{IterationProducer} is
-          done producing to it if one was.
+        @return: A C{Deferred} that fires with a C{Deferator} if no
+          consumer is supplied, or, if one was, when the
+          C{IterationProducer} is done producing to it.
         """
-        def diff(k):
-            return xySpans[k][1] - xySpans[k][0]
-        
-        if ciPlusMinus is None:
-            ciPlusMinus = crPlusMinus
-        xySpans = []
-        for center, plusMinus in (
-                (cr, crPlusMinus, self.Nx),
-                (ci, ciPlusMinus, Ny)):
-            xySpans.append([center - plusMinus, center + plusMinus])
-        xySpans[0].append(self.Nx)
-        xySpans[1].append(int(self.Nx * diff(1) / diff(0)))
+        if ciPM is None:
+            ciPM = crPM
         # The heart of the matter
-        return self.q.call('image', xySpans, consumer=consumer)
+        return self.q.call(
+            'image', self.Nx, cr, ci, crPM, ciPM, consumer=consumer)
 
     @defer.inlineCallbacks
     def writeImage(self, fileName, *args, **kw):
@@ -218,6 +205,7 @@ class Client(object):
         """
         x = {}
         kw = {}
+        neededNames = ['cr', 'ci', 'crpm']
         for name, value in request.args.iteritems():
             if name == 'N':
                 N = int(value[0])
@@ -230,11 +218,14 @@ class Client(object):
                 kw['steepness'] =value
             else:
                 x[name] = float(value[0])
-        if kw or 'FLAG' not in self.sv:
-            yield self.setup(**kw)
-        yield self.image(
-            x['cr'], x['ci'], x['crpm'],
-            ciPlusMinus=x.get('crpi', None), consumer=request)
+            if name in neededNames:
+                neededNames.remove(name)
+        if not neededNames:
+            if kw or 'FLAG' not in self.sv:
+                yield self.setup(**kw)
+            yield self.image(
+                x['cr'], x['ci'], x['crpm'],
+                ciPM=x.get('crpi', None), consumer=request)
         request.finish()
     
 
