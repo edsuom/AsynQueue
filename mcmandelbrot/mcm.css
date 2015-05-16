@@ -28,6 +28,7 @@ div.container {
 .coords {
     font-size: 70%;
     font-family: monospace;
+    margin-left: 2em;
 }
 p {
     margin: 0;
@@ -48,6 +49,33 @@ div.form {
     float: none;
     margin-left: 0.2em;
     margin-top: 0.5em;
+
+    display: -webkit-box;
+    display: -moz-box;
+    display: -ms-flexbox;
+    display: -webkit-flex;
+    display: flex;
+
+    -webkit-box-orient: inline-axis;
+    -webkit-box-direction: normal;
+    -moz-box-orient: inline-axis;
+    -moz-box-direction: normal;
+    -ms-flex-direction: row;
+    -webkit-flex-direction: row;
+    flex-direction: row;
+
+    -webkit-box-pack: end;
+    -moz-box-pack: end;
+    -ms-flex-pack: end;
+    -webkit-justify-content: flex-end;
+    justify-content: flex-end;
+}
+.form_item {
+    display: inline;
+    margin: 0;
+    padding-left: 10px;
+    padding-right: 4px;
+    white-space: nowrap;
 }
 div.image {
     margin: 4px;
@@ -59,7 +87,9 @@ img.mandelbrot {
     line-height: 1.0;
     text-align: justify;
     font-family: Arial, Helvetica, sans-serif;
-    margin-top: 0;
+    margin-top: 1em;
+    margin-left: 1em;
     padding-top: 0;
-    font-size: 60%;
+    font-size: 85%;
+    width: 90%;
 }

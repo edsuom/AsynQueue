@@ -193,6 +193,9 @@ class Baton(object):
         within each iteration, but after the iterations are done, the
         last-generated child will be restored to where it was before
         the method call.
+
+        B{Caution}: Weird things happen if you do a C{break} or
+        C{continue}. Be warned!
         """
         def eNew():
             self.eChild = newElement(tag, parent)
@@ -596,4 +599,5 @@ class HTML_VRoot(VRoot):
         v.nc('body')
         v.set('onload', "updateImage()")
         v.nc('div', 'container')
+        v.set('id', 'container')
         # The rest is up to the context caller

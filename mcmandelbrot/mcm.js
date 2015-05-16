@@ -14,30 +14,47 @@ function buildUrl(url, parameters) {
     return url;
 }
 function getParams() {
+    var value;
     var params = {'cr':"", 'ci':"", 'crpm':""};
     for (var name in params) {
-	params[name] = document.getElementById(name).value;
+	value = document.getElementById(name).value;
+	value = Math.min(value, +3);
+	value = Math.max(value, -3);
+	params[name] = value;
     }
-    params.N = document.getElementById('image').clientWidth;
     return params
+}
+function setParams(params) {
+    for (var name in params) {
+	params[name] = Math.min(params[name], +3);
+	params[name] = Math.max(params[name], -3);
+	document.getElementById(name).value = params[name];
+    }
 }
 function updateImage(params) {
     if (params === undefined) {
 	var params = getParams();
     } else {
-	for (var name in params) {
-	    document.getElementById(name).value = params[name];
-	}
+	setParams(params);
     }
     var img = document.getElementById('mandelbrot');
+    params.N = document.getElementById('image').clientWidth;
     img.src = buildUrl("/image.png", params);
 }
 function xy(event) {
     var p = {};
     var params = getParams();
-    var image = document.getElementById('mandelbrot');
-    var x = (event.clientX - image.offsetLeft - 5) / image.clientWidth;
-    var y = (event.clientY - image.offsetTop) / image.clientHeight;
+    element = document.getElementById('mandelbrot');
+    var x0 = 0; var y0 = 0;
+    var Nx = element.clientWidth;
+    var Ny = element.clientHeight;
+    do {
+	x0 += element.offsetLeft;
+	y0 += element.offsetTop;
+	element = element.offsetParent;
+    } while (element != null);
+    var x = (event.clientX - x0) / Nx;
+    var y = (event.clientY - y0) / Ny;
     p.crpm = Number(params.crpm);
     p.cr = p.crpm * (2*x - 1) + Number(params.cr);
     p.ci = p.crpm * (1 - 2*y) + Number(params.ci);
