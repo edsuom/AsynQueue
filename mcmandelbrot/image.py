@@ -48,6 +48,8 @@ class Imager(object):
 
     N_values = 2000
     steepness = 3
+
+    msgProto = "{} :: ({:+f} +/- {:f}, {:f} +/- {:f}) in {:4.2f} sec."
     
     def __init__(self, verbose=False):
         self.verbose = verbose
@@ -56,9 +58,9 @@ class Imager(object):
     def shutdown(self):
         return self.runner.shutdown()
 
-    def msg(self, proto, *args):
+    def log(self, ip, cr, ci, crpm, ciPM, timeSpent):
         if self.verbose:
-            print proto.format(*args)
+            print self.msgProto.format(ip, cr, ci, crpm, ciPM, timeSpent)
         
     def setImageWidth(self, N):
         self.Nx = N
@@ -94,7 +96,7 @@ class Imager(object):
             timeSpent = yield self.runner.run(
                 request, self.Nx,
                 x['cr'], x['ci'], x['crpm'], ciPM)
-            self.msg(
-                "({:+7.4f} +/- {:7.4f}, {:+7.4f} +/- {:7.4f}) in {:3.1f} sec.",
+            self.log(
+                request.getClient(),
                 x['cr'], x['ci'], x['crpm'], ciPM, timeSpent)
         request.finish()

@@ -32,6 +32,7 @@ for use in the C{mcmandelbrot} demo site.
 """
 
 import os.path, sys, re, traceback, codecs
+from pkg_resources import resource_stream
 
 from xml.dom import minidom
 import xml.etree.ElementTree as ET
@@ -53,7 +54,14 @@ def dedent(lines, padding):
 def dedentString(text, padding):
     lines = text.split('\n')
     return '\n'.join(dedent(lines, padding))
-    
+
+def openPackageFile(fileName):
+    filePath = os.path.join(
+        os.path.dirname(__file__), fileName)
+    if os.path.exists(filePath):
+        return open(filePath)
+    return resource_stream(__name__, fileName)
+
 
 class Baton(object):
     """
@@ -68,9 +76,8 @@ class Baton(object):
     reContentPara = re.compile(r'<p>(.+)</p>\s*$')
     reLeadingSpace = re.compile(r'\n*</[^>]+>\n*(\s*?)<')
 
-    def __init__(self, indent, subdir):
+    def __init__(self, indent):
         self.indent = indent
-        self.subdir = subdir
         self.elements = []
         self.eChild = None
         self.lastParent = None
@@ -280,12 +287,14 @@ class Baton(object):
         e.text = content
         return e
 
-    def ngc(self, tag, klass=None):
+    def ngc(self, tag, *args):
         """
-        Generates a new subelement (somebody's grandchild) of the
-        child last generated with the se, nc, ns, or p method without
-        changing its status as the last child generated. Repeated
-        calls to this method will result in a succesion of
+        Generates a new subelement (somebody's grandchild) of the child
+        last generated with the se, nc, ns, or p method without
+        changing its status as the last child generated. You can
+        specify a parent and class, as usual, in either order.
+
+        Repeated calls to this method will result in a succesion of
         grandchildren with the same ancestors, not a nested hierarchy.
 
         If a class name is specified, the new element gets that
@@ -294,7 +303,8 @@ class Baton(object):
         Returns a reference to the new element without saving it
         anywhere.
         """
-        eGrandChild = newElement(tag, self.eChild)
+        parent, klass = self.parentAndClassFromArgs(args)
+        eGrandChild = newElement(tag, parent)
         if klass:
             eGrandChild.set('class', klass)
         return eGrandChild
@@ -382,6 +392,19 @@ class Baton(object):
         """
         self.eChild.set(name, value)
 
+    def meta(self, *args, **kw):
+        """
+        Adds a meta tag as a new child, to the last child or a parent
+        specified as a single argument, using the keywords supplied.
+
+        The meta tag becomes the new last child.
+        """
+        parent = args[0] if args else None
+        self.nc('meta', parent)
+        for name, value in kw.iteritems():
+            name = name.replace('_', '-')
+            self.set(name, value)
+        
     def margin(self, side, em):
         """
         Convenience method to set a margin of my last-generated child
@@ -391,7 +414,7 @@ class Baton(object):
         style.append("margin-{}: {:1.1f}em;".format(side, em))
         self.set('style', " ".join(style).strip())
 
-    def setxml(self, xml, prettyIndent=False):
+    def setxml(self, xml):
         """
         Sets my xml attribute with the supplied xml, after
         substituting out any placeholders.
@@ -404,28 +427,13 @@ class Baton(object):
             before = xml[:match.start(0)]
             after = xml[match.end(0):]
             replacement = self.elements[k]
-            if prettyIndent and '\n' in replacement.strip():
-                match = self.reLeadingSpace.match(after)
-                if match:
-                    padding = len(match.group(1))
-                    replacement = dedentString(replacement, padding)
             xml = before + replacement + after
         self.xml = xml
 
     def get(self):
         """
-        Returns my eTree, after adjusting any relative I{src} and I{href}
-        links for my I{subdir}.
+        Returns my eTree.
         """
-        def pointToRootDir():
-            for attrName in ('src', 'href'):
-                xpath = ".//*[@{}]".format(attrName)
-                for e in self.e.findall(xpath):
-                    value = e.get(attrName)
-                    if "/" not in value:
-                        e.set(attrName, "/{}".format(value))
-        if self.subdir:
-            pointToRootDir()
         return self.e
         
 
@@ -448,8 +456,6 @@ class VRoot(object):
     Call my instance to get the XML or HTML as a string.
 
     """
-    # Change this to use a subclass of Baton in your subclass of me
-    BatonClass = Baton
     # Number of spaces to indent each XML level
     indent = 2  
 
@@ -458,10 +464,6 @@ class VRoot(object):
 
     reEmptyItem = re.compile(
         r'<([a-zA-Z\:]+)\s+[^>]*[^/>](>)</([a-zA-Z\:]+)>')
-
-    def __init__(self, **kw):
-        for name, value in kw.iteritems():
-            setattr(self, name, value)
 
     def fixCloseTags(self, text):
         while True:
@@ -494,13 +496,14 @@ class VRoot(object):
         return self.fixCloseTags(xml)
 
     def __call__(self):
-        return getattr(getattr(self, 'b', None), 'xml', None)
+        xml = getattr(getattr(self, 'b', None), 'xml', None)
+        return bytes(xml)
 
     def stripVroot(self, xml):
         return re.sub(r"</?vroot>", r"", xml)
 
     def __enter__(self):
-        self.b = self.BatonClass(self.indent, self.subdir)
+        self.b = Baton(self.indent)
         for name in ('version', 'xmlns'):
             value = getattr(self, name, None)
             if value:
@@ -522,68 +525,11 @@ class VRoot(object):
             traceback.print_exception(etype, value, trace)
             sys.exit(1)
         # Pretty-print version of my element's XML
-        xml = self.xmlToUnicode()
+        xml = ET.tostring(self.b.get())
         # Strip vroot tags
-        xml = self.stripVroot(xml)
-        # Dedent xml
-        lines = xml.split('\n')
-        # Stripping the XML means ignoring the first line
-        fixedLines = []
-        # Add all the other lines
-        fixedLines.extend(
-            [x for x in lines[1:] if x])
-        # Adjust left indent of the whole block
-        padding = self.indent if self.replaceXML else 0
-        fixedLines = dedent(fixedLines, padding)
-        # Replacing the XML means putting an opening and close tag at
-        # the beginning and end
-        if self.replaceXML:
-            fixedLines.insert(0, u"<{}>".format(self.replaceXML))
-            fixedLines.append(u"</{}>".format(self.replaceXML))
-        # Possible custom exit method
-        self.exitMethod(fixedLines)
-        # Put xml/html in baton
-        self.b.setxml(u"\n".join(fixedLines))
-
-    def entryMethod(self, v):
-        """
-        Custom entry method for initial work on my Baton
-        """
-    
-    def exitMethod(self, lines):
-        """
-        Custom exit method on lines of xml after vroot stripped. List
-        of lines modified in-place, nothing returned.
-        """
-        pass
-
-
-class HTML_Baton(Baton):
-    """
-    Additional convenience method goodness for HTML VRooting
-    """
-    def meta(self, *args, **kw):
-        """
-        Adds a meta tag as a new child, to the last child or a parent
-        specified as a single argument, using the keywords supplied.
-
-        The meta tag becomes the new last child.
-        """
-        parent = args[0] if args else None
-        self.nc('meta', parent)
-        for name, value in kw.iteritems():
-            name = name.replace('_', '-')
-            self.set(name, value)
-
-    def link(self, *args):
-        """
-        Adds a link with the rel, type, and href supplied as the first
-        three arguments, using the method name and any further
-        arguments supplied thereafter.
-        """
-        e = getattr(self, args[3])('link', *args[4:])
-        for k, name in enumerate(['rel', 'type', 'href']):
-            e.set(name, args[k])
+        html = "<html>\n{}\n</html>".format(self.stripVroot(xml))
+        # Put html in baton
+        self.b.setxml(html)
 
 
 class HV_Meta(type):
@@ -594,12 +540,11 @@ class HV_Meta(type):
         dct['headLines'] = {}
         for fileType, fileName in dct['headFiles'].iteritems():
             lines = []
-            if not os.path.exists(fileName):
-                continue
-            with open(fileName) as fh:
-                for line in fh:
-                    if line.strip():
-                        lines.append(line.rstrip())
+            fh = openPackageFile(fileName)
+            for line in fh:
+                if line.strip():
+                    lines.append(line.rstrip())
+            fh.close()
             dct['headLines'][fileType] = lines
         return super(HV_Meta, cls).__new__(cls, name, parents, dct)
             
@@ -613,38 +558,27 @@ class HTML_VRoot(VRoot):
     charset = "utf-8"
     replaceXML = "html"
 
-    BatonClass = HTML_Baton
     headFiles = {'css': "mcm.css", 'js': "mcm.js"}
 
-    def __init__(self, **kw):
-        self.metaTags = []
-        # Now on to regular VRoot constructor...
-        super(HTML_VRoot, self).__init__(**kw)
+    def __init__(self):
+        self.metaTags = [
+            {'name':"viewport",
+             'content':"width=device-width, initial-scale=1"}]
 
-    def addMetaTag(self, **kw):
-        self.metaTags.append(kw)
-
-    def css(self, v):
+    def insert(self, v, tag, name, typ=None):
         """
-        Inserts HTML <head> text (including the <head> tags) with the
-        style stuff read from the I{cssFile}.
+        Inserts the text read from the named entry in I{headLines}.
         """
-        v.ns('style')
-        v.textX(u"\n".join(self.cssLines))
-
-    def js(self, v):
-        for fileName in self.jsFiles:
-            v.ns('script')
-            js = "\n{}\n".format(self.mode.readUTF(fileName).strip())
-            v.textX(js)
+        v.ns(tag)
+        v.textX(u"\n"+u"\n".join(self.headLines[name]))
+        if typ:
+            v.set('type', typ)
 
     def head(self, v):
         h = v.nc('head')
-        titleX = getattr(self, 'titleX', None)
-        if titleX:
-            v.nc('title')
-            # There might be HTML formatting chars in the title string
-            v.textX(titleX)
+        v.nc('title')
+        # There might be HTML formatting chars in the title string
+        v.textX(self.title)
         # Meta
         v.meta(
             h, charset=self.charset,
@@ -652,11 +586,14 @@ class HTML_VRoot(VRoot):
             http_equiv="Content-Type")
         for kw in self.metaTags:
             v.meta(h, **kw)
-        self.css(v)
+        self.insert(v, 'style', 'css')
+        self.insert(v, 'script', 'js', "text/javascript")
     
     def entryMethod(self, v):
         self.head(v)
         # BODY/DIV
         v.rp()
         v.nc('body')
+        v.set('onload', "updateImage()")
+        v.nc('div', 'container')
         # The rest is up to the context caller
