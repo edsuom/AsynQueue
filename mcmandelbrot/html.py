@@ -114,19 +114,21 @@ class MandelbrotSiteResource(resource.Resource):
             v.nc('form')
             v.set('name', "position")
             v.set('action', "javascript:updateImage()")
-            for isInput, text in self.formItems:
+            for isInput, text in v.nci(self.formItems, 'div', 'form_item'):
                 if isInput:
-                    v.nc('input', 'form_item')
+                    v.nc('input', 'position')
                     v.set('type', "text")
                     v.set('id', text)
                     v.set('value', self.defaultPosition[text])
                 else:
-                    v.nc('span', 'form_item')
+                    v.nc('span')
                     v.text(text)
-            v.nc('input', 'form_item')
+            v.nc('div', 'form_item')
+            v.nc('input')
             v.set('type', "submit")
             v.set('value', "Reload")
-            v.nc('button', 'form_item', formDiv)
+            v.nc('div', 'form_item', formDiv)
+            v.nc('button')
             v.set('type', "button")
             v.set('onclick', "zoomOut()")
             v.text("Zoom Out")
