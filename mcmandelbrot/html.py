@@ -63,12 +63,9 @@ class MandelbrotSiteResource(resource.Resource):
     defaultTitle = \
         "Interactive Mandelbrot Set: Driven by Twisted and AsynQueue"
     formItems = (
-        (False, "Real:"),
-        (True,  "cr"   ),
-        (False, "+/-"  ),
-        (True,  "crpm" ),
-        (False, "Imag:"),
-        (True,   "ci"  ))
+        ("Real:", "cr"   ),
+        ("+/-",   "crpm" ),
+        ("Imag:", "ci"   ))
     
     def __init__(self):
         resource.Resource.__init__(self)
@@ -110,24 +107,23 @@ class MandelbrotSiteResource(resource.Resource):
             #--------------------------------------------------------
             v.rp()
             v.nc('div', 'clear').text = " "
-            formDiv = v.ns('div', 'form')
+            formDiv = v.ns('div')
             v.nc('form')
+            v.nc('div', 'form')
             v.set('name', "position")
             v.set('action', "javascript:updateImage()")
-            for isInput, text in v.nci(self.formItems, 'div', 'form_item'):
-                if isInput:
-                    v.nc('input', 'position')
-                    v.set('type', "text")
-                    v.set('id', text)
-                    v.set('value', self.defaultPosition[text])
-                else:
-                    v.nc('span')
-                    v.text(text)
+            for label, name in v.nci(self.formItems, 'div', 'form_item'):
+                v.nc('span', 'form_item')
+                v.text(label)
+                v.ns('input', 'position')
+                v.set('type', "text")
+                v.set('id', name)
+                v.set('value', self.defaultPosition[name])
             v.nc('div', 'form_item')
-            v.nc('input')
-            v.set('type', "submit")
-            v.set('value', "Reload")
-            v.nc('div', 'form_item', formDiv)
+            e = v.ngc('input')
+            e.set('type', "submit")
+            e.set('value', "Reload")
+            v.ns('div', 'form_item')
             v.nc('button')
             v.set('type', "button")
             v.set('onclick', "zoomOut()")

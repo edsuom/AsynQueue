@@ -3,4 +3,7 @@ include LICENSE.txt
 
 recursive-include asynqueue/test *.py
 include mcmandelbrot/colormap.csv
+include mcmandelbrot/mcm.css
+include mcmandelbrot/mcm.js
+
 exclude mcmandelbrot/diverging_map.py

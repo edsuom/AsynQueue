@@ -33,7 +33,7 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version':'0.8.3',
+kw = {'version':'0.9.0',
       'license':'Apache License (2.0)',
       'platforms':'OS Independent',
 
@@ -49,7 +49,7 @@ kw = {'version':'0.8.3',
           },
       'entry_points':{
           'console_scripts': [
-              'mcm = mcmandelbrot.runner:run',
+              'mcmandelbrot = mcmandelbrot.runner:run',
           ],
       },
       

@@ -26,8 +26,6 @@
 
 
 """
-C{mcm [-s] Nx xMin xMax yMin yMax [N_values] >imagefile.png}
-
 An example of C{AsynQueue} in action. Can be fun to play with if you
 have a multicore CPU. You will need the following packages, which you
 can get via C{pip install}:
@@ -37,90 +35,18 @@ can get via C{pip install}:
   - C{matplotlib}
   - C{asynqueue} (Duh...)
 
-Here are some command-line args to try. Add a different filename to
-each if you want to save a gallery of images to view and zoom in
-on. Use PNG format to preserve the most detail.
 
+Command line usage::
 
-C{mcm 4000 -2.15 +0.70 -1.20 +1.20 >overview.png}
+  mcmandelbrot
+    [-s steepness] [-N values] [-o imageFile]
+    N cr ci crPM [ciPM]
 
-Overview.
+Produces chunks of a PNG image, to stdout if you don't specify an
+imageFile with the C{-o} option.
 
+Example: C{mcm 2000 -0.630 0 1.4 1.2 >overview.png}
 
-C{mcm 2000 -0.757 -0.743 +0.004 +0.025 >spear.png}
-
-Tip of the upper "spear" separating the main part of the set from the
-big secondary bulb at the 9:00 position.
-
-
-C{mcm 3000 -1.43 -0.63 -0.365 +0.365 >main-bulb.png}
-
-The big secondary bulb.
-
-
-C{mcm 3000 -1.30 -1.08 +0.192 +0.368 >1100-bulb.png}
-
-The tertiary bulb at the 11:00 position on the big secondary bulb,
-with filaments and baby Mandelbrot sets sprouted along their
-lengths.
-
-
-3000 -1.172 -1.152 +0.282 +0.302
-================================
-
-The first major intersection along the major filament.
-
-
-3000 -1.165 -1.160 +0.291 +0.294
-================================
-
-Detail of the intersection and the filament branched off to the left
-leading to a baby Mandelbrot set that points down and left.
-
-
-3000 -1.16228 -1.16224 +0.292248 +0.292268
-==========================================
-
-An intersection midway along the left filament halfway to the
-down-and-left Mandelbrot set
-
-
-3000 -1.162261 -1.1622590 +0.2922574 +0.2922587
-===============================================
-
-Detail of the intersection showing an even smaller Mandelbrot set
-there that points up and left.
-
-
-3000 -1.1622600 -1.1622598 +0.2922580 +0.2922582
-================================================
-
-Further detail of the intersection showing the up-and-left Mandelbrot
-set with interesting visual features caused by a limited escape cutoff
-of 1000 in the value computation loop, L{MandelbrotValuer.__call__}
-
-
-3000 -1.1622600 -1.1622598 +0.2922580 +0.2922582 <imgFile> 20000
-================================================================
-
-Sets I{N_values} to an insanely high cutoff, resulting in something
-that looks a lot more boring for the exact same neighborhood in the
-complex plane. The image is just another tilted version of the
-overview. This goes on forever and ever, until limited by the
-numerical precision of the computer.
-
-Running this on my 8-core, 3.5 GHz AMD FX-8320 with C{N_processes=7}
-took 18.2 seconds. Total time elapsed running L{MandelbrotValuer} on
-the cores was 111.8 seconds, with just under 5 ms of overhead for each
-of the 3000 calls. Most of that overhead was idle time spent polling
-the interprocess pipe for results and then unpickling the 3000-element
-row vectors that arrived over it from the processes.
-
-Running it with C{useThread=True} to keep everything on a single CPU
-core took 86.7 seconds, 4.8 times as long. There is some inefficiency
-involved with L{process.ProcessQueue}, but it can make a huge
-difference for parallel computing tasks with plenty of CPU cores
-available.
 """
 
 import sys, time, array

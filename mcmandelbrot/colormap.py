@@ -47,7 +47,7 @@ class ColorMapper(object):
       each of many linearly increasing values to be mapped, in CSV
       format.
     """
-    N_blackRed = 2000
+    N_blackRed = 4000
     useBlackRed = True
     fileName = "moreland.csv"
 
@@ -66,23 +66,28 @@ class ColorMapper(object):
         black to red, then red to orange, then orange to white.
         """
         ranges = [
-            [0.000, 1.9/3, 255],  # Red component ranges
-            [1.7/3, 2.7/3, 255],  # Green component ranges
-            [2.7/3, 1.000, 128],  # Blue component ranges
+            [0.000, 2.3/3],  # Red component ranges
+            [1.7/3, 2.7/3],  # Green component ranges
+            [2.7/3, 1.000],  # Blue component ranges
         ]
-        return self._rangeMap(N, ranges)
+        limits = [255, 255, 210]
+        bluecycle = [20, 100]
+        rgb = self._rangeMap(N, ranges, limits)
+        rgb[:,2] += bluecycle[0]*np.sin(
+            np.linspace(0, bluecycle[1]*2*3.141591, N)) + bluecycle[0]
+        return rgb
 
-    def _rangeMap(self, N, ranges):
+    def _rangeMap(self, N, ranges, limits):
         rgb = np.zeros((N, 3), dtype=np.uint8)
-        kt = np.rint(N*np.array(ranges[:,:2])).astype(int)
+        kt = np.rint(N*np.array(ranges)).astype(int)
         # Range #1: Increase red
-        rgb[0:kt[0,1],0] = np.linspace(0, ranges[0][2], kt[0,1])
+        rgb[0:kt[0,1],0] = np.linspace(0, limits[0], kt[0,1])
         # Range #2: Max red, increase green
-        rgb[kt[0,1]:,0] = ranges[0][2]
-        rgb[kt[1,0]:kt[1,1],1] = np.linspace(0, ranges[1][2], kt[1,1]-kt[1,0])
+        rgb[kt[0,1]:,0] = limits[0]
+        rgb[kt[1,0]:kt[1,1],1] = np.linspace(0, limits[1], kt[1,1]-kt[1,0])
         # Range #3: Max red and green, increase blue
-        rgb[kt[1,1]:,1] = ranges[1][2]
-        rgb[kt[2,0]:,2] = np.linspace(0, ranges[1][2], kt[2,1]-kt[2,0])
+        rgb[kt[1,1]:,1] = limits[1]
+        rgb[kt[2,0]:,2] = np.linspace(0, limits[2], kt[2,1]-kt[2,0])
         return rgb
         
     def csvFileMap(self):

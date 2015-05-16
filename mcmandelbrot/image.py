@@ -46,7 +46,7 @@ class Imager(object):
     Nx = 640
     Nx_max = 10000 # 100 megapixels ought to be enough
 
-    N_values = 2000
+    N_values = 3000
     steepness = 3
 
     msgProto = "{} :: ({:+f} +/- {:f}, {:f} +/- {:f}) in {:4.2f} sec."

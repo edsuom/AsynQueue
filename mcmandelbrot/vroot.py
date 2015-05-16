@@ -545,8 +545,14 @@ class HV_Meta(type):
             lines = []
             fh = openPackageFile(fileName)
             for line in fh:
-                if line.strip():
-                    lines.append(line.rstrip())
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith('/'):
+                    continue
+                if stripped.startswith('#'):
+                    continue
+                lines.append(line.rstrip())
             fh.close()
             dct['headLines'][fileType] = lines
         return super(HV_Meta, cls).__new__(cls, name, parents, dct)
