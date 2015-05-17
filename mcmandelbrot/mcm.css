@@ -29,19 +29,10 @@ body {
 div.container {
     background: white;
     position: relative;
-    max-width: 800px;
+    max-width: 900px;
     padding: 5px;
     margin: auto;
     box-sizing: border-box;
-}
-.left {
-    float: left;
-    text-align: left;
-}
-.right {
-    float: right;
-    text-align: right;
-    vertical-align: bottom;
 }
 .bigger {
     font-size: 120%;
@@ -62,8 +53,20 @@ a {
     color: #0f47dc;
     text-decoration: none;
 }
-div.heading {
+div.first_part {
     margin-top: 0.5em;
+}
+div.second_part {
+    padding: 4px;
+}
+div.heading {
+    float: left;
+    text-align: left;
+}
+div.subheading {
+    float: right;
+    text-align: right;
+    vertical-align: bottom;
 }
 div.clear {
     clear: both;
@@ -111,23 +114,56 @@ div.form_item {
 span.form_item {
     padding-right: 1em;
 }
-input.position {
-    size: 4;
-}
 div.image {
     margin: 4px;
 }
 img.mandelbrot {
     border: 2px solid grey;
 }
-.footer {
+div.about, div.footer {
     line-height: 1.2;
-    text-align: right;
     font-family: Arial, Helvetica, sans-serif;
-    margin-top: 1em;
-    margin-left: auto;
-    margin-right: 1em;
     padding-top: 0;
-    font-size: 85%;
-    width: 80%;
+    font-size: 80%;
+}
+div.about {
+    margin-top: 1em;
+    margin-left: 1em;
+    text-align: justify;
+}
+div.footer {
+    clear: both;
+    margin-left: 1em;
+    margin-right: 1em;
+    text-align: justify;
+}
+
+/* Landscape screen */
+@media screen and (min-device-width: 1120px) {
+    div.container {
+	max-width: 1130px;
+    }
+    div.first_part {
+	float: left;
+	max-width: 210px;
+    }
+    div.heading, div.subheading { 
+	float: none;
+	text-align: right;
+	padding-bottom: 1em;
+    }
+    div.form_item {
+	margin-left: auto;
+	padding-top: 4px;
+	text-align: right;
+    }
+    div.about {
+	margin-left: 0;
+	margin-top: 2em;
+    }
+    div.second_part {
+	float: right;
+	border-left: 3px black;
+	width: 900px;
+    }
 }

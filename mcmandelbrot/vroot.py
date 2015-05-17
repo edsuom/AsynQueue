@@ -31,6 +31,7 @@ powerful way to generate an HTML page. Adapted from another project
 for use in the C{mcmandelbrot} demo site.
 """
 
+from contextlib import contextmanager
 import os.path, sys, re, traceback, codecs
 from pkg_resources import resource_stream
 
@@ -77,6 +78,7 @@ class Baton(object):
     reLeadingSpace = re.compile(r'\n*</[^>]+>\n*(\s*?)<')
 
     def __init__(self, indent):
+        self.cStack = []
         self.indent = indent
         self.elements = []
         self.eChild = None
@@ -324,6 +326,18 @@ class Baton(object):
         self.eChild = self.lastParent = parent
         return self
 
+    @contextmanager
+    def context(self):
+        """
+        Isolates a context for you to generate one or more children
+        without affecting my overall context. When the context code
+        completes, restores the last parent/child context to what it
+        was before.
+        """
+        self.cStack.append((self.eChild, self.lastParent))
+        yield
+        self.eChild, self.lastParent = self.cStack.pop()
+        
     def np(self, content):
         """
         Assigns a unique placeholder for the supplied content string

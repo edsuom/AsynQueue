@@ -26,13 +26,11 @@
 
 
 """
-Colormapping with Kenneth Moreland's "Diverging Color Maps for
-Scientific Visualization",
-U{http://www.sandia.gov/~kmorel/documents/ColorMaps/}.
+Colormapping, which is a tricky business when visualizing fractals
+that you can zoom in on.
 """
 
 import os.path
-from pkg_resources import resource_stream
 from array import array
 
 import numpy as np
@@ -47,31 +45,25 @@ class ColorMapper(object):
       each of many linearly increasing values to be mapped, in CSV
       format.
     """
-    N_blackRed = 4000
-    useBlackRed = True
-    fileName = "moreland.csv"
+    N_colors = 6000
+    dither = 0.05 / N_colors
 
-    def __init__(self, useBlackRed=False):
-        if not useBlackRed:
-            useBlackRed = self.useBlackRed
-        if useBlackRed:
-            self.rgb = self.blackRedMap(self.N_blackRed)
-        else:
-            self.rgb = self.csvFileMap()
+    def __init__(self):
+        self.rgb = self.loadMap(self.N_colors)
         self.jMax = len(self.rgb) - 1
 
-    def blackRedMap(self, N):
+    def loadMap(self, N):
         """
         Returns an RGB colormap of dimensions C{Nx3} that transitions from
         black to red, then red to orange, then orange to white.
         """
         ranges = [
-            [0.000, 2.3/3],  # Red component ranges
-            [1.7/3, 2.7/3],  # Green component ranges
+            [0.000, 2.8/3],  # Red component ranges
+            [2.5/3, 3.0/3],  # Green component ranges
             [2.7/3, 1.000],  # Blue component ranges
         ]
-        limits = [255, 255, 210]
-        bluecycle = [20, 100]
+        limits = [255, 220, 180]
+        bluecycle = [20, 120]
         rgb = self._rangeMap(N, ranges, limits)
         rgb[:,2] += bluecycle[0]*np.sin(
             np.linspace(0, bluecycle[1]*2*3.141591, N)) + bluecycle[0]
@@ -89,24 +81,10 @@ class ColorMapper(object):
         rgb[kt[1,1]:,1] = limits[1]
         rgb[kt[2,0]:,2] = np.linspace(0, limits[2], kt[2,1]-kt[2,0])
         return rgb
-        
-    def csvFileMap(self):
-        """
-        Returns an RGB colormap loaded from I{fileName} in my package
-        directory.
-        """
-        filePath = os.path.join(
-            os.path.dirname(__file__), self.fileName)
-        if os.path.exists(filePath):
-            fh = open(filePath)
-        else:
-            fh = resource_stream(__name__, self.fileName)
-        rgb = np.loadtxt(fh, delimiter=',', dtype=np.uint8)
-        fh.close()
-        return rgb
     
     def __call__(self, x):
         result = array('B')
+        np.clip(x + (self.dither * np.random.randn(len(x))), 0, 1.0, x)
         np.rint(self.jMax * x, x)
         for j in x.astype(np.uint16):
             result.extend(self.rgb[j,:])

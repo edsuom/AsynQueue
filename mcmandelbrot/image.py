@@ -44,6 +44,7 @@ class Imager(object):
     Call L{shutdown} when done.
     """
     Nx = 640
+    Nx_min = 240
     Nx_max = 10000 # 100 megapixels ought to be enough
 
     N_values = 3000
@@ -63,6 +64,10 @@ class Imager(object):
             print self.msgProto.format(ip, cr, ci, crpm, ciPM, timeSpent)
         
     def setImageWidth(self, N):
+        if N < self.Nx_min:
+            N = self.Nx_min
+        elif N > self.Nx_max:
+            N = self.Nx_max
         self.Nx = N
 
     @defer.inlineCallbacks
@@ -83,10 +88,7 @@ class Imager(object):
         neededNames = ['cr', 'ci', 'crpm']
         for name, value in request.args.iteritems():
             if name == 'N':
-                N = int(value[0])
-                if N > self.Nx_max:
-                    N = self.Nx_max
-                self.setImageWidth(N)
+                self.setImageWidth(int(value[0]))
             else:
                 x[name] = float(value[0])
             if name in neededNames:
