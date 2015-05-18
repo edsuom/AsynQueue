@@ -39,8 +39,9 @@ from twisted.web import server, resource
 from mcmandelbrot import vroot, image
 
 
-PORT = 8180
+PORT = 8080
 VERBOSE = True
+HTML_FILE = "mcm.html"
 
 HOWTO = """
 Click anywhere in the image to zoom in 5x at that location. Try
@@ -53,7 +54,7 @@ bun&shy;dled with my <a
 href="http://edsuom.com/AsynQueue">AsynQueue</a> asyn&shy;chronous
 processing pack&shy;age, freely available per the Apache License. A
 link back to <a href="http://edsuom.com"><b>edsuom.com</b></a> would
-be appreciated. <i>&mdash;Ed Suominen</i>
+be apprec&shy;iated.&emsp;&emsp;<i>&mdash;Ed Suominen</i>
 """
 
 
@@ -83,6 +84,9 @@ class MandelbrotSiteResource(resource.Resource):
             # We only need to render the page once. All that changes
             # are the image and form fields.
             self._html = self.makeHTML()
+            if HTML_FILE:
+                with open(HTML_FILE, 'w') as fh:
+                    fh.write(self._html)
         return self._html
         
     def imgURL(self, dct):
@@ -165,7 +169,8 @@ class MandelbrotImageResource(resource.Resource):
         self.imager = image.Imager(verbose=VERBOSE)
         
     def render_GET(self, request):
-        request.setHeader("Content-Type", 'image/png')
+        request.setHeader("content-disposition", "image.png")
+        request.setHeader("content-type", 'image/png')
         self.imager.renderImage(request)
         return server.NOT_DONE_YET
 

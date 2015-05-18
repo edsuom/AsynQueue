@@ -39,7 +39,7 @@ Both ends of the connection need to be able to import this module and
 reference its L{MandelbrotWorkerUniverse} class.
 """
 
-import urlparse
+import sys, urlparse
 
 from twisted.internet import defer
 
@@ -50,27 +50,66 @@ from asynqueue.wire import \
 
 import runner
 
+# Server Connection defaults
+PORT = 1978
+INTERFACE = None
+DESCRIPTION = None
 
 FQN = "mcmandelbrot.wire.MandelbrotWorkerUniverse"
 
 
 class MandelbrotWorkerUniverse(WireWorkerUniverse):
     """
+    I run on the remote Python interpreter to run a runner from there,
+    accepting commands from your L{RemoteRunner} via L{run},
+    L{getRunInfo} and L{cancel} and sending the results and iterations
+    to it.
     """
     @defer.inlineCallbacks
     def setup(self, N_values, steepness):
         if hasattr(self, 'runner'):
+            dList = []
+            for dRun, dCancel in self.pendingRuns.itervalues():
+                dList.append(dRun)
+                if not dCancel.called:
+                    dCancel.callback(None)
+            yield defer.DeferredList(dList)
             yield self.runner.q.shutdown()
-        # These methods are call via a one-at-a-time queue, so it's not
-        # a problem to overwrite the old runner with a new one, after
-        # waiting for the old one to shut down.
+        # These methods are called via a one-at-a-time queue, so it's
+        # not a problem to overwrite the old runner with a new one,
+        # after waiting for the old one's runs to get canceled and
+        # then for it to shut down.
+        self.pendingRuns = {}
         self.runner = runner.Runner(N_values, steepness)
 
-    def image(self, *args):
-        return self.runner.image(*args)
+    def run(self, Nx, cr, ci, crPM, ciPM):
+        def done(stuff):
+            fh.close()
+            if ID in self.pendingRuns:
+                del self.pendingRuns[ID]
+            return stuff
+
+        fh = Filerator()
+        # Same as calculated by WireRunner to save iterator. This is important.
+        ID = str(hash(fh))
+        dCancel = defer.Deferred()
+        dRun = self.runner.run(
+            fh, Nx, cr, ci, crPM, ciPM, dCancel).addCallback(done)
+        self.pendingRuns[ID] = dRun, dCancel
+        return fh
+
+    def getRunInfo(self, ID):
+        if ID in self.pendingRuns:
+            return self.pendingRuns[ID][0]
+        
+    def cancel(self, ID):
+        if ID in self.pendingRuns:
+            dCancel = self.pendingRuns[ID][1]
+            if not dCancel.called:
+                dCancel.callback(None)
 
 
-class Client(object):
+class RemoteRunner(object):
     """
     Call L{setup} and wait for the C{Deferred} it returns, then you
     can call L{image} as much as you like to get images streamed to
@@ -79,9 +118,6 @@ class Client(object):
     Call L{shutdown} when done, unless you are using both a remote
     server and an external instance of C{TaskQueue}.
     """
-    Nx = 640
-    Nx_max = 10000 # 100 megapixels ought to be enough
-
     setupDefaults = {'N_values': 2000, 'steepness': 3}
     
     def __init__(self, description=None, q=None):
@@ -123,7 +159,8 @@ class Client(object):
         
         if checkSetup():
             if self.description is None:
-                # Local server running on a UNIX socket
+                # Local server running on a UNIX socket. Mostly useful
+                # for testing.
                 self.mgr = ServerManager(FQN)
                 description = self.mgr.newSocket()
                 yield self.mgr.spawn(description)
@@ -141,93 +178,69 @@ class Client(object):
             yield self.mgr.done()
         if hasattr(self, 'stopper'):
             yield self.stopper()
-        
-    def setImageWidth(self, N):
-        self.Nx = N
 
-    def image(self, cr, ci, crPM, ciPM=None, consumer=None):
+    @defer.inlineCallbacks
+    def run(self, fh, Nx, cr, ci, crPM, ciPM, dCancel=None):
         """
-        Gets a new PNG image of the Mandelbrot Set at location I{cr, ci}
-        in the complex plane, +/- I{crPM, ciPM}. If I{ciPM} is not
-        specified, it is the same as I{crPM}, resulting in a square
-        image.
+        Runs a C{compute} method on a remote Python interpreter to
+        generate a PNG image of the Mandelbrot Set and write it in
+        chunks, indirectly, to the write-capable object I{fh}, which
+        in this case must implement C{IConsumer}. When this method is
+        called by L{image.renderImage}, I{fh} will be a request and
+        those do implement C{IConsumer}.
 
-        The call creates a C{Deferator} that is converted to an
-        C{IterationProducer} if you supply a I{consumer} it can
-        produce to. Either way, the remote server iterates chunks of a
-        PNG image as they are computed on the remote end.
-        
-        @return: A C{Deferred} that fires with a C{Deferator} if no
-          consumer is supplied, or, if one was, when the
-          C{IterationProducer} is done producing to it.
+        The image is centered at location I{cr, ci} in the complex
+        plane, plus or minus I{crPM} on the real axis and I{ciPM on
+        the imaginary axis.
+
+        @see: L{runner.run}.
+
+        This method doesn't call L{setup}; that is taken care of by
+        L{image.Imager} for HTTP requests and by L{writeImage} for
+        local image file generation.
+
+        @return: A C{Deferred} that fires with the total elasped time
+          for the computation and the number of pixels computed.
         """
-        if ciPM is None:
-            ciPM = crPM
+        def canceler(null, ID):
+            return self.q.call('cancel', ID, niceness=-15)
+        
         # The heart of the matter
-        return self.q.call(
-            'image', self.Nx, cr, ci, crPM, ciPM, consumer=consumer)
+        producer = yield self.q.call(
+            'run', Nx, cr, ci, crPM, ciPM, consumer=fh)
+        # We have an instance of IterationProducer, but we need to
+        # extract the ID it's using to get iterations. Why? Because
+        # the canceler and run results are keyed to it.
+        drCallTuple = producer.dr[0]
+        prefetcherator = drCallTuple[0].im_self
+        nextCallTuple = prefetcherator.nextCallTuple
+        ID = nextCallTuple[1][0]
+        if dCancel:
+            dCancel.addCallback(canceler, ID)
+        runInfo = yield self.q.call('getRunInfo', ID)
+        defer.returnValue(runInfo)
 
     @defer.inlineCallbacks
     def writeImage(self, fileName, *args, **kw):
         """
-        Call with the same arguments as L{image} except with a I{fileName}
-        first. Writes the PNG image as it is generated remotely,
-        returning a C{Deferred} that fires when the image is all
-        written.
+        Call with the same arguments as L{run} after I{fh}, preceded by a
+        writable I{fileName}. It will be opened for writing and its
+        file handle supplied to L{run} as I{fh}.
 
-        @see: L{setup} and L{image}
+        Writes the PNG image as it is generated remotely, returning a
+        C{Deferred} that fires with the result of L{run} when the
+        image is all written.
+
+        @see: L{setup} and L{run}
         """
         yield self.setup(
             N_values=kw.pop('N_values', None),
             steepness=kw.pop('steepness', None))
         fh = open(fileName, 'w')
-        dr = yield self.image(*args, **kw)
-        for d in dr:
-            chunk = yield d
-            fh.write(chunk)
+        runInfo = yield self.run(fh, *args)
         fh.close()
+        defer.returnValue(runInfo)
 
-    @defer.inlineCallbacks
-    def renderImage(self, request):
-        """
-        Call with a Twisted.web I{request} that includes a URL query map
-        in C{request.args} specifying I{cr}, I{ci}, I{crpm}, and,
-        optionally, I{crpi}. Writes the PNG image data to the request
-        as it is generated remotely. When the image is all written,
-        calls C{request.finish} and fires the C{Deferred} it returns.
-
-        An example query string, for the basic Mandelbrot Set overview
-        with 1200 points:
-        
-        C{?N=1200&Nv=1000&s=3&cr=-0.8&ci=0.0&crpm=1.45&crpi=1.2}
-
-        @see: L{setup} and L{image}
-        """
-        x = {}
-        kw = {}
-        neededNames = ['cr', 'ci', 'crpm']
-        for name, value in request.args.iteritems():
-            if name == 'N':
-                N = int(value[0])
-                if N > self.Nx_max:
-                    N = self.Nx_max
-                self.setImageWidth(value[0])
-            elif name == 'Nv':
-                kw['N_values'] = value
-            elif name == 's':
-                kw['steepness'] =value
-            else:
-                x[name] = float(value[0])
-            if name in neededNames:
-                neededNames.remove(name)
-        if not neededNames:
-            if kw or 'FLAG' not in self.sv:
-                yield self.setup(**kw)
-            yield self.image(
-                x['cr'], x['ci'], x['crpm'],
-                ciPM=x.get('crpi', None), consumer=request)
-        request.finish()
-    
 
 def server(description=None, port=1978, interface=None):
     """
@@ -253,3 +266,8 @@ def server(description=None, port=1978, interface=None):
     wwu = MandelbrotWorkerUniverse()
     ws = WireServer(wwu)
     return ws.run(description)
+
+
+if '/twistd' in sys.argv[0]:
+    application = service.Application("Mandelbrot Set PNG Image Server")
+    return server(DESCRIPTION, PORT, INTERFACE).setServiceParent(application)

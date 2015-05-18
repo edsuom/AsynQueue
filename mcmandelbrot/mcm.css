@@ -141,11 +141,11 @@ div.footer {
 /* Landscape screen */
 @media screen and (min-device-width: 1120px) {
     div.container {
-	max-width: 1130px;
+	max-width: 1150px;
     }
     div.first_part {
 	float: left;
-	max-width: 210px;
+	max-width: 230px;
     }
     div.heading, div.subheading { 
 	float: none;

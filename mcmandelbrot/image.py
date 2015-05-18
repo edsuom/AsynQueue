@@ -52,8 +52,12 @@ class Imager(object):
 
     msgProto = "({:+f}, {:f}) +/-{:f} :: {:d} pixels in {:4.2f} sec."
     
-    def __init__(self, verbose=False):
+    def __init__(self, verbose=False, description=None):
         self.verbose = verbose
+        if description:
+            self.runner = wire.RemoteRunner(description)
+            self.dStart = self.runner.setup(
+                N_values=self.N_values, steepness=self.steepness)
         self.runner = runner.Runner(self.N_values, self.steepness)
 
     def shutdown(self):
@@ -100,6 +104,9 @@ class Imager(object):
                 neededNames.remove(name)
         if not neededNames:
             ciPM = x.get('cipm', x['crpm'])
+            if hasattr(self, 'dStart'):
+                yield dStart
+                del self.dStart
             timeSpent, N = yield self.runner.run(
                 request, self.Nx,
                 x['cr'], x['ci'], x['crpm'], ciPM, d)

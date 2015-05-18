@@ -91,8 +91,7 @@ class Runner(object):
 
         The image is centered at location I{cr, ci} in the complex
         plane, plus or minus I{crPM} on the real axis and I{ciPM on
-        the imaginary axis. If I{ciPM} is not specified, it is the
-        same as I{crPM}, resulting in a square image.
+        the imaginary axis.
 
         @return: A C{Deferred} that fires with the total elasped time
           for the computation and the number of pixels computed.
