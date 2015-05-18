@@ -158,7 +158,7 @@ class Runner(object):
         yield p.stop()
         defer.returnValue(Nx*(k+1))
 
-    def showStats(self, totalTime):
+    def showStats(self, callInfo):
         """
         Displays stats about the run on stdout
         """
@@ -176,7 +176,9 @@ class Runner(object):
             mean = np.mean(diffs)
             print "Mean worker-to-process overhead (ms/call): {:0.7f}".format(
                 mean)
-        print "Total time: {:1.1f} seconds.".format(totalTime)
+        totalTime = callInfo[0]
+        print "Computed {:d} pixels in {:1.1f} seconds.".format(
+            callInfo[1], totalTime)
         return self.q.stats().addCallback(gotStats)
 
 

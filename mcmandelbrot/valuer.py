@@ -148,13 +148,34 @@ class MandelbrotValuer(object):
     """
     code = """
     #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-    int j, k;
+    int j, zint;
+    signed char kx, ky;
+    double xk, yk;
     for (j=0; j<Nx[0]; j++) {
-        // Evaluate the point
-        Y1(j) = eval_point(j, kmax, X1(j), ci);
+        // Evaluate five points in an X arrangement including and around the
+        // one specified by X1(j) and ci
+        zint = eval_point(j, kmax, X1(j), ci);
+        Z1(j) = zint;
+        kx = -1;
+        ky = -1;
+        while ((zint < kmax) && (kx < 2)) {
+            xk = X1(j) + kx * qd;
+            while ((zint < kmax) && (ky < 2)) {
+                yk = (double)ci + ky * qd;
+                zint = eval_point(j, kmax, xk, yk);
+                Z1(j) += zint;
+                ky += 2;
+            }
+            kx += 2;
+        }
+        if (zint == kmax) {
+            // A no-escape evaluation at one point in the X is treated
+            // as if there were no escape at any point in the X
+            Z1(j) = 5*kmax;
+        }
     }
     """
-    vars = ['x', 'y', 'ci', 'kmax']
+    vars = ['x', 'z', 'ci', 'qd', 'kmax']
 
     def __init__(self, N_values, steepness):
         """
@@ -171,7 +192,6 @@ class MandelbrotValuer(object):
           logistic function and color mapping.
         """
         self.N_values = N_values
-        
         self.steepness = steepness
         self.cm = ColorMapper()
         # The maximum possible escape value is mapped to 1.0, before
@@ -188,20 +208,12 @@ class MandelbrotValuer(object):
         @return: A Python B-array I{3*N} containing RGB triples for an
           image representing the escape values.
         """
-        yy = np.zeros(N)
-        quarterDiff = 0.25 * (crMax - crMin) / N
-        for dx, dy in (
-                ( 0.0,          0.0        ),
-                (-quarterDiff, -quarterDiff),
-                (+quarterDiff, -quarterDiff),
-                (-quarterDiff, +quarterDiff),
-                (+quarterDiff, +quarterDiff)):
-            x = np.linspace(crMin+dx, crMax+dx, N, dtype=np.float64)
-            y = self.computeValues(N, x, ci+dy)
-            yy += y.astype(np.float)
+        qd = 0.25 * (crMax - crMin) / N
+        x = np.linspace(crMin, crMax, N, dtype=np.float64)
+        z = self.computeValues(N, x, ci, qd)
         # Invert the iteration values so that trapped points have zero
         # value, then scale to the range [-1.0, +1.0]
-        z = 2*self.scale * (5*self.N_values - yy) - 1.0
+        z = 2*self.scale * (5*self.N_values - z) - 1.0
         # Transform to emphasize details in the middle
         z = self.transform(z, self.steepness)
         # [-1.0, +1.0] --> [0.0, 1.0]
@@ -209,19 +221,22 @@ class MandelbrotValuer(object):
         # Map to my RGB colormap
         return self.cm(z)
 
-    def transform(self, x, k):
-        """
-        """
-        return np.power(x, k)
-    
-    def computeValues(self, N, x, ci):
+    def computeValues(self, N, x, ci, qd):
         """
         Computes and returns a row vector of escape iterations, integer
         values.
         """
         kmax = self.N_values - 1
-        y = np.zeros(N, dtype=np.int16)
+        z = np.zeros(N, dtype=np.int)
         weave.inline(
             self.code, self.vars,
             customize=self.infoObj, support_code=self.support_code)
-        return y
+        return z
+
+    def transform(self, x, k):
+        """
+        Transforms the input vector I{x} by taking it to a power, which is
+        zero (no transform) or odd-numbered.
+        """
+        return np.power(x, k)
+    

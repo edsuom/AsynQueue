@@ -88,6 +88,7 @@ function zoomIn(event) {
     var params = xy(event);
     params.crpm = 0.2 * params.crpm;
     updateImage(params);
+    hover(event);
 }
 function zoomOut() {
     var params = getParams();
@@ -96,6 +97,8 @@ function zoomOut() {
 }
 function hover(event) {
     var params = xy(event)
-    var message = "(" + params.cr + ", " + params.ci + "), +/-" + params.crpm;
+    var scale = Math.round(1 / params.crpm).toFixed(0);
+    var message = "Scale: " + scale + "x&nbsp;&nbsp;&nbsp;"
+                + "Center: (" + params.cr + ", " + params.ci + ")";
     document.getElementById('hover').innerHTML = message;
 }
