@@ -83,7 +83,7 @@ class Runner(object):
         maxValue = asynqueue.ProcessQueue.cores() - 1
         return max([1, maxValue])
     
-    def run(self, fh, Nx, cr, ci, crPM, ciPM):
+    def run(self, fh, Nx, cr, ci, crPM, ciPM, dCancel=None):
         """
         Runs my L{compute} method to generate a PNG image of the
         Mandelbrot Set and write it in chunks to the file handle or
@@ -95,49 +95,68 @@ class Runner(object):
         same as I{crPM}, resulting in a square image.
 
         @return: A C{Deferred} that fires with the total elasped time
-          for the computation.
+          for the computation and the number of pixels computed.
         """
         def diff(k):
             return xySpans[k][1] - xySpans[k][0]
-        def done(null):
-            return time.time() - t0
-            
+        def done(N):
+            return time.time() - t0, N
+
         t0 = time.time()
         xySpans = []
         for center, plusMinus in ((cr, crPM), (ci, ciPM)):
             xySpans.append([center - plusMinus, center + plusMinus])
         xySpans[0].append(Nx)
         xySpans[1].append(int(Nx * diff(1) / diff(0)))
-        return self.compute(fh, *xySpans).addCallback(done)
+        return self.compute(
+            fh, xySpans[0], xySpans[1], dCancel).addCallback(done)
         
     @defer.inlineCallbacks
-    def compute(self, fh, xSpan, ySpan):
+    def compute(self, fh, xSpan, ySpan, dCancel=None):
         """
         Computes the Mandelbrot Set under C{Twisted} and generates a
         pretty image, written as a PNG image to the supplied file
         handle I{fh} one row at a time.
 
         @return: A C{Deferred} that fires when the image is completely
-          written and you can close the file handle.
+          written and you can close the file handle, with the number
+          of pixels computed (may be a lower number than expected if
+          the connection terminated early).
         """
         def f(rows):
-            writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
-            writer.write(fh, rows)
+            try:
+                writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
+                writer.write(fh, rows)
+            except:
+                # Trap ValueError caused by mid-stream cancellation
+                pass
 
         crMin, crMax, Nx = xSpan
         ciMin, ciMax, Ny = ySpan
+        # We have at most 5 calls in the process queue for each worker
+        # servicing them, to allow midstream canceling and interleave
+        # parallel computation requests.
+        ds = defer.DeferredSemaphore(5*self.N_processes)
         p = OrderedItemProducer()
         yield p.start(f)
         # "The pickle module keeps track of the objects it has already
-        # serialized, so that later references to the same object t be
+        # serialized, so that later references to the same object won't be
         # serialized again." --Python docs
         for k, ci in enumerate(np.linspace(ciMax, ciMin, Ny)):
+            # "Wait" for the number of pending calls to fall back to
+            # the limit
+            yield ds.acquire()
+            # Make sure the render hasn't been canceled
+            if getattr(dCancel, 'called', False):
+                break
             # Call one of my processes to get each row of values,
             # starting from the top
-            p.produceItem(
+            d = p.produceItem(
                 self.q.call, self.mv, crMin, crMax, Nx, ci,
                 series='process')
+            d.addCallback(lambda _: ds.release())
         yield p.stop()
+        defer.returnValue(Nx*(k+1))
 
     def showStats(self, totalTime):
         """

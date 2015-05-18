@@ -39,7 +39,7 @@ from twisted.web import server, resource
 from mcmandelbrot import vroot, image
 
 
-PORT = 8080
+PORT = 8180
 VERBOSE = True
 
 HOWTO = """
@@ -68,7 +68,7 @@ class MandelbrotSiteResource(resource.Resource):
         ("Real:", "cr"   ),
         ("Imag:", "ci"   ),
         ("+/-",   "crpm" ))
-    inputSize = 8
+    inputSize = 10
     
     def __init__(self):
         resource.Resource.__init__(self)

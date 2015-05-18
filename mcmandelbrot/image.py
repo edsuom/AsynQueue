@@ -50,7 +50,7 @@ class Imager(object):
     N_values = 3000
     steepness = 3
 
-    msgProto = "{} :: ({:+f} +/- {:f}, {:f} +/- {:f}) in {:4.2f} sec."
+    msgProto = "({:+f}, {:f}) +/-{:f} :: {:d} pixels in {:4.2f} sec."
     
     def __init__(self, verbose=False):
         self.verbose = verbose
@@ -59,9 +59,10 @@ class Imager(object):
     def shutdown(self):
         return self.runner.shutdown()
 
-    def log(self, ip, cr, ci, crpm, ciPM, timeSpent):
+    def log(self, request, proto, *args):
         if self.verbose:
-            print self.msgProto.format(ip, cr, ci, crpm, ciPM, timeSpent)
+            ip = request.getClient()
+            print "{} :: ".format(ip) + proto.format(*args)
         
     def setImageWidth(self, N):
         if N < self.Nx_min:
@@ -84,7 +85,11 @@ class Imager(object):
         
         C{?N=1200&cr=-0.8&ci=0.0&crpm=1.45&crpi=1.2}
         """
+        def canceled(null):
+            self.log(request, "Canceled")
+        
         x = {}
+        d = request.notifyFinish().addErrback(canceled)
         neededNames = ['cr', 'ci', 'crpm']
         for name, value in request.args.iteritems():
             if name == 'N':
@@ -95,10 +100,11 @@ class Imager(object):
                 neededNames.remove(name)
         if not neededNames:
             ciPM = x.get('cipm', x['crpm'])
-            timeSpent = yield self.runner.run(
+            timeSpent, N = yield self.runner.run(
                 request, self.Nx,
-                x['cr'], x['ci'], x['crpm'], ciPM)
-            self.log(
-                request.getClient(),
-                x['cr'], x['ci'], x['crpm'], ciPM, timeSpent)
-        request.finish()
+                x['cr'], x['ci'], x['crpm'], ciPM, d)
+            if not d.called:
+                self.log(
+                    request, self.msgProto,
+                    x['cr'], x['ci'], x['crpm'], N, timeSpent)
+                request.finish()
