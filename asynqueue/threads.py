@@ -674,10 +674,14 @@ class OrderedItemProducer(object):
           started in a dedicated thread. Shouldn't take long at all.
         """
         def started():
+            print "A"
             self.dLock.release()
+            print "B"
             dStarted.callback(None)
+            print "C"
         def runner():
             # This function runs via the queue in my dedicated thread
+            print "RUNNER"
             reactor.callFromThread(started)
             # The actual blocking call
             result = fb(self.i, *args, **kw)

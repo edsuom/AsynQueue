@@ -26,6 +26,8 @@ Unit tests for asynqueue.workers
 
 from twisted.internet import defer
 
+from asynqueue.threads import ThreadWorker
+
 import wire
 from testbase import deferToDelay, TestCase
 
@@ -34,21 +36,30 @@ class TestMandelbrotWorkerUniverse(TestCase):
     verbose = True
 
     def setUp(self):
+        def running(null):
+            self.q = self.mwu.runner.q
+            worker = ThreadWorker(series=['test'])
+            self.q.attachWorker(worker)
         self.mwu = wire.MandelbrotWorkerUniverse()
-        return self.mwu.setup(1000, 1)
+        return self.mwu.setup(1000, 1).addCallback(running)
 
     @defer.inlineCallbacks
     def tearDown(self):
         yield self.mwu.runner.shutdown()
-    
+
+    def _iterateInThread(self, i):
+        items = []
+        for k, item in enumerate(i):
+            self.msg("{:03d}: {:d} bytes", k, len(item))
+            items.append(item)
+        return items
+        
     @defer.inlineCallbacks
     def test_basic(self):
         N = 100
         fhAsIterator = self.mwu.run(N, -0.630, 0, 1.4, 1.4)
-        rows = []
-        for k, row in enumerate(fhAsIterator):
-            self.msg("{:03d}: {:d} bytes", k, len(row))
-            rows.append(row)
+        rows = yield self.q.call(
+            self._iterateInThread, fhAsIterator, series='test')
         fhAsIterator.close()
         self.assertEqual(len(rows), N)
         

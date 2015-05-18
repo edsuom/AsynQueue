@@ -129,6 +129,7 @@ class Runner(object):
                 writer.write(fh, rows)
             except:
                 # Trap ValueError caused by mid-stream cancellation
+                print "F-OOPS"
                 pass
             print "F-DONE"
 
