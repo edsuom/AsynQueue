@@ -84,11 +84,13 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
 
     def run(self, Nx, cr, ci, crPM, ciPM):
         def done(stuff):
+            print "RUN-DONE", stuff
             fh.close()
             if ID in self.pendingRuns:
                 del self.pendingRuns[ID]
             return stuff
 
+        print "RUN"
         fh = Filerator()
         # Same as calculated by WireRunner to save iterator. This is important.
         ID = str(hash(fh))
@@ -118,7 +120,7 @@ class RemoteRunner(object):
     Call L{shutdown} when done, unless you are using both a remote
     server and an external instance of C{TaskQueue}.
     """
-    setupDefaults = {'N_values': 2000, 'steepness': 3}
+    setupDefaults = {'N_values': 3000, 'steepness': 3}
     
     def __init__(self, description=None, q=None):
         self.description = description
@@ -270,4 +272,4 @@ def server(description=None, port=1978, interface=None):
 
 if '/twistd' in sys.argv[0]:
     application = service.Application("Mandelbrot Set PNG Image Server")
-    return server(DESCRIPTION, PORT, INTERFACE).setServiceParent(application)
+    server(DESCRIPTION, PORT, INTERFACE).setServiceParent(application)

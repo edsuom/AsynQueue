@@ -123,13 +123,16 @@ class Runner(object):
           the connection terminated early).
         """
         def f(rows):
+            print "F", rows
             try:
                 writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
                 writer.write(fh, rows)
             except:
                 # Trap ValueError caused by mid-stream cancellation
                 pass
+            print "F-DONE"
 
+        print "COMPUTE", xSpan, ySpan
         crMin, crMax, Nx = xSpan
         ciMin, ciMax, Ny = ySpan
         # We have at most 5 calls in the process queue for each worker
@@ -137,13 +140,16 @@ class Runner(object):
         # parallel computation requests.
         ds = defer.DeferredSemaphore(5*self.N_processes)
         p = OrderedItemProducer()
+        print "C1"
         yield p.start(f)
+        print "C2"
         # "The pickle module keeps track of the objects it has already
         # serialized, so that later references to the same object won't be
         # serialized again." --Python docs
         for k, ci in enumerate(np.linspace(ciMax, ciMin, Ny)):
             # "Wait" for the number of pending calls to fall back to
             # the limit
+            print "COMPUTE-{:d}".format(k)
             yield ds.acquire()
             # Make sure the render hasn't been canceled
             if getattr(dCancel, 'called', False):
@@ -183,8 +189,10 @@ class Runner(object):
 
 def run(*args, **kw):
     """
-    Call with
-    C{[-N values] [-s steepness] [-o imageFile] Nx, cr, ci, crPM[, ciPM]}
+    Call with::
+
+      [-N, <values>,] [-s, <steepness>,] [-o, <imageFile>,]
+      Nx, cr, ci, crPM[, ciPM]
 
     Writes PNG image to stdout unless -o is set, then saves it to
     C{imageFile}. In that case, prints some stats about the
@@ -197,14 +205,15 @@ def run(*args, **kw):
     @keyword leaveRunning: Set C{True} to let the reactor stay running
       when done.
     """
+    @defer.inlineCallbacks
     def reallyRun():
         runner = Runner(N_values, steepness, stats)
-        d = runner.run(fh, Nx, cr, ci, crPM, ciPM)
+        runInfo = yield runner.run(fh, Nx, cr, ci, crPM, ciPM)
         if stats:
-            d.addCallback(runner.showStats)
+            yield runner.showStats(runInfo)
+        yield runner.shutdown()
         if not leaveRunning:
-            d.addCallback(lambda _: reactor.stop())
-        return d
+            reactor.stop()
 
     def getOpt(opt, default):
         optCode = "-{}".format(opt)

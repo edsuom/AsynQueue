@@ -190,5 +190,5 @@ class MandelbrotSite(server.Site):
 
 if '/twistd' in sys.argv[0]:
     site = MandelbrotSite()
-    application = service.Application("Mandelbrot Set image server")
+    application = service.Application("Interactive Mandelbrot Set HTTP Server")
     internet.TCPServer(PORT, site).setServiceParent(application)

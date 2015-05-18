@@ -105,7 +105,7 @@ class Imager(object):
         if not neededNames:
             ciPM = x.get('cipm', x['crpm'])
             if hasattr(self, 'dStart'):
-                yield dStart
+                yield self.dStart
                 del self.dStart
             timeSpent, N = yield self.runner.run(
                 request, self.Nx,
