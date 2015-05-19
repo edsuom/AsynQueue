@@ -24,42 +24,73 @@
 Unit tests for asynqueue.workers
 """
 
+import png, time
+
 from twisted.internet import defer
 
 from asynqueue.threads import ThreadWorker
 
 import wire
-from testbase import deferToDelay, TestCase
+from testbase import deferToDelay, FakeFile, MockWireWorker, TestCase
 
 
 class TestMandelbrotWorkerUniverse(TestCase):
-    verbose = True
+    verbose = False
 
     def setUp(self):
-        def running(null):
-            self.q = self.mwu.runner.q
-            worker = ThreadWorker(series=['test'])
-            self.q.attachWorker(worker)
         self.mwu = wire.MandelbrotWorkerUniverse()
-        return self.mwu.setup(1000, 1).addCallback(running)
+        return self.mwu.setup(1000, 1)
 
     @defer.inlineCallbacks
     def tearDown(self):
         yield self.mwu.runner.shutdown()
-
-    def _iterateInThread(self, i):
-        items = []
-        for k, item in enumerate(i):
-            self.msg("{:03d}: {:d} bytes", k, len(item))
-            items.append(item)
-        return items
         
     @defer.inlineCallbacks
     def test_basic(self):
         N = 100
-        fhAsIterator = self.mwu.run(N, -0.630, 0, 1.4, 1.4)
-        rows = yield self.q.call(
-            self._iterateInThread, fhAsIterator, series='test')
-        fhAsIterator.close()
-        self.assertEqual(len(rows), N)
+        ID = self.mwu.run(N, -0.630, 0, 1.4, 1.4)
+        chunks = []
+        while True:
+            chunk = yield self.mwu.getNext(ID)
+            if chunk is None:
+                break
+            chunks.append(chunk)
+        pngReader = png.Reader(bytes="".join(chunks))
+        width, height, pixels, metadata = pngReader.read()
+        self.assertEqual(width, N)
+        self.assertEqual(height, N)
+        timeSpent, N_pixels = yield self.mwu.done(ID)
+        self.assertEqual(N_pixels, N*N)
+        self.assertEqual(len(self.mwu.pendingRuns), 0)
+
+    @defer.inlineCallbacks
+    def test_cancel(self):
+        N = 1000
+        ID = self.mwu.run(N, -0.630, 0, 1.4, 1.4)
+        yield deferToDelay(0.0)
+        self.mwu.cancel(ID)
+        runInfo = yield self.mwu.done(ID)
+        self.msg("Partial run in {:f} seconds, {:d} pixels", *runInfo)
+        self.assertLess(runInfo[1], N*N)
+
+
+class TestRemoteRunner(TestCase):
+    verbose = True
+    
+    def setUp(self):
+        self.rr = wire.RemoteRunner()
+        return self.rr.setup()#worker=MockWireWorker())
+
+    def tearDown(self):
+        return self.rr.shutdown()
+
+    @defer.inlineCallbacks
+    def test_run_basic(self):
+        N = 100
+        fh = FakeFile(verbose=self.isVerbose())
+        runInfo = yield self.rr.run(
+            fh, N, -0.630, 0, 1.4, 1.4)
+        fh.close()
+        self.assertEqual(runInfo[1], N*N)
+
         

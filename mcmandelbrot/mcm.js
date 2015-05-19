@@ -97,8 +97,21 @@ function zoomOut() {
 }
 function hover(event) {
     var params = xy(event)
-    var scale = Math.round(1 / params.crpm).toFixed(0);
-    var message = "Scale: " + scale + "x&nbsp;&nbsp;&nbsp;"
-                + "Center: (" + params.cr + ", " + params.ci + ")";
+    var scale = 1 / params.crpm;
+    if (scale > 1E12) {
+	scale = 0.1*Math.round(scale/1E11)
+	var unit = "trillion"
+    } else if (scale > 1E9) {
+	scale = 0.1*Math.round(scale/1E8)
+	var unit = "billion"
+    } else if (scale > 1E6) {
+	scale = 0.1*Math.round(scale/1E5)
+	var unit = "million"
+    } else {
+	scale = Math.round(scale)
+	var unit = ""
+    }
+    var message = "Scale:&nbsp;" + scale + "x &emsp;"
+                + "Center:&nbsp;(" + params.cr + ",&nbsp;" + params.ci + ")";
     document.getElementById('hover').innerHTML = message;
 }

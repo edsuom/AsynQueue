@@ -59,7 +59,7 @@ from twisted.internet import defer, reactor
 from twisted.internet.interfaces import IPushProducer
 
 import asynqueue
-from asynqueue.threads import OrderedItemProducer, Filerator
+from asynqueue.threads import OrderedItemProducer
 
 from valuer import MandelbrotValuer
 
@@ -123,17 +123,15 @@ class Runner(object):
           the connection terminated early).
         """
         def f(rows):
-            print "F", rows
             try:
                 writer = png.Writer(Nx, Ny, bitdepth=8, compression=9)
                 writer.write(fh, rows)
-            except:
+            except Exception as e:
                 # Trap ValueError caused by mid-stream cancellation
-                print "F-OOPS"
-                pass
-            print "F-DONE"
+                if not isinstance(e, StopIteration):
+                    if "rows" not in e.message and "height" not in e.message:
+                        raise e
 
-        print "COMPUTE", xSpan, ySpan
         crMin, crMax, Nx = xSpan
         ciMin, ciMax, Ny = ySpan
         # We have at most 5 calls in the process queue for each worker
@@ -141,16 +139,13 @@ class Runner(object):
         # parallel computation requests.
         ds = defer.DeferredSemaphore(5*self.N_processes)
         p = OrderedItemProducer()
-        print "C1"
         yield p.start(f)
-        print "C2"
         # "The pickle module keeps track of the objects it has already
         # serialized, so that later references to the same object won't be
         # serialized again." --Python docs
         for k, ci in enumerate(np.linspace(ciMax, ciMin, Ny)):
             # "Wait" for the number of pending calls to fall back to
             # the limit
-            print "COMPUTE-{:d}".format(k)
             yield ds.acquire()
             # Make sure the render hasn't been canceled
             if getattr(dCancel, 'called', False):
@@ -203,8 +198,8 @@ def run(*args, **kw):
       Mandelbrot points during iteration. Can set with the C{-N
       values} arg instead.
     
-    @keyword leaveRunning: Set C{True} to let the reactor stay running
-      when done.
+    @keyword ignoreReactor: Set C{True} to let somebody else start and
+      stop the reactor.
     """
     @defer.inlineCallbacks
     def reallyRun():
@@ -213,8 +208,9 @@ def run(*args, **kw):
         if stats:
             yield runner.showStats(runInfo)
         yield runner.shutdown()
-        if not leaveRunning:
+        if not ignoreReactor:
             reactor.stop()
+        defer.returnValue(runInfo)
 
     def getOpt(opt, default):
         optCode = "-{}".format(opt)
@@ -225,7 +221,7 @@ def run(*args, **kw):
             return optType(args.pop(k))
         return default
         
-    leaveRunning = kw.pop('leaveRunning', False)
+    ignoreReactor = kw.pop('ignoreReactor', False)
     if not args:
         args = sys.argv[1:]
     args = list(args)
@@ -246,8 +242,11 @@ def run(*args, **kw):
     Nx = int(args[0])
     cr, ci, crPM = [float(x) for x in args[1:4]]
     ciPM = args[4] if len(args) > 4 else crPM
-    reactor.callWhenRunning(reallyRun)
-    reactor.run()
+    if ignoreReactor:
+        return reallyRun()
+    else:
+        reactor.callWhenRunning(reallyRun)
+        reactor.run()
 
 
 if __name__ == '__main__':

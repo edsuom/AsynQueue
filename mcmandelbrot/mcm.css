@@ -131,6 +131,10 @@ div.about {
     margin-left: 1em;
     text-align: justify;
 }
+.byline {
+    display: inline;
+    font-style: italic;
+}
 div.footer {
     clear: both;
     margin-left: 1em;
@@ -160,6 +164,11 @@ div.footer {
     div.about {
 	margin-left: 0;
 	margin-top: 2em;
+    }
+    .byline {
+	display: block;
+	text-align: right;
+	padding-top: 0.5em;
     }
     div.second_part {
 	float: right;

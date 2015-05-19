@@ -24,12 +24,35 @@
 Unit tests for mcmandelbrot.runner
 """
 
+import png
+
 from twisted.internet import defer
 
 import runner
-from testbase import deferToDelay, TestCase
+from testbase import deferToDelay, FakeFile, TestCase
 
 
+class TestRunner(TestCase):
+    verbose = True
+
+    def setUp(self):
+        self.r = runner.Runner(1000, 3)
+
+    def tearDown(self):
+        return self.r.shutdown()
+
+    @defer.inlineCallbacks
+    def test_run_basic(self):
+        N = 100
+        fh = FakeFile(verbose=self.isVerbose())
+        runInfo = yield self.r.run(fh, N, -0.630, 0, 1.4, 1.4)
+        self.assertEqual(runInfo[1], N*N)
+        pngReader = png.Reader(bytes="".join(fh.data))
+        width, height, pixels, metadata = pngReader.read()
+        self.assertEqual(width, N)
+        self.assertEqual(height, N)
+            
+    
 class TestRun(TestCase):
     verbose = True
     
@@ -38,5 +61,8 @@ class TestRun(TestCase):
         N = 100
         filePath = "image.png"
         runInfo = yield self.checkProducesFile(
-            filePath, runner.run, "-o", filePath, 100, -0.630, 0, 1.4)
+            filePath, runner.run,
+            "-o", filePath, 100, -0.630, 0, 1.4,
+            ignoreReactor=True)
+        self.assertEqual(runInfo[1], N*N)
 

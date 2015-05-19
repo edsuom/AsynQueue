@@ -36,7 +36,7 @@ import errors, info, util, iteration
 # Make all our workers importable from this module
 from threads import ThreadWorker
 from process import ProcessWorker
-#from wire import WireWorker
+from wire import WireWorker
 
 
 class AsyncWorker(object):
@@ -132,6 +132,6 @@ class AsyncWorker(object):
 
 
 __all__ = [
-    'ThreadWorker', 'ProcessWorker', 'AsyncWorker', #'WireWorker',
+    'ThreadWorker', 'ProcessWorker', 'AsyncWorker', 'WireWorker',
     'IWorker'
 ]

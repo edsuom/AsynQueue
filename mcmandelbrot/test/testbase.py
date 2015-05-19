@@ -33,7 +33,8 @@ from twisted.internet.interfaces import IProducer, IConsumer
 from twisted.trial import unittest
 
 from asynqueue.info import Info
-from asynqueue import iteration
+from asynqueue.threads import deferToThread
+from asynqueue import iteration, AsyncWorker
 
 
 VERBOSE = False
@@ -230,11 +231,27 @@ class RangeWriter(object):
             self.k += 1
         if self.k == self.N:
             self.produce = False
-            
+
+
+class FakeFile(MsgBase):
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+        self.data = []
+
+    def write(self, data):
+        self.data.append(data)
+        if isinstance(data, (str, list, tuple)):
+            self.msg("Data received, len: {:d}", len(data))
+        else:
+            self.msg("Data received: '{}'", data)
+
+    def close(self):
+        self.msg("Closed")
+
         
 class IterationConsumer(MsgBase):
     implements(IConsumer)
-
+    
     def __init__(self, verbose=False, stopAfter=None):
         self.verbose = verbose
         self.producer = None
@@ -256,7 +273,7 @@ class IterationConsumer(MsgBase):
 
     def write(self, data):
         self.data.append(data)
-        if isinstance(data, (list, tuple)):
+        if isinstance(data, (str, list, tuple)):
             self.msg("Data received, len: {:d}", len(data))
         else:
             self.msg("Data received: '{}'", data)
@@ -280,6 +297,53 @@ class Picklable(object):
             self.x == other.x
         )
 
+
+class MockWireWorker(AsyncWorker):
+    def __init__(self, *args, **kw):
+        kw['series'] = ['mcm']
+        super(MockWireWorker, self).__init__(*args, **kw)
+        from wire import MandelbrotWorkerUniverse
+        self.mwu = MandelbrotWorkerUniverse()
+
+    def run(self, task):
+        def ready(null):
+            return deferToThread(
+                f, *args, **kw).addCallbacks(done, oops)
+
+        def done(result):
+            if not raw and iteration.isIterator(result):
+                try:
+                    result = iteration.Deferator(result)
+                except:
+                    result = []
+                else:
+                    if consumer:
+                        result = iteration.IterationProducer(result, consumer)
+                status = 'i'
+            else:
+                status = 'r'
+            # Hangs if release is done after the task callback
+            self.dLock.release()
+            print "\n{} --> {}".format(
+                self.info.setCall(f, args, kw).aboutCall(),
+                (status, result))
+            task.callback((status, result))
+
+        def oops(failureObj):
+            text = self.info.setCall(f, args, kw).aboutFailure(failureObj)
+            print "\nOOPS: {}".format(text)
+            task.callback(('e', text))
+        
+        fName, args, kw = task.callTuple
+        f = getattr(self.mwu, fName)
+        task.callTuple = f, args, kw
+        raw = kw.pop('raw', None)
+        if raw is None:
+            raw = self.raw
+        consumer = kw.pop('consumer', None)
+        vip = (kw.pop('doNext', False) or task.priority <= -20)
+        return self.dLock.acquire(vip).addCallback(ready)
+        
 
 class TestCase(MsgBase, unittest.TestCase):
     """

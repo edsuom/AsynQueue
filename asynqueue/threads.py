@@ -39,6 +39,40 @@ from interfaces import IWorker
 import errors, util, iteration
 
 
+_DTL = [None]
+def deferToThread(*fargs, **kw):
+    """
+    Module-level function that lets you call a function in a dedicated
+    thread and get a C{Deferred} to its result, with no fuss on your
+    part. The thread will remain alive and will be used for further
+    calls to this function and this function only.
+
+    Call with I{f}, I{*args}, and I{**kw} as usual.
+
+    This is AsynQueue's single-threaded, queued, I{doNext}-able,
+    L{iteration.Deferator}-able answer to Twisted's C{deferToThread}.
+
+    If you expect a deferred iterator as your result (an instance of
+    L{iteration.Deferator}), supply an L{IConsumer} implementor via
+    the I{consumer} keyword. Each iteration will be written to it, and
+    the deferred will fire when the iterations are done. Otherwise,
+    the deferred will fire with an L{iteration.Deferator}.
+    
+    If you want to kill the dedicated thread, just call this function
+    with no arguments, not even a callable object I{f}. A C{Deferred}
+    will be returned that fires when the thread is gone.
+    """
+    if not fargs:
+        tl = _DTL[0]
+        if tl is None:
+            return defer.succeed(None)
+        return tl.stop()
+    if _DTL[0] is None:
+        tl = _DTL[0] = ThreadLooper()
+        reactor.addSystemEventTrigger('before', 'shutdown', tl.stop)
+    return _DTL[0].deferToThread(*fargs, **kw)
+    
+
 class ThreadQueue(TaskQueue):
     """
     I am a L{TaskQueue} for dispatching arbitrary callables to be run
@@ -674,14 +708,10 @@ class OrderedItemProducer(object):
           started in a dedicated thread. Shouldn't take long at all.
         """
         def started():
-            print "A"
             self.dLock.release()
-            print "B"
             dStarted.callback(None)
-            print "C"
         def runner():
             # This function runs via the queue in my dedicated thread
-            print "RUNNER"
             reactor.callFromThread(started)
             # The actual blocking call
             result = fb(self.i, *args, **kw)

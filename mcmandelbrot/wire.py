@@ -40,11 +40,14 @@ reference its L{MandelbrotWorkerUniverse} class.
 """
 
 import sys, urlparse
+from collections import namedtuple
 
+from zope.interface import implements
 from twisted.internet import defer
+from twisted.internet.interfaces import IConsumer
 
+from asynqueue import iteration
 from asynqueue.base import TaskQueue
-from asynqueue.threads import Filerator
 from asynqueue.wire import \
     WireWorkerUniverse, WireWorker, WireServer, ServerManager
 
@@ -58,6 +61,27 @@ DESCRIPTION = None
 FQN = "mcmandelbrot.wire.MandelbrotWorkerUniverse"
 
 
+class Writable(object):
+    delay = iteration.Delay()
+    
+    def __init__(self):
+        self.ID = str(hash(self))
+        self.data = []
+    
+    def write(self, data):
+        self.data.append(data)
+
+    def close(self):
+        self.data.append(None)
+        
+    def getNext(self):
+        def haveData(really):
+            if really:
+                return self.data.pop(0)
+        return self.delay.untilEvent(
+            lambda: bool(self.data)).addCallback(haveData)
+        
+
 class MandelbrotWorkerUniverse(WireWorkerUniverse):
     """
     I run on the remote Python interpreter to run a runner from there,
@@ -65,6 +89,8 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
     L{getRunInfo} and L{cancel} and sending the results and iterations
     to it.
     """
+    RunInfo = namedtuple('RunInfo', ['fh', 'dRun', 'dCancel'])
+    
     @defer.inlineCallbacks
     def setup(self, N_values, steepness):
         if hasattr(self, 'runner'):
@@ -83,32 +109,83 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
         self.runner = runner.Runner(N_values, steepness)
 
     def run(self, Nx, cr, ci, crPM, ciPM):
-        def done(stuff):
-            print "RUN-DONE", stuff
+        """
+        Does an image-generation run for the specified parameters, storing
+        a C{Deferred} I{dRun} to the result in a C{nametuple} along
+        with a reference I{fh} to a new L{Writable} that will have the
+        image data written to it and a C{Deferred} I{dCancel} that can
+        have its callback fired to cancel the run.
+
+        Returns a unique string I{ID} identifying the run.
+        """
+        def doneHere(stuff):
             fh.close()
-            if ID in self.pendingRuns:
-                del self.pendingRuns[ID]
             return stuff
 
-        print "RUN"
-        fh = Filerator()
-        # Same as calculated by WireRunner to save iterator. This is important.
-        ID = str(hash(fh))
+        fh = Writable()
         dCancel = defer.Deferred()
         dRun = self.runner.run(
-            fh, Nx, cr, ci, crPM, ciPM, dCancel).addCallback(done)
-        self.pendingRuns[ID] = dRun, dCancel
-        return fh
+            fh, Nx, cr, ci, crPM, ciPM, dCancel).addCallback(doneHere)
+        self.pendingRuns[fh.ID] = self.RunInfo(fh, dRun, dCancel)
+        return fh.ID
 
-    def getRunInfo(self, ID):
+    def getNext(self, ID):
+        """
+        Gets the next chunk of data to have been written to the
+        L{Writable} for the run identified by I{ID}.
+
+        @return: A C{Deferred} that fires with the data chunk when it
+          is received, or an immediate C{None} object if the run isn't
+          pending.
+        """
         if ID in self.pendingRuns:
-            return self.pendingRuns[ID][0]
+            return self.pendingRuns[ID].fh.getNext()
+        
+    def done(self, ID):
+        """
+        Gets the runtime and number of points done in the run and removes
+        my references to it in my I{pendingRuns} dict.
+
+        @return: A C{Deferred} that fires with the runtime and number
+          of points when the run is done, or an immediate C{None}
+          object if there never was any such run or this method was
+          called with this I{ID} already.
+        """
+        if ID in self.pendingRuns:
+            return self.pendingRuns.pop(ID).dRun
         
     def cancel(self, ID):
+        """
+        Cancels a pending run I{ID}. Nothing is returned, and no exception
+        is raised for calling with reference to an unknown or already
+        canceled/completed run.
+        """
         if ID in self.pendingRuns:
-            dCancel = self.pendingRuns[ID][1]
+            dCancel = self.pendingRuns[ID].dCancel
             if not dCancel.called:
                 dCancel.callback(None)
+
+
+class FileConsumer(object):
+    implements(IConsumer)
+
+    def __init__(self, fileName):
+        self.fh = open(fileName, 'w')
+
+    def registerProducer(self, producer, streaming):
+        if hasattr(self, 'producer'):
+            raise RuntimeError()
+        self.producer = producer
+
+    def unregisterProducer(self):
+        self.fh.close()
+        
+    def write(self, data):
+        if isinstance(data, (str, list, tuple)):
+            print "WRITE {:d} bytes".format(len(data))
+        else:
+            print "WRITE '{}'".format(data)
+        self.fh.write(data)
 
 
 class RemoteRunner(object):
@@ -138,10 +215,14 @@ class RemoteRunner(object):
         keywords, or with no keywords, do nothing. Keywords with a
         value of C{None} are ignored.
 
-        @keyword N_values: The number of possible values for each iteration
+        @keyword N_values: The number of possible values for each
+          iteration.
 
         @keyword steepness: The steepness of the exponential applied to
           the value curve.
+
+        @keyword worker: A custom worker to use instead of
+          L{asynqueue.wire.WireWorker}.
         
         @return: A C{Deferred} that fires when things are setup, or
           immediately if they already are as specified.
@@ -160,19 +241,21 @@ class RemoteRunner(object):
             return result
         
         if checkSetup():
-            if self.description is None:
-                # Local server running on a UNIX socket. Mostly useful
-                # for testing.
-                self.mgr = ServerManager(FQN)
-                description = self.mgr.newSocket()
-                yield self.mgr.spawn(description)
-            wwu = MandelbrotWorkerUniverse()
-            worker = WireWorker(wwu, description, series=['mcm'])
+            if 'worker' in kw:
+                worker = kw.pop('worker')
+            else:
+                if self.description is None:
+                    # Local server running on a UNIX socket. Mostly
+                    # useful for testing.
+                    self.mgr = ServerManager(FQN)
+                    description = self.mgr.newSocket()
+                    yield self.mgr.spawn(description)
+                wwu = MandelbrotWorkerUniverse()
+                worker = WireWorker(wwu, description, series=['mcm'])
             yield self.q.attachWorker(worker)
             yield self.q.call(
                 'setup',
-                self.sv['N_values'],
-                self.sv['steepness'], series='mcm')
+                self.sv['N_values'], self.sv['steepness'], series='mcm')
 
     @defer.inlineCallbacks
     def shutdown(self):
@@ -205,24 +288,20 @@ class RemoteRunner(object):
           for the computation and the number of pixels computed.
         """
         def canceler(null, ID):
-            return self.q.call('cancel', ID, niceness=-15)
+            return self.q.call('cancel', ID, niceness=-15, series='mcm')
         
-        # The heart of the matter
-        producer = yield self.q.call(
-            'run', Nx, cr, ci, crPM, ciPM, consumer=fh)
-        # We have an instance of IterationProducer, but we need to
-        # extract the ID it's using to get iterations. Why? Because
-        # the canceler and run results are keyed to it.
-        drCallTuple = producer.dr[0]
-        prefetcherator = drCallTuple[0].im_self
-        nextCallTuple = prefetcherator.nextCallTuple
-        ID = nextCallTuple[1][0]
+        ID = yield self.q.call(
+            'run', Nx, cr, ci, crPM, ciPM, series='mcm')
         if dCancel:
             dCancel.addCallback(canceler, ID)
-        runInfo = yield self.q.call('getRunInfo', ID)
+        while True:
+            chunk = yield self.q.call('getNext', ID, series='mcm', raw=True)
+            if chunk is None:
+                break
+            fh.write(chunk)
+        runInfo = yield self.q.call('done', ID)
         defer.returnValue(runInfo)
 
-    @defer.inlineCallbacks
     def writeImage(self, fileName, *args, **kw):
         """
         Call with the same arguments as L{run} after I{fh}, preceded by a
@@ -235,13 +314,12 @@ class RemoteRunner(object):
 
         @see: L{setup} and L{run}
         """
-        yield self.setup(
-            N_values=kw.pop('N_values', None),
-            steepness=kw.pop('steepness', None))
-        fh = open(fileName, 'w')
-        runInfo = yield self.run(fh, *args)
-        fh.close()
-        defer.returnValue(runInfo)
+        N_values = kw.pop('N_values', None)
+        steepness = kw.pop('steepness', None)
+        fh = FileConsumer(fileName)        
+        d = self.setup(N_values=N_values, steepness=steepness)
+        d.addCallback(lambda _: self.run(fh, *args))
+        return d
 
 
 def server(description=None, port=1978, interface=None):

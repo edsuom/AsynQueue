@@ -54,8 +54,10 @@ bun&shy;dled with my <a
 href="http://edsuom.com/AsynQueue">AsynQueue</a> asyn&shy;chronous
 processing pack&shy;age, freely available per the Apache License. A
 link back to <a href="http://edsuom.com"><b>edsuom.com</b></a> would
-be apprec&shy;iated.&emsp;&emsp;<i>&mdash;Ed Suominen</i>
+be apprec&shy;iated.
 """
+
+BYLINE = "&mdash;Ed Suominen"
 
 
 class MandelbrotSiteResource(resource.Resource):
@@ -125,7 +127,8 @@ class MandelbrotSiteResource(resource.Resource):
                     v.nc('div', 'form')
                     v.set('name', "position")
                     v.set('action', "javascript:updateImage()")
-                    for label, name in v.nci(self.formItems, 'div', 'form_item'):
+                    for label, name in v.nci(
+                            self.formItems, 'div', 'form_item'):
                         v.nc('span', 'form_item')
                         v.text(label)
                         v.ns('input', 'position')
@@ -144,6 +147,8 @@ class MandelbrotSiteResource(resource.Resource):
                     e.text = "Zoom Out"
                 v.nc('div', 'about')
                 v.textX(ABOUT)
+                v.nc('span', 'byline')
+                v.textX(BYLINE)
             v.ns('div', 'second_part')
             #--------------------------------------------------------
             with v.context():
