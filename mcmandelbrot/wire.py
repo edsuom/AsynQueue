@@ -43,7 +43,8 @@ import sys, urlparse
 from collections import namedtuple
 
 from zope.interface import implements
-from twisted.internet import defer
+from twisted.application import internet, service
+from twisted.internet import defer, reactor
 from twisted.internet.interfaces import IConsumer
 
 from asynqueue import iteration
@@ -51,7 +52,8 @@ from asynqueue.base import TaskQueue
 from asynqueue.wire import \
     WireWorkerUniverse, WireWorker, WireServer, ServerManager
 
-import runner
+from mcmandelbrot import runner
+
 
 # Server Connection defaults
 PORT = 1978
@@ -90,9 +92,19 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
     to it.
     """
     RunInfo = namedtuple('RunInfo', ['fh', 'dRun', 'dCancel'])
-    
-    @defer.inlineCallbacks
+
     def setup(self, N_values, steepness):
+        def ready(null):
+            # These methods are called via a one-at-a-time queue, so
+            # it's not a problem to overwrite the old runner with a
+            # new one, now that we've waited for the old one's runs to
+            # get canceled and then for it to shut down.
+            self.pendingRuns = {}
+            self.runner = runner.Runner(N_values, steepness)
+        return self.shutdown().addCallback(ready)
+
+    @defer.inlineCallbacks
+    def shutdown(self):
         if hasattr(self, 'runner'):
             dList = []
             for dRun, dCancel in self.pendingRuns.itervalues():
@@ -101,12 +113,6 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
                     dCancel.callback(None)
             yield defer.DeferredList(dList)
             yield self.runner.q.shutdown()
-        # These methods are called via a one-at-a-time queue, so it's
-        # not a problem to overwrite the old runner with a new one,
-        # after waiting for the old one's runs to get canceled and
-        # then for it to shut down.
-        self.pendingRuns = {}
-        self.runner = runner.Runner(N_values, steepness)
 
     def run(self, Nx, cr, ci, crPM, ciPM):
         """
@@ -164,28 +170,6 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
             dCancel = self.pendingRuns[ID].dCancel
             if not dCancel.called:
                 dCancel.callback(None)
-
-
-class FileConsumer(object):
-    implements(IConsumer)
-
-    def __init__(self, fileName):
-        self.fh = open(fileName, 'w')
-
-    def registerProducer(self, producer, streaming):
-        if hasattr(self, 'producer'):
-            raise RuntimeError()
-        self.producer = producer
-
-    def unregisterProducer(self):
-        self.fh.close()
-        
-    def write(self, data):
-        if isinstance(data, (str, list, tuple)):
-            print "WRITE {:d} bytes".format(len(data))
-        else:
-            print "WRITE '{}'".format(data)
-        self.fh.write(data)
 
 
 class RemoteRunner(object):
@@ -251,7 +235,7 @@ class RemoteRunner(object):
                     description = self.mgr.newSocket()
                     yield self.mgr.spawn(description)
                 wwu = MandelbrotWorkerUniverse()
-                worker = WireWorker(wwu, description, series=['mcm'])
+                worker = WireWorker(wwu, self.description, series=['mcm'])
             yield self.q.attachWorker(worker)
             yield self.q.call(
                 'setup',
@@ -302,6 +286,7 @@ class RemoteRunner(object):
         runInfo = yield self.q.call('done', ID)
         defer.returnValue(runInfo)
 
+    @defer.inlineCallbacks
     def writeImage(self, fileName, *args, **kw):
         """
         Call with the same arguments as L{run} after I{fh}, preceded by a
@@ -316,10 +301,16 @@ class RemoteRunner(object):
         """
         N_values = kw.pop('N_values', None)
         steepness = kw.pop('steepness', None)
-        fh = FileConsumer(fileName)        
-        d = self.setup(N_values=N_values, steepness=steepness)
-        d.addCallback(lambda _: self.run(fh, *args))
-        return d
+        yield self.setup(N_values=N_values, steepness=steepness)
+        fh = open(fileName, 'w')
+        runInfo = yield self.run(fh, *args)
+        fh.close()
+        defer.returnValue(runInfo)
+
+    def showStats(self, runInfo):
+        proto = "Remote server computed {:d} pixels in {:1.1f} seconds."
+        print proto.format(runInfo[1], runInfo[0])
+        return defer.succeed(None)
 
 
 def server(description=None, port=1978, interface=None):
@@ -343,11 +334,14 @@ def server(description=None, port=1978, interface=None):
         description = b"tcp:{:d}".format(port)
         if interface:
             description += ":interface={}".format(interface)
-    wwu = MandelbrotWorkerUniverse()
-    ws = WireServer(wwu)
+    mwu = MandelbrotWorkerUniverse()
+    reactor.addSystemEventTrigger('before', 'shutdown', mwu.shutdown)
+    ws = WireServer(mwu)
     return ws.run(description)
 
 
 if '/twistd' in sys.argv[0]:
     application = service.Application("Mandelbrot Set PNG Image Server")
     server(DESCRIPTION, PORT, INTERFACE).setServiceParent(application)
+
+    

@@ -43,7 +43,7 @@ class TestMandelbrotWorkerUniverse(TestCase):
 
     @defer.inlineCallbacks
     def tearDown(self):
-        yield self.mwu.runner.shutdown()
+        yield self.mwu.shutdown()
         
     @defer.inlineCallbacks
     def test_basic(self):

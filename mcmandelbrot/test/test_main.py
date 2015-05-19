@@ -28,26 +28,20 @@ import png
 
 from twisted.internet import defer
 
-import runner
-from testbase import deferToDelay, FakeFile, TestCase
+import main
+from testbase import TestCase
 
-
-class TestRunner(TestCase):
+    
+class TestRun(TestCase):
     verbose = True
-
-    def setUp(self):
-        self.r = runner.Runner(1000, 3)
-
-    def tearDown(self):
-        return self.r.shutdown()
-
+    
     @defer.inlineCallbacks
-    def test_run_basic(self):
+    def test_basic(self):
         N = 100
-        fh = FakeFile(verbose=self.isVerbose())
-        runInfo = yield self.r.run(fh, N, -0.630, 0, 1.4, 1.4)
+        filePath = "image.png"
+        runInfo = yield self.checkProducesFile(
+            filePath, main.run,
+            "-o", filePath, 100, -0.630, 0, 1.4,
+            ignoreReactor=True)
         self.assertEqual(runInfo[1], N*N)
-        pngReader = png.Reader(bytes="".join(fh.data))
-        width, height, pixels, metadata = pngReader.read()
-        self.assertEqual(width, N)
-        self.assertEqual(height, N)
+

@@ -49,7 +49,7 @@ kw = {'version':'0.9.0',
           },
       'entry_points':{
           'console_scripts': [
-              'mcmandelbrot = mcmandelbrot.runner:run',
+              'mcmandelbrot = mcmandelbrot.main:run',
           ],
       },
       
