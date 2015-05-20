@@ -111,7 +111,7 @@ function hover(event) {
 	scale = Math.round(scale)
 	var unit = ""
     }
-    var message = "Scale:&nbsp;" + scale + "x &emsp;"
+    var message = "Scale:&nbsp;" + scale.toFixed(1) + "x &emsp;"
                 + "Center:&nbsp;(" + params.cr + ",&nbsp;" + params.ci + ")";
     document.getElementById('hover').innerHTML = message;
 }

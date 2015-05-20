@@ -167,7 +167,8 @@ class TestWireRunner(TestCase):
         while True:
             response = yield self.wr.getNext(ID)
             if response['isValid']:
-                chunks.append(p2o(response['value']))
+                self.assertTrue(response['isRaw'])
+                chunks.append(response['value'])
             else:
                 break
         stuff = p2o("".join(chunks))
@@ -214,7 +215,8 @@ class TestWireRunner(TestCase):
                 "Response #{:d}: {:d} chars",
                 k, len(response['value']))
             k += 1
-            chunks.append(p2o(response['value']))
+            self.assertTrue(response['isRaw'])
+            chunks.append(response['value'])
         joined = "".join(chunks)
         self.assertEqual(joined, stuff)
         
@@ -234,14 +236,13 @@ class TestWireRunner(TestCase):
             type(self.tm.stufferator()))
         for k in xrange(N1+1):
             response = yield self.wr.getNext(ID)
-            chunk = p2o(response['value'])
+            chunk = response['value']
             if k < N1:
                 self.assertTrue(response['isValid'])
+                self.assertTrue(response['isRaw'])
                 self.assertEqual(chunk, stuff[k])
             else:
                 self.assertFalse(response['isValid'])
-                # By default, p2o unpickles an empty string as None
-                self.assertEqual(chunk, None)
 
     @defer.inlineCallbacks
     def test_shutdown(self):

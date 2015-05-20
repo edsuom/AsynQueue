@@ -102,6 +102,9 @@ class GetNext(amp.Command):
     The response has a 'value' string with the pickled iteration value
     or a chunk of the too-big task result, and an 'isValid' bool which
     is equivalent to a L{StopIteration}.
+
+    Strings don't need to be pickled, and if I{value} is an actual
+    string, I{isRaw} will be set C{True}.
     """
     arguments = [
         ('ID', amp.String())
@@ -109,6 +112,7 @@ class GetNext(amp.Command):
     response = [
         ('value', amp.String()),
         ('isValid', amp.Boolean()),
+        ('isRaw', amp.Boolean()),
     ]
 
 
@@ -236,14 +240,24 @@ class WireWorker(object):
     def stopper(self):
         if hasattr(self, 'ap'):
             return self.ap.transport.loseConnection()
-            
+
+    def _handleNext(self, ID):
+        def gotResponse(response):
+            if response['isValid']:
+                value = response['value']
+                if response['isRaw']:
+                    return True, value
+                return True, p2o(value)
+            return False, None
+        return self.ap.callRemote(GetNext, ID=ID).addCallback(gotResponse)
+    
     @defer.inlineCallbacks
     def assembleChunkedResult(self, ID):
         pickleString = ""
         while True:
-            response = yield self.ap.callRemote(GetNext, ID=ID)
-            if response['isValid']:
-                pickleString += p2o(response['value'])
+            isValid, value = yield self._handleNext(ID)
+            if isValid:
+                pickleString += value
             else:
                 break
         defer.returnValue(p2o(pickleString))
@@ -255,10 +269,10 @@ class WireWorker(object):
         wire (socket) and in Twisted fashion.
         """
         yield self.dLock.acquire(vip=True)
-        response = yield self.ap.callRemote(GetNext, ID=ID)
+        isValid, value = yield self._handleNext(ID)
         self.dLock.release()
-        value = p2o(response['value']) if response['isValid'] \
-                else Failure(StopIteration)
+        if not isValid:
+            value = Failure(StopIteration)
         defer.returnValue(value)
 
     def resign(self, *args):
@@ -487,12 +501,17 @@ class WireRunner(object):
             else:
                 response['value'] = self.info.setCall(
                     "getNext", [ID]).aboutFailure(failureObj)
-
         def bogusResponse():
             response['value'] = ""
             response['isValid'] = False
+        def handleValue(value):
+            if isinstance(value, str):
+                response['isRaw'] = True
+                response['value'] = value
+            else:
+                response['value'] = o2p(value)
             
-        response = {'isValid': True}
+        response = {'isValid':True, 'isRaw':False}
         if ID in self.iterators:
             # Iterator
             if hasattr(self, 't'):
@@ -500,11 +519,12 @@ class WireRunner(object):
                 value = yield self.t.deferToThread(
                     self.iterators[ID].next).addErrback(oops, ID)
                 if response['isValid']:
-                    response['value'] = o2p(value)
+                    handleValue(value)
             else:
                 # Get next iteration in main loop. No blocking!
                 try:
-                    response['value'] = o2p(self.iterators[ID].next())
+                    value = self.iterators[ID].next()
+                    handleValue(value)
                 except StopIteration:
                     del self.iterators[ID]
                     bogusResponse()
