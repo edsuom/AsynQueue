@@ -172,9 +172,9 @@ class SiteResource(resource.Resource):
 class ImageResource(resource.Resource):
     isLeaf = True
     
-    def __init__(self, description=None):
+    def __init__(self, descriptions):
         resource.Resource.__init__(self)
-        self.imager = image.Imager([description], verbose=VERBOSE)
+        self.imager = image.Imager(descriptions, verbose=VERBOSE)
         
     def render_GET(self, request):
         request.setHeader("content-disposition", "image.png")
