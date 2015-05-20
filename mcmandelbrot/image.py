@@ -83,11 +83,8 @@ class Imager(object):
         
         C{?N=1200&cr=-0.8&ci=0.0&crpm=1.45&crpi=1.2}
         """
-        def canceled(null):
-            self.log(request, "Canceled")
-        
         x = {}
-        d = request.notifyFinish().addErrback(canceled)
+        d = request.notifyFinish().addErrback(lambda _: None)
         neededNames = ['cr', 'ci', 'crpm']
         for name, value in request.args.iteritems():
             if name == 'N':

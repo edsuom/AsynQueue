@@ -71,7 +71,8 @@ class Runner(object):
     @cvar N_processes: The number of processes to use, disregarded if
       I{useThread} is set C{True} in my constructor.
     """
-    msgProto = "{} ({:+f} +/-{:f}, {:f} +/-{:f}) {:d} pixels in {:4.2f} sec"
+    msgProto = "{} ({:+16.13f} +/-{:10E}, {:+16.13f} +/-{:10E}) "+\
+               "{:d} pixels in {:4.2f} sec"
     
     def __init__(self, N_values, steepness, stats=False, verbose=False):
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
