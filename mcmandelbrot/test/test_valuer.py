@@ -36,7 +36,7 @@ import valuer
 from testbase import TestCase
 
 
-class TestRunner(TestCase):
+class TestMandelbrotValuer(TestCase):
     verbose = True
 
     class Yielded:
@@ -62,15 +62,16 @@ class TestRunner(TestCase):
     def _eval_point(self, N, x, ci):
         code = """
         #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-        int j;
+        int j, m;
         for (j=0; j<Nx[0]; j++) {
-            Z1(j) = eval_point(j, kmax, X1(j), ci);
+            Z1(j) = eval_point(j, km, X1(j), ci);
         }
         """
-        kmax = self.mv.N_values - 1
+        km = self.mv.N_values - 1
+        self.assertEqual(km, 999)
         z = np.zeros(N, dtype=np.int)
         weave.inline(
-            code, ['x', 'z', 'ci', 'kmax'],
+            code, ['x', 'z', 'ci', 'km'],
             customize=self.mv.infoObj, support_code=self.mv.support_code)
         return z
 

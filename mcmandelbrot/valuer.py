@@ -102,9 +102,10 @@ class MandelbrotValuer(object):
         return(false);
     }
 
-    int eval_point(int j, int N, double cr, double ci)
+    int eval_point(int j, int km, double cr, double ci)
     {
         int k = 1;
+        int N = km;
         double zr = cr;
         double zi = ci;
         double zr2 = zr * zr, zi2 = zi * zi;
@@ -149,33 +150,34 @@ class MandelbrotValuer(object):
     code = """
     #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
     int j, zint;
+    int N = km;
     signed char kx, ky;
     double xk, yk;
     for (j=0; j<Nx[0]; j++) {
         // Evaluate five points in an X arrangement including and around the
         // one specified by X1(j) and ci
-        zint = eval_point(j, kmax, X1(j), ci);
+        zint = eval_point(j, km, X1(j), ci);
         Z1(j) = zint;
         kx = -1;
         ky = -1;
-        while ((zint < kmax) && (kx < 2)) {
+        while ((zint < km) && (kx < 2)) {
             xk = X1(j) + kx * qd;
-            while ((zint < kmax) && (ky < 2)) {
+            while ((zint < km) && (ky < 2)) {
                 yk = (double)ci + ky * qd;
-                zint = eval_point(j, kmax, xk, yk);
+                zint = eval_point(j, km, xk, yk);
                 Z1(j) += zint;
                 ky += 2;
             }
             kx += 2;
         }
-        if (zint == kmax) {
+        if (zint == km) {
             // A no-escape evaluation at one point in the X is treated
             // as if there were no escape at any point in the X
-            Z1(j) = 5*kmax;
+            Z1(j) = 5*N;
         }
     }
     """
-    vars = ['x', 'z', 'ci', 'qd', 'kmax']
+    vars = ['x', 'z', 'ci', 'qd', 'km']
 
     def __init__(self, N_values, steepness):
         """
@@ -226,7 +228,7 @@ class MandelbrotValuer(object):
         Computes and returns a row vector of escape iterations, integer
         values.
         """
-        kmax = self.N_values - 1
+        km = self.N_values - 1
         z = np.zeros(N, dtype=np.int)
         weave.inline(
             self.code, self.vars,
