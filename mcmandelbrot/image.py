@@ -78,7 +78,7 @@ class Imager(object):
           runs via a UNIX socket on the local machine.
         """
         dList = []
-        if len(descriptions) == 1:
+        if len(descriptions) != 1:
             raise NotImplementedError("You can use only one runner, for now")
         for description in descriptions:
             self.runner = wire.RemoteRunner(description)
