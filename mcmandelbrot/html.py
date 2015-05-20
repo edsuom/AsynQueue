@@ -174,7 +174,7 @@ class ImageResource(resource.Resource):
     
     def __init__(self, description=None):
         resource.Resource.__init__(self)
-        self.imager = image.Imager(description, verbose=VERBOSE)
+        self.imager = image.Imager([description], verbose=VERBOSE)
         
     def render_GET(self, request):
         request.setHeader("content-disposition", "image.png")

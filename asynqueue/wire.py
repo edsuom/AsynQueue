@@ -572,9 +572,12 @@ class ServerManager(object):
         self.wwuFQN = DEFAULT_WWU_FQN if wwuFQN is None else wwuFQN
         reactor.addSystemEventTrigger('before', 'shutdown', self.done)
             
-    def spawn(self, description):
+    def spawn(self, description, niceness=0):
         """
         Spawns a subordinate Python interpreter.
+
+        B{TODO:} Implement (somehow) I{niceness} keyword to accept an
+        integer UNIX nice lvel for the new interpreter process.
 
         @param description: A server description string of the form
           used by Twisted's C{endpoints.serverFromString}. Default is

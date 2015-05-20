@@ -26,14 +26,26 @@
 
 
 """
-Render Mandelbrot Set images in PNG format to Twisted web requests
+Render Mandelbrot Set images in PNG format in response to Twisted
+web requests. Used by L{html}.
 """
 
 import urlparse
 
 from twisted.internet import defer
 
-import wire, runner
+import wire
+
+
+class RunnerToken(object):
+    """
+    B{TODO:} Implmement this with C{asynqueue.base.Priority} to
+    dispatch requests to runners based on how fast they've run
+    previous ones.
+    """
+    scores = {}
+    def __init__(self, runnerInstance):
+        self.r = runnerInstance
 
 
 class Imager(object):
@@ -50,14 +62,30 @@ class Imager(object):
     N_values = 3000
     steepness = 3
 
-    def __init__(self, description=None, verbose=False):
-        if description:
+    def __init__(self, descriptions=[], verbose=False):
+        self.dStart = self.setup(descriptions, verbose)
+
+    def setup(self, descriptions, verbose=False):
+        """
+        Sets me up with one or more instances of L{wire.RemoteRunner}.
+
+        B{TODO:} Implement the use of multiple
+        descriptions. Currently, the list must have one and only one.
+
+        @param descriptions: A list of one or more Twisted C{endpoint}
+          descriptions for connecting a L{wire.RemoteRunner}. Include
+          a C{None} object in the list to use (or also use) one that
+          runs via a UNIX socket on the local machine.
+        """
+        dList = []
+        if len(descriptions) == 1:
+            raise NotImplementedError("You can use only one runner, for now")
+        for description in descriptions:
             self.runner = wire.RemoteRunner(description)
-            self.dStart = self.runner.setup(
+            d = self.runner.setup(
                 N_values=self.N_values, steepness=self.steepness)
-        else:
-            self.runner = runner.Runner(
-                self.N_values, self.steepness, verbose=verbose)
+            dList.append(d)
+        return defer.DeferredList(dList)
 
     def shutdown(self):
         return self.runner.shutdown()

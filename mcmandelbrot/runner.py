@@ -71,6 +71,9 @@ class Runner(object):
     @cvar N_processes: The number of processes to use, disregarded if
       I{useThread} is set C{True} in my constructor.
     """
+    N_minProcesses = 2
+    N_maxProcesses = 6
+    
     msgProto = "{} ({:+16.13f} +/-{:10E}, {:+16.13f} +/-{:10E}) "+\
                "{:d} pixels in {:4.2f} sec"
     
@@ -84,8 +87,9 @@ class Runner(object):
         
     @property
     def N_processes(self):
-        maxValue = asynqueue.ProcessQueue.cores() - 1
-        return max([1, maxValue])
+        maxValue = min([
+            self.N_maxProcesses, asynqueue.ProcessQueue.cores()-1])
+        return max([self.N_minProcesses, maxValue])
 
     def log(self, *args):
         if self.verbose:

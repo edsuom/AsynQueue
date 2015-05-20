@@ -1,0 +1,56 @@
+# AsynQueue:
+# Asynchronous task queueing based on the Twisted framework, with task
+# prioritization and a powerful worker/manager interface.
+#
+# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# http://edsuom.com/AsynQueue
+#
+# See edsuom.com for API documentation as well as information about
+# Ed's background and other projects, software and otherwise.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the
+# License. You may obtain a copy of the License at
+# 
+#   http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an "AS
+# IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+# express or implied. See the License for the specific language
+# governing permissions and limitations under the License.
+
+"""
+Unit tests for mcmandelbrot.valuer
+"""
+
+import numpy as np
+
+from twisted.internet import defer
+
+import valuer
+from testbase import TestCase
+
+
+class TestRunner(TestCase):
+    verbose = True
+
+    def setUp(self):
+        self.mv = valuer.MandelbrotValuer(1000, 3)
+
+    def crpmToXQD(self, cr, crpm, N):
+        crMin = cr - crpm
+        crMax = cr + crpm
+        qd = 0.25 * (crMax - crMin) / N
+        return np.linspace(crMin, crMax, N, dtype=np.float64), qd
+        
+    def test_run_computeValues(self):
+        N    = 10
+        cr   = -0.5332179372197309
+        ci   = +0.535867264573991
+        crpm = 0.0022400000000000002
+       #--------------------------------------
+        x, qd = self.crpmToXQD(cr, crpm, N)
+        z = self.mv.computeValues(N, x, ci, qd)
+        print z
+        
