@@ -64,7 +64,6 @@ FQN = "mcmandelbrot.wire.MandelbrotWorkerUniverse"
 
 
 class Writable(object):
-    sizeLimit = 2**16 - 1
     delay = iteration.Delay()
     
     def __init__(self):
@@ -80,11 +79,7 @@ class Writable(object):
     def getNext(self):
         def haveData(really):
             if really:
-                chunk = self.data.pop(0)
-                #if len(chunk) > self.sizeLimit:
-                #    remainder = chunk[self.sizeLimit:]
-                #    chunk = chunk[:self.sizeLimit]
-                return chunk
+                return self.data.pop(0)
         return self.delay.untilEvent(
             lambda: bool(self.data)).addCallback(haveData)
         

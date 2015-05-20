@@ -52,13 +52,14 @@ class Imager(object):
 
     msgProto = "({:+f}, {:f}) +/-{:f} :: {:d} pixels in {:4.2f} sec."
     
-    def __init__(self, verbose=False, description=None):
+    def __init__(self, description=None, verbose=False,):
         self.verbose = verbose
         if description:
             self.runner = wire.RemoteRunner(description)
             self.dStart = self.runner.setup(
                 N_values=self.N_values, steepness=self.steepness)
-        self.runner = runner.Runner(self.N_values, self.steepness)
+        else:
+            self.runner = runner.Runner(self.N_values, self.steepness)
 
     def shutdown(self):
         return self.runner.shutdown()

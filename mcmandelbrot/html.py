@@ -39,8 +39,8 @@ from twisted.web import server, resource
 from mcmandelbrot import vroot, image
 
 
-PORT = 8080
-VERBOSE = True
+MY_PORT = 8080
+VERBOSE = False
 HTML_FILE = "mcm.html"
 
 HOWTO = """
@@ -60,7 +60,7 @@ be apprec&shy;iated.
 BYLINE = "&mdash;Ed Suominen"
 
 
-class MandelbrotSiteResource(resource.Resource):
+class SiteResource(resource.Resource):
     defaultPosition = {
         'cr':   "-0.630",
         'ci':   "+0.000",
@@ -83,12 +83,15 @@ class MandelbrotSiteResource(resource.Resource):
 
     def render_GET(self, request):
         if not hasattr(self, '_html'):
-            # We only need to render the page once. All that changes
-            # are the image and form fields.
+            # We only need to generate the page HTML once. All that
+            # changes are the image and form fields.
             self._html = self.makeHTML()
             if HTML_FILE:
-                with open(HTML_FILE, 'w') as fh:
-                    fh.write(self._html)
+                try:
+                    with open(HTML_FILE, 'w') as fh:
+                        fh.write(self._html)
+                except:
+                    pass
         return self._html
         
     def imgURL(self, dct):
@@ -166,12 +169,12 @@ class MandelbrotSiteResource(resource.Resource):
         return self.vr()
         
 
-class MandelbrotImageResource(resource.Resource):
+class ImageResource(resource.Resource):
     isLeaf = True
     
-    def __init__(self):
+    def __init__(self, description=None):
         resource.Resource.__init__(self)
-        self.imager = image.Imager(verbose=VERBOSE)
+        self.imager = image.Imager(description, verbose=VERBOSE)
         
     def render_GET(self, request):
         request.setHeader("content-disposition", "image.png")
@@ -182,8 +185,8 @@ class MandelbrotImageResource(resource.Resource):
 
 class MandelbrotSite(server.Site):
     def __init__(self):
-        rootResource = MandelbrotSiteResource()
-        imageResource = MandelbrotImageResource()
+        rootResource = SiteResource()
+        imageResource = ImageResource()
         rootResource.putChild('image.png', imageResource)
         rootResource.putChild('', rootResource)
         server.Site.__init__(self, rootResource)
@@ -196,4 +199,4 @@ class MandelbrotSite(server.Site):
 if '/twistd' in sys.argv[0]:
     site = MandelbrotSite()
     application = service.Application("Interactive Mandelbrot Set HTTP Server")
-    internet.TCPServer(PORT, site).setServiceParent(application)
+    internet.TCPServer(MY_PORT, site).setServiceParent(application)
