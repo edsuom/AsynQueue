@@ -59,6 +59,7 @@ from mcmandelbrot import runner
 PORT = 1978
 INTERFACE = None
 DESCRIPTION = None
+VERBOSE = True
 
 FQN = "mcmandelbrot.wire.MandelbrotWorkerUniverse"
 
@@ -100,7 +101,7 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
             # new one, now that we've waited for the old one's runs to
             # get canceled and then for it to shut down.
             self.pendingRuns = {}
-            self.runner = runner.Runner(N_values, steepness)
+            self.runner = runner.Runner(N_values, steepness, verbose=VERBOSE)
         return self.shutdown().addCallback(ready)
 
     @defer.inlineCallbacks
@@ -114,7 +115,7 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
             yield defer.DeferredList(dList)
             yield self.runner.q.shutdown()
 
-    def run(self, Nx, cr, ci, crPM, ciPM):
+    def run(self, Nx, cr, ci, crPM, ciPM, requester=None):
         """
         Does an image-generation run for the specified parameters, storing
         a C{Deferred} I{dRun} to the result in a C{nametuple} along
@@ -131,7 +132,8 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
         fh = Writable()
         dCancel = defer.Deferred()
         dRun = self.runner.run(
-            fh, Nx, cr, ci, crPM, ciPM, dCancel).addCallback(doneHere)
+            fh, Nx, cr, ci, crPM, ciPM,
+            dCancel=dCancel, requester=requester).addCallback(doneHere)
         self.pendingRuns[fh.ID] = self.RunInfo(fh, dRun, dCancel)
         return fh.ID
 
@@ -251,7 +253,7 @@ class RemoteRunner(object):
             yield self.stopper()
 
     @defer.inlineCallbacks
-    def run(self, fh, Nx, cr, ci, crPM, ciPM, dCancel=None):
+    def run(self, fh, Nx, cr, ci, crPM, ciPM, dCancel=None, requester=None):
         """
         Runs a C{compute} method on a remote Python interpreter to
         generate a PNG image of the Mandelbrot Set and write it in
@@ -277,7 +279,7 @@ class RemoteRunner(object):
             return self.q.call('cancel', ID, niceness=-15, series='mcm')
         
         ID = yield self.q.call(
-            'run', Nx, cr, ci, crPM, ciPM, series='mcm')
+            'run', Nx, cr, ci, crPM, ciPM, requester=requester, series='mcm')
         if dCancel:
             dCancel.addCallback(canceler, ID)
         while True:

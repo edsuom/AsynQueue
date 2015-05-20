@@ -40,7 +40,7 @@ from mcmandelbrot import vroot, image
 
 
 MY_PORT = 8080
-VERBOSE = False
+VERBOSE = True
 HTML_FILE = "mcm.html"
 
 HOWTO = """
@@ -186,7 +186,7 @@ class ImageResource(resource.Resource):
 class MandelbrotSite(server.Site):
     def __init__(self):
         rootResource = SiteResource()
-        imageResource = ImageResource()
+        imageResource = ImageResource("tcp:localhost:1978")
         rootResource.putChild('image.png', imageResource)
         rootResource.putChild('', rootResource)
         server.Site.__init__(self, rootResource)

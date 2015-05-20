@@ -71,9 +71,12 @@ class Runner(object):
     @cvar N_processes: The number of processes to use, disregarded if
       I{useThread} is set C{True} in my constructor.
     """
-    def __init__(self, N_values, steepness, stats=False):
+    msgProto = "{} ({:+f} +/-{:f}, {:f} +/-{:f}) {:d} pixels in {:4.2f} sec"
+    
+    def __init__(self, N_values, steepness, stats=False, verbose=False):
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
         self.mv = MandelbrotValuer(N_values, steepness)
+        self.verbose = verbose
 
     def shutdown(self):
         return self.q.shutdown()
@@ -82,8 +85,12 @@ class Runner(object):
     def N_processes(self):
         maxValue = asynqueue.ProcessQueue.cores() - 1
         return max([1, maxValue])
+
+    def log(self, *args):
+        if self.verbose:
+            print self.msgProto.format(*args)
     
-    def run(self, fh, Nx, cr, ci, crPM, ciPM, dCancel=None):
+    def run(self, fh, Nx, cr, ci, crPM, ciPM, dCancel=None, requester=None):
         """
         Runs my L{compute} method to generate a PNG image of the
         Mandelbrot Set and write it in chunks to the file handle or
@@ -99,7 +106,11 @@ class Runner(object):
         def diff(k):
             return xySpans[k][1] - xySpans[k][0]
         def done(N):
-            return time.time() - t0, N
+            timeSpent = time.time() - t0
+            if requester:
+                self.log(
+                    requester, cr, crPM, ci, ciPM, N, timeSpent)
+            return timeSpent, N
 
         t0 = time.time()
         xySpans = []

@@ -33,9 +33,7 @@ import urlparse
 
 from twisted.internet import defer
 
-from asynqueue import wire
-
-import runner
+import wire, runner
 
 
 class Imager(object):
@@ -52,24 +50,17 @@ class Imager(object):
     N_values = 3000
     steepness = 3
 
-    msgProto = "({:+f}, {:f}) +/-{:f} :: {:d} pixels in {:4.2f} sec."
-    
-    def __init__(self, description=None, verbose=False,):
-        self.verbose = verbose
+    def __init__(self, description=None, verbose=False):
         if description:
             self.runner = wire.RemoteRunner(description)
             self.dStart = self.runner.setup(
                 N_values=self.N_values, steepness=self.steepness)
         else:
-            self.runner = runner.Runner(self.N_values, self.steepness)
+            self.runner = runner.Runner(
+                self.N_values, self.steepness, verbose=verbose)
 
     def shutdown(self):
         return self.runner.shutdown()
-
-    def log(self, request, proto, *args):
-        if self.verbose:
-            ip = request.getClient()
-            print "{} :: ".format(ip) + proto.format(*args)
         
     def setImageWidth(self, N):
         if N < self.Nx_min:
@@ -112,9 +103,6 @@ class Imager(object):
                 del self.dStart
             timeSpent, N = yield self.runner.run(
                 request, self.Nx,
-                x['cr'], x['ci'], x['crpm'], ciPM, d)
-            if not d.called:
-                self.log(
-                    request, self.msgProto,
-                    x['cr'], x['ci'], x['crpm'], N, timeSpent)
-                request.finish()
+                x['cr'], x['ci'], x['crpm'], ciPM,
+                dCancel=d, requester=request.getClient())
+            request.finish()
