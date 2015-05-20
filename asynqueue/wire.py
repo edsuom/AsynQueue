@@ -82,7 +82,7 @@ class RunTask(amp.Command):
            calls to C{GetNext}.
   
       'c': Ran fine, but the result is too big for a single return
-           value. So you get an ID string for calls to C{GetNext.
+           value. So you get an ID string for calls to C{GetNext}.
     """
     arguments = [
         ('methodName', amp.String()),
@@ -96,7 +96,7 @@ class RunTask(amp.Command):
 
 class GetNext(amp.Command):
     """
-    With a unique ID, get the next iteration of data from an iterator
+    With a unique ID, gets the next iteration of data from an iterator
     or a task result so big that it had to be chunked.
 
     The response has a 'value' string with the pickled iteration value
@@ -241,10 +241,9 @@ class WireWorker(object):
     def assembleChunkedResult(self, ID):
         pickleString = ""
         while True:
-            stuff = yield self.ap.callRemote(GetNext, ID=ID)
-            chunk, isValid = stuff
-            if isValid:
-                pickleString += chunk
+            response = yield self.ap.callRemote(GetNext, ID=ID)
+            if response['isValid']:
+                pickleString += p2o(response['value'])
             else:
                 break
         defer.returnValue(p2o(pickleString))
@@ -364,7 +363,7 @@ class ChunkyString(object):
     I iterate chunks of a big string, deleting my internal reference
     to it when done so it can be garbage collected even if I'm not.
     """
-    chunkSize = 2**16 - 1
+    chunkSize = 2**15
 
     def __init__(self, bigString):
         self.k0 = 0
@@ -412,8 +411,9 @@ class WireRunner(object):
     def call(self, f, *args, **kw):
         """
         Run the f-args-kw combination, in the regular thread or in a
-        thread running if I have one, returning a deferred to the
-        status and result.
+        thread running if I have one.
+
+        @return: A C{Deferred} to the status and result.
         """
         d = self._call(f, *args, **kw)
         self.dt.put(d)

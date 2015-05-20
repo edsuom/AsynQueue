@@ -28,12 +28,19 @@ from asynqueue.wire import WireWorkerUniverse
 
 
 class TestMethods:
+    chars = "abcdefghijklmnopqrst"
+    
     def add(self, x, y):
         return x+y
     def divide(self, x, y):
         return x/y
     def setStuff(self, N1, N2):
-        self.stuff = ["x"*N1] * N2
+        self.stuff = []
+        for j in xrange(N1):
+            self.stuff.append("".join(
+                [self.chars[k % len(self.chars)]
+                 for k in xrange(N2)]))
+    def getStuff(self):
         return self.stuff
     def stuffSize(self):
         return len(self.stuff)

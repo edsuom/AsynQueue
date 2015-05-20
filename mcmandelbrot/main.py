@@ -127,7 +127,7 @@ def run(*args, **kw):
         sys.exit(1)
     Nx = int(args[0])
     cr, ci, crPM = [float(x) for x in args[1:4]]
-    ciPM = args[4] if len(args) > 4 else crPM
+    ciPM = float(args[4]) if len(args) > 4 else crPM
     if ignoreReactor:
         return reallyRun()
     else:

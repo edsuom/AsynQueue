@@ -74,7 +74,8 @@ class TestWireWorker(TestCase):
     def test_iterate(self):
         chunks = []
         N1, N2 = 20, 10
-        stuff = yield self.queue.call('setStuff', N1, N2)
+        yield self.queue.call('setStuff', N1, N2)
+        stuff = yield self.queue.call('getStuff')
         stuffSize = yield self.queue.call('stuffSize')
         self.assertEqual(len(stuff), stuffSize)
         dr = yield self.queue.call('stufferator')
@@ -92,7 +93,7 @@ class TestChunkyString(TestCase):
         x = "0123456789" * 11111
         cs = wire.ChunkyString(x)
         # Test with a smaller chunk size
-        N = 1000
+        N = 1234
         cs.chunkSize = N
         y = ""
         count = 0
@@ -153,6 +154,28 @@ class TestWireRunner(TestCase):
         self.assertEqual(response['result'], o2p(2.5))
 
     @defer.inlineCallbacks
+    def test_call_chunked(self):
+        N1, N2 = 10, 100000
+        response = yield self.wr.call(self.tm.setStuff, N1, N2)
+        self.assertIsInstance(response, dict)
+        response = yield self.wr.call(self.tm.getStuff)
+        self.assertIsInstance(response, dict)
+        self.assertEqual(response['status'], 'c')
+        ID = response['result']
+        self.assertIsInstance(ID, str)
+        chunks = []
+        while True:
+            response = yield self.wr.getNext(ID)
+            if response['isValid']:
+                chunks.append(p2o(response['value']))
+            else:
+                break
+        stuff = p2o("".join(chunks))
+        self.tm.setStuff(N1, N2)
+        expectedStuff = self.tm.getStuff()
+        self.assertEqual(stuff, expectedStuff)
+        
+    @defer.inlineCallbacks
     def test_call_error(self):
         response = yield self.wr.call(self.tm.divide, 1.0, 0)
         self.assertIsInstance(response, dict)
@@ -198,9 +221,10 @@ class TestWireRunner(TestCase):
     @defer.inlineCallbacks
     def test_call_iterator(self):
         N1, N2 = 20, 10
-        response = yield self.wr.call(self.tm.setStuff, N1, N2)
+        yield self.wr.call(self.tm.setStuff, N1, N2)
+        response = yield self.wr.call(self.tm.getStuff)
         stuff = p2o(response['result'])
-        self.assertEqual(len(stuff), N2)
+        self.assertEqual(len(stuff), N1)
         response = yield self.wr.call(self.tm.stufferator)
         self.assertEqual(response['status'], 'i')
         ID = response['result']
@@ -208,10 +232,10 @@ class TestWireRunner(TestCase):
         self.assertEqual(
             type(self.wr.iterators[ID]),
             type(self.tm.stufferator()))
-        for k in xrange(N2+1):
+        for k in xrange(N1+1):
             response = yield self.wr.getNext(ID)
             chunk = p2o(response['value'])
-            if k < N2:
+            if k < N1:
                 self.assertTrue(response['isValid'])
                 self.assertEqual(chunk, stuff[k])
             else:

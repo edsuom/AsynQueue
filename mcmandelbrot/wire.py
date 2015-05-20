@@ -64,6 +64,7 @@ FQN = "mcmandelbrot.wire.MandelbrotWorkerUniverse"
 
 
 class Writable(object):
+    sizeLimit = 2**16 - 1
     delay = iteration.Delay()
     
     def __init__(self):
@@ -79,7 +80,11 @@ class Writable(object):
     def getNext(self):
         def haveData(really):
             if really:
-                return self.data.pop(0)
+                chunk = self.data.pop(0)
+                #if len(chunk) > self.sizeLimit:
+                #    remainder = chunk[self.sizeLimit:]
+                #    chunk = chunk[:self.sizeLimit]
+                return chunk
         return self.delay.untilEvent(
             lambda: bool(self.data)).addCallback(haveData)
         
@@ -107,10 +112,10 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
     def shutdown(self):
         if hasattr(self, 'runner'):
             dList = []
-            for dRun, dCancel in self.pendingRuns.itervalues():
-                dList.append(dRun)
-                if not dCancel.called:
-                    dCancel.callback(None)
+            for ri in self.pendingRuns.itervalues():
+                dList.append(ri.dRun)
+                if not ri.dCancel.called:
+                    ri.dCancel.callback(None)
             yield defer.DeferredList(dList)
             yield self.runner.q.shutdown()
 
