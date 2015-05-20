@@ -33,7 +33,7 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version':'0.9.0',
+kw = {'version':'0.9.1',
       'license':'Apache License (2.0)',
       'platforms':'OS Independent',
 
@@ -45,7 +45,7 @@ kw = {'version':'0.9.0',
       'install_requires':required,
       'packages':['asynqueue', 'mcmandelbrot'],
       'package_data':{
-          'mcmandelbrot': ['*.csv', '*.css'],
+          'mcmandelbrot': ['*.csv', '*.css', '*.js'],
           },
       'entry_points':{
           'console_scripts': [
