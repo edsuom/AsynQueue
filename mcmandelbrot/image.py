@@ -33,6 +33,8 @@ import urlparse
 
 from twisted.internet import defer
 
+from asynqueue import wire
+
 import runner
 
 

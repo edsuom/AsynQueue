@@ -234,8 +234,10 @@ class RemoteRunner(object):
                     self.mgr = ServerManager(FQN)
                     description = self.mgr.newSocket()
                     yield self.mgr.spawn(description)
+                else:
+                    description = self.description
                 wwu = MandelbrotWorkerUniverse()
-                worker = WireWorker(wwu, self.description, series=['mcm'])
+                worker = WireWorker(wwu, description, series=['mcm'])
             yield self.q.attachWorker(worker)
             yield self.q.call(
                 'setup',
