@@ -45,7 +45,7 @@ kw = {'version':'0.9.1',
       'install_requires':required,
       'packages':['asynqueue', 'mcmandelbrot'],
       'package_data':{
-          'mcmandelbrot': ['*.csv', '*.css', '*.js'],
+          'mcmandelbrot': ['*.csv', 'mcm.css', 'mcm.js', 'blank.jpg'],
           },
       'entry_points':{
           'console_scripts': [

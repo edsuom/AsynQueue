@@ -108,8 +108,6 @@ class Runner(object):
         @return: A C{Deferred} that fires with the total elasped time
           for the computation and the number of pixels computed.
         """
-        def diff(k):
-            return xySpans[k][1] - xySpans[k][0]
         def done(N):
             timeSpent = time.time() - t0
             if requester:
@@ -122,7 +120,13 @@ class Runner(object):
         for center, plusMinus in ((cr, crPM), (ci, ciPM)):
             xySpans.append([center - plusMinus, center + plusMinus])
         xySpans[0].append(Nx)
-        xySpans[1].append(int(Nx * diff(1) / diff(0)))
+        diffs = []
+        for k in (0, 1):
+            diff = xySpans[k][1] - xySpans[k][0]
+            if diff <= 0:
+                return defer.succeed(0, 0)
+            diffs.append(diff)
+        xySpans[1].append(int(Nx * diffs[1] / diffs[0]))
         return self.compute(
             fh, xySpans[0], xySpans[1], dCancel).addCallback(done)
         

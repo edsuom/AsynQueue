@@ -100,10 +100,10 @@ function hover(event) {
     var scale = 1 / params.crpm;
     if (scale > 1E12) {
 	scale = 0.1*Math.round(scale/1E11)
-	var unit = "&nbsp;trillion&nbsp;:&nbsp;1"
+	var unit = "&nbsp;trillion:1"
     } else if (scale > 1E9) {
 	scale = 0.1*Math.round(scale/1E8)
-	var unit = "&nbsp;billion&nbsp;:&nbsp;1"
+	var unit = "&nbsp;billion:1"
     } else if (scale > 1E6) {
 	scale = 0.1*Math.round(scale/1E5)
 	var unit = "M:1"
@@ -115,10 +115,10 @@ function hover(event) {
 	scale = Math.round(scale)
 	var unit = ":1"
     }
-    if (unit == "") {
-	scale = scale.toFixed(0)
-    } else {
+    if (scale % 1) {
 	scale = scale.toFixed(1)
+    } else {
+	scale = scale.toFixed(0)
     }
     var message = "Scale:&nbsp;" + scale + unit + " &emsp;"
                 + "Center:&nbsp;(" + params.cr + ",&nbsp;" + params.ci + ")";

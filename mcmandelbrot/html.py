@@ -34,7 +34,7 @@ import sys
 
 from twisted.application import internet, service
 from twisted.internet import defer
-from twisted.web import server, resource, static
+from twisted.web import server, resource, static, util
 
 from mcmandelbrot import vroot, image
 
@@ -56,9 +56,14 @@ processing pack&shy;age, freely available per the Apache License. A
 link back to <a href="http://edsuom.com"><b>edsuom.com</b></a> would
 be apprec&shy;iated.
 """
-
 BYLINE = "&mdash;Ed Suominen"
 
+MORE_INFO = """
+Server resources for <a
+href="http://mcm.edsuom.com">mcm.edsuom.com</a> contributed by <a
+href="http://tellectual.com">Tellectual Press</a>, publisher of my
+book <em>Evolving out of Eden</em>.
+"""
 
 class SiteResource(resource.Resource):
     defaultParams = {
@@ -72,12 +77,17 @@ class SiteResource(resource.Resource):
         ("Imag:", "ci"   ),
         ("+/-",   "crpm" ))
     inputSize = 10
+    blankImage = ("blank.jpg", 'image/jpeg')
 
     def __init__(self, descriptions):
-        super(SiteResource, self).__init__(self)
         self.vr = self.vRoot()
         self.ir = ImageResource(descriptions)
-    
+        with vroot.openPackageFile(self.blankImage[0]) as fh:
+            imageData = fh.read()
+        self.br = static.Data(imageData, self.blankImage[1])
+        self.nr = resource.NoResource()
+        resource.Resource.__init__(self)
+
     def shutdown(self):
         return self.ir.shutdown()
 
@@ -93,13 +103,22 @@ class SiteResource(resource.Resource):
         return "/image.png?{}".format('&'.join(parts))
         
     def getChild(self, path, request):
+        print "\nGC", path, request
         if path == "":
             if request.args:
                 kw = request.args.copy()
                 kw['img'] = self.imageURL(request.args)
-                return static.Data(self.vr(**kw), 'text/html')
+                html = self.vr(**kw)
+            else:
+                kw = self.defaultParams.copy()
+                kw['img'] = self.blankImage[0]
+            html = self.vr(**kw)
+            return static.Data(html, 'text/html')
         if path == "image.png":
             return self.ir
+        if path == self.blankImage[0]:
+            return self.br
+        return self.nr
     
     def vRoot(self):
         """
@@ -124,7 +143,7 @@ class SiteResource(resource.Resource):
             v.tail(".")
 
         vr = vroot.HTML_VRoot(self.defaultTitle)
-        with self.vr as v:
+        with vr as v:
             v.nc('div', 'first_part')
             #--------------------------------------------------------
             with v.context():
@@ -160,6 +179,8 @@ class SiteResource(resource.Resource):
                 v.textX(ABOUT)
                 v.nc('span', 'byline')
                 v.textX(BYLINE)
+                v.ns('div', 'about large_only')
+                v.textX(MORE_INFO)
             v.ns('div', 'second_part')
             #--------------------------------------------------------
             with v.context():
@@ -170,18 +191,20 @@ class SiteResource(resource.Resource):
                 v.set('id', 'mandelbrot')
                 v.set('onclick', "zoomIn(event)")
                 v.set('onmousemove', "hover(event)")
-            with v.context():
-                v.nc('div', 'footer')
-                v.set('id', 'hover')
-                v.textX(HOWTO)
+            v.nc('div', 'footer')
+            v.set('id', 'hover')
+            v.textX(HOWTO)
+            v.ns('div', 'about small_only')
+            v.textX(MORE_INFO)
+            return vr
 
 
 class ImageResource(resource.Resource):
     isLeaf = True
     
     def __init__(self, descriptions):
-        resource.Resource.__init__(self)
         self.imager = image.Imager(descriptions, verbose=VERBOSE)
+        resource.Resource.__init__(self)
 
     def shutdown(self):
         return self.imager.shutdown()
@@ -195,7 +218,7 @@ class ImageResource(resource.Resource):
 
 class MandelbrotSite(server.Site):
     def __init__(self):
-        self.sr = SiteResource(["tcp:localhost:1978"])
+        self.sr = SiteResource([None])
         server.Site.__init__(self, self.sr)
     
     def stopFactory(self):

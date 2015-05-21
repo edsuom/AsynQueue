@@ -437,7 +437,7 @@ class Baton(object):
         Add attribute I{attrName} of the last-generated child to my
         dynamic-value map.
         """
-        self.eMap[elemenetID] = self.eChild, attrName
+        self.eMap[elementID] = self.eChild, attrName
         
     def html(self, **kw):
         """
