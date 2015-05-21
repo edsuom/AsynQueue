@@ -186,7 +186,7 @@ class ImageResource(resource.Resource):
 class MandelbrotSite(server.Site):
     def __init__(self):
         rootResource = SiteResource()
-        imageResource = ImageResource("tcp:localhost:1978")
+        imageResource = ImageResource(["tcp:localhost:1978"])
         rootResource.putChild('image.png', imageResource)
         rootResource.putChild('', rootResource)
         server.Site.__init__(self, rootResource)

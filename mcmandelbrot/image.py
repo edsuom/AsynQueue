@@ -130,4 +130,5 @@ class Imager(object):
                 request, self.Nx,
                 x['cr'], x['ci'], x['crpm'], ciPM,
                 dCancel=d, requester=request.getClient())
-            request.finish()
+            if not d.called:
+                request.finish()

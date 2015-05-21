@@ -156,10 +156,25 @@ div.footer {
 	text-align: right;
 	padding-bottom: 1em;
     }
+    div.form {
+	-webkit-box-orient: block-axis;
+	-webkit-box-direction: normal;
+	-moz-box-orient: block-axis;
+	-moz-box-direction: normal;
+	-ms-flex-direction: column;
+	-webkit-flex-direction: column;
+	flex-direction: column;
+    }
     div.form_item {
 	margin-left: auto;
 	padding-top: 4px;
 	text-align: right;
+
+	-webkit-box-align: end;
+	-moz-box-align: end;
+	-ms-flex-align: end;
+	-webkit-align-items: flex-end;
+	align-items: flex-end;
     }
     div.about {
 	margin-left: 0;
