@@ -34,7 +34,7 @@ import sys
 
 from twisted.application import internet, service
 from twisted.internet import defer
-from twisted.web import server, resource
+from twisted.web import server, resource, static
 
 from mcmandelbrot import vroot, image
 
@@ -61,7 +61,7 @@ BYLINE = "&mdash;Ed Suominen"
 
 
 class SiteResource(resource.Resource):
-    defaultPosition = {
+    defaultParams = {
         'cr':   "-0.630",
         'ci':   "+0.000",
         'crpm': "1.40" }
@@ -72,34 +72,40 @@ class SiteResource(resource.Resource):
         ("Imag:", "ci"   ),
         ("+/-",   "crpm" ))
     inputSize = 10
+
+    def __init__(self, descriptions):
+        super(SiteResource, self).__init__(self)
+        self.vr = self.vRoot()
+        self.ir = ImageResource(descriptions)
     
-    def __init__(self):
-        resource.Resource.__init__(self)
-        self.vr = vroot.HTML_VRoot()
-        self.vr.title = self.defaultTitle
-
     def shutdown(self):
-        return self.imageResource.imager.shutdown()
+        return self.ir.shutdown()
 
-    def render_GET(self, request):
-        if not hasattr(self, '_html'):
-            # We only need to generate the page HTML once. All that
-            # changes are the image and form fields.
-            self._html = self.makeHTML()
-            if HTML_FILE:
-                try:
-                    with open(HTML_FILE, 'w') as fh:
-                        fh.write(self._html)
-                except:
-                    pass
-        return self._html
-        
-    def imgURL(self, dct):
-        parts = ["{}={}".format(name, value)
-                 for name, value in dct.iteritems()]
+    def imageURL(self, params):
+        """
+        Returns a URL for obtaining a Mandelbrot Set image with the
+        parameters in the supplied dict I{params}.
+        """
+        parts = []
+        for name, value in params.iteritems():
+            if name in self.defaultParams:
+                parts.append("{}={}".format(name, value))
         return "/image.png?{}".format('&'.join(parts))
         
-    def makeHTML(self):
+    def getChild(self, path, request):
+        if path == "":
+            if request.args:
+                kw = request.args.copy()
+                kw['img'] = self.imageURL(request.args)
+                return static.Data(self.vr(**kw), 'text/html')
+        if path == "image.png":
+            return self.ir
+    
+    def vRoot(self):
+        """
+        Populates my vroot I{vr} with an etree that renders into the HTML
+        page.
+        """
         def heading():
             with v.context():
                 v.nc('div', 'heading')
@@ -116,7 +122,8 @@ class SiteResource(resource.Resource):
             v.text("AsynQueue")
             v.set('href', "http://edsuom.com/AsynQueue")
             v.tail(".")
-        
+
+        vr = vroot.HTML_VRoot(self.defaultTitle)
         with self.vr as v:
             v.nc('div', 'first_part')
             #--------------------------------------------------------
@@ -133,12 +140,13 @@ class SiteResource(resource.Resource):
                     for label, name in v.nci(
                             self.formItems, 'div', 'form_item'):
                         v.nc('span', 'form_item')
+                        v.addToMap(name, 'value')
                         v.text(label)
                         v.ns('input', 'position')
                         v.set('type', "text")
                         v.set('size', str(self.inputSize))
                         v.set('id', name)
-                        v.set('value', self.defaultPosition[name])
+                        v.set('value', self.defaultParams[name])
                     v.nc('div', 'form_item')
                     e = v.ngc('input')
                     e.set('type', "submit")
@@ -158,16 +166,15 @@ class SiteResource(resource.Resource):
                 v.nc('div', 'image')
                 v.set('id', 'image')
                 v.nc('img', 'mandelbrot')
+                v.addToMap('img', 'src')
                 v.set('id', 'mandelbrot')
-                v.set('src', self.imgURL(self.defaultPosition))
                 v.set('onclick', "zoomIn(event)")
                 v.set('onmousemove', "hover(event)")
             with v.context():
                 v.nc('div', 'footer')
                 v.set('id', 'hover')
                 v.textX(HOWTO)
-        return self.vr()
-        
+
 
 class ImageResource(resource.Resource):
     isLeaf = True
@@ -175,6 +182,9 @@ class ImageResource(resource.Resource):
     def __init__(self, descriptions):
         resource.Resource.__init__(self)
         self.imager = image.Imager(descriptions, verbose=VERBOSE)
+
+    def shutdown(self):
+        return self.imager.shutdown()
         
     def render_GET(self, request):
         request.setHeader("content-disposition", "image.png")
@@ -185,15 +195,12 @@ class ImageResource(resource.Resource):
 
 class MandelbrotSite(server.Site):
     def __init__(self):
-        rootResource = SiteResource()
-        imageResource = ImageResource(["tcp:localhost:1978"])
-        rootResource.putChild('image.png', imageResource)
-        rootResource.putChild('', rootResource)
-        server.Site.__init__(self, rootResource)
+        self.sr = SiteResource(["tcp:localhost:1978"])
+        server.Site.__init__(self, self.sr)
     
     def stopFactory(self):
         super(MandelbrotSite, self).stopFactory()
-        return self.resource.shutdown()
+        return self.sr.shutdown()
 
 
 if '/twistd' in sys.argv[0]:

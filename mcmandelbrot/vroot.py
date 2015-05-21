@@ -87,6 +87,7 @@ class Baton(object):
         self.uniquePrefix = "!UPH-{:d}".format(id(self))
         self.rePlaceholder = re.compile(
             r'{}-([0-9]+)!'.format(self.uniquePrefix))
+        self.eMap = {}
 
     def info(self, e=None):
         info = ""
@@ -431,11 +432,22 @@ class Baton(object):
         style.append("margin-{}: {:1.1f}em;".format(side, em))
         self.set('style', " ".join(style).strip())
 
-    def setxml(self, xml):
+    def addToMap(self, elementID, attrName):
         """
-        Sets my xml attribute with the supplied xml, after
-        substituting out any placeholders.
+        Add attribute I{attrName} of the last-generated child to my
+        dynamic-value map.
         """
+        self.eMap[elemenetID] = self.eChild, attrName
+        
+    def html(self, **kw):
+        """
+        Gets my HTML rendering, after substituting out any placeholders
+        and applying keywords to my mapped elements.
+        """
+        for elementID, newValue in kw.iteritems():
+            e, attrName = self.eMap[elementID]
+            e.set(attrName, newValue)
+        xml = ET.tostring(self.e)
         while True:
             match = self.rePlaceholder.search(xml)
             if not match:
@@ -445,14 +457,8 @@ class Baton(object):
             after = xml[match.end(0):]
             replacement = self.elements[k]
             xml = before + replacement + after
-        self.xml = xml
+        return "<html>\n{}\n</html>".format(re.sub(r"</?vroot>", r"", xml))
 
-    def get(self):
-        """
-        Returns my eTree.
-        """
-        return self.e
-        
 
 class VRoot(object):
     """
@@ -501,7 +507,7 @@ class VRoot(object):
         kw = {}
         if getattr(self, 'encoding', None):
             kw['encoding'] = self.encoding
-        rough_string = ET.tostring(self.b.get(), **kw)
+        rough_string = ET.tostring(self.b.e, **kw)
         reparsed = minidom.parseString(rough_string)
         kw['indent'] = " " * self.indent
         xml = reparsed.toprettyxml(**kw)
@@ -512,15 +518,22 @@ class VRoot(object):
             xml = codecs.decode(xml, 'utf-8')
         return self.fixCloseTags(xml)
 
-    def __call__(self):
-        xml = getattr(getattr(self, 'b', None), 'xml', None)
-        return bytes(xml)
-
-    def stripVroot(self, xml):
-        return re.sub(r"</?vroot>", r"", xml)
+    def __call__(self, **kw):
+        """
+        Returns my content rendered as a complete HTML bytestring, with
+        keywords substituting attributes values of mapped
+        elements. Each keyword's value is the ID that the element was
+        assigned its value is new value of the attribute that was
+        mapped for that element.
+        """
+        html = self.b.html(**kw)
+        # Not sure this next line is necessary. Seems to work fine without it.
+        #html = self.fixCloseTags(html)
+        return bytes(html)
 
     def __enter__(self):
         self.b = Baton(self.indent)
+        self.b.eMap = {}
         for name in ('version', 'xmlns'):
             value = getattr(self, name, None)
             if value:
@@ -541,12 +554,6 @@ class VRoot(object):
                 xml, '-'*79)
             traceback.print_exception(etype, value, trace)
             sys.exit(1)
-        # Pretty-print version of my element's XML
-        xml = ET.tostring(self.b.get())
-        # Strip vroot tags
-        html = "<html>\n{}\n</html>".format(self.stripVroot(xml))
-        # Put html in baton
-        self.b.setxml(html)
 
 
 class HV_Meta(type):
@@ -583,7 +590,8 @@ class HTML_VRoot(VRoot):
 
     headFiles = {'css': "mcm.css", 'js': "mcm.js"}
 
-    def __init__(self):
+    def __init__(self, title):
+        self.title = title
         self.metaTags = [
             {'name':"viewport",
              'content':"width=device-width, initial-scale=1"}]
