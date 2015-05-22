@@ -65,29 +65,24 @@ href="http://tellectual.com">Tellectual Press</a>, publisher of my
 book <em>Evolving out of Eden</em>.
 """
 
-class SiteResource(resource.Resource):
+class ResourceBag(object):
     blankImage = ("blank.jpg", 'image/jpeg')
-
+    children = {}
+    
     def __init__(self, descriptions):
-        self.rr = RootResource(self.blankImage[0])
+        self.children[''] = RootResource(self.blankImage[0])
         with vroot.openPackageFile(self.blankImage[0]) as fh:
             imageData = fh.read()
-        self.br = static.Data(imageData, self.blankImage[1])
-        self.ir = ImageResource(descriptions)
-        self.nr = resource.NoResource()
-        resource.Resource.__init__(self)
+        self.children[self.blankImage[0]] = static.Data(
+            imageData, self.blankImage[1])
+        self.children['image.png'] = ImageResource(descriptions)
 
     def shutdown(self):
         return self.ir.shutdown()
-        
-    def getChild(self, path, request):
-        if path == "":
-            return self.rr
-        if path == "image.png":
-            return self.ir
-        if path == self.blankImage[0]:
-            return self.br
-        return self.nr
+
+    def putChildren(self, root):
+        for path, res in self.children.iteritems():
+            root.putChild(path, res)
 
 
 class RootResource(resource.Resource):
@@ -243,12 +238,14 @@ class ImageResource(resource.Resource):
 
 class MandelbrotSite(server.Site):
     def __init__(self):
-        self.sr = SiteResource([None])
-        server.Site.__init__(self, self.sr)
+        self.rb = ResourceBag([None])
+        siteResource = resource.Resource()
+        self.rb.putChildren(siteResource)
+        server.Site.__init__(self, siteResource)
     
     def stopFactory(self):
         super(MandelbrotSite, self).stopFactory()
-        return self.sr.shutdown()
+        return self.rb.shutdown()
 
 
 if '/twistd' in sys.argv[0]:
