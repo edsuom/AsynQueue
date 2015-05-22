@@ -177,7 +177,6 @@ class RootResource(resource.Resource):
                         v.set('type', "text")
                         v.set('size', str(self.inputSize))
                         v.set('id', name)
-                        v.set('value', self.defaultParams[name])
                     v.nc('div', 'form_item')
                     e = v.ngc('input')
                     e.set('type', "submit")
