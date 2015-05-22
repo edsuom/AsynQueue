@@ -26,14 +26,14 @@
 
 
 """
-Uses L{asynqueue.wire} to run and communicate with a server that
+Uses C{asynqueue.wire} to run and communicate with a server that
 generates Mandelbrot Set images.
 
 For the server end, use L{server} to get a Twisted C{service} object
 you can start or add to an C{application}.
 
-To communicate with the server, use L{} to get an AsynQueue
-C{Worker} that you can add to your C{TaskQueue}.
+To communicate with the server, use L{RemoteRunner} to get an
+AsynQueue C{Worker} that you can add to your C{TaskQueue}.
 
 Both ends of the connection need to be able to import this module and
 reference its L{MandelbrotWorkerUniverse} class.
@@ -89,7 +89,7 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
     """
     I run on the remote Python interpreter to run a runner from there,
     accepting commands from your L{RemoteRunner} via L{run},
-    L{getRunInfo} and L{cancel} and sending the results and iterations
+    L{done} and L{cancel} and sending the results and iterations
     to it.
     """
     RunInfo = namedtuple('RunInfo', ['fh', 'dRun', 'dCancel'])
@@ -118,12 +118,12 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
     def run(self, Nx, cr, ci, crPM, ciPM, requester=None):
         """
         Does an image-generation run for the specified parameters, storing
-        a C{Deferred} I{dRun} to the result in a C{nametuple} along
+        a C{Deferred} I{dRun} to the result in a C{namedtuple} along
         with a reference I{fh} to a new L{Writable} that will have the
         image data written to it and a C{Deferred} I{dCancel} that can
         have its callback fired to cancel the run.
 
-        Returns a unique string I{ID} identifying the run.
+        @return: A unique string I{ID} identifying the run.
         """
         def doneHere(stuff):
             fh.close()
@@ -208,7 +208,7 @@ class RemoteRunner(object):
           the value curve.
 
         @keyword worker: A custom worker to use instead of
-          L{asynqueue.wire.WireWorker}.
+          C{asynqueue.wire.WireWorker}.
         
         @return: A C{Deferred} that fires when things are setup, or
           immediately if they already are as specified.
@@ -259,11 +259,11 @@ class RemoteRunner(object):
         generate a PNG image of the Mandelbrot Set and write it in
         chunks, indirectly, to the write-capable object I{fh}, which
         in this case must implement C{IConsumer}. When this method is
-        called by L{image.renderImage}, I{fh} will be a request and
-        those do implement C{IConsumer}.
+        called by L{image.Imager.renderImage}, I{fh} will be a request
+        and those do implement C{IConsumer}.
 
         The image is centered at location I{cr, ci} in the complex
-        plane, plus or minus I{crPM} on the real axis and I{ciPM on
+        plane, plus or minus I{crPM} on the real axis and I{ciPM} on
         the imaginary axis.
 
         @see: L{runner.run}.
@@ -328,11 +328,11 @@ def server(description=None, port=1978, interface=None):
 
     If you omit the I{description}, it will be a TCP server running on
     a particular I{port}. The default is C{1978}, which is the year in
-    which the first computer image of the Mandelbrot Set was
+    which the first computer image of the Mandelbrot set was
     generated. You can specify an I{interface} dotted-quad address for
     the TCP server if you want to limit connections that way.
 
-    @see: L{MandelbrotWorkerUniverse.image}
+    @see: L{MandelbrotWorkerUniverse.run}
     """
     if description is None:
         description = b"tcp:{:d}".format(port)

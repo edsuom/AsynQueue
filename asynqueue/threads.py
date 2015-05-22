@@ -53,7 +53,7 @@ def deferToThread(*fargs, **kw):
     L{iteration.Deferator}-able answer to Twisted's C{deferToThread}.
 
     If you expect a deferred iterator as your result (an instance of
-    L{iteration.Deferator}), supply an L{IConsumer} implementor via
+    L{iteration.Deferator}), supply an C{IConsumer} implementor via
     the I{consumer} keyword. Each iteration will be written to it, and
     the deferred will fire when the iterations are done. Otherwise,
     the deferred will fire with an L{iteration.Deferator}.
@@ -305,12 +305,12 @@ class ThreadLooper(object):
 
     def dr2ip(self, dr, consumer=None):
         """
-        Converts a L{Deferator} into an L{IterationProducer}, with a
-        consumer registered if you supply one. Then each iteration
-        will be written to your consumer, and the deferred returned
-        will fire when the iterations are done. Otherwise, the
-        deferred will fire with an L{iteration.IterationProducer} and
-        you will have to register with and run it yourself.
+        Converts a L{Deferator} into an L{iteration.IterationProducer},
+        with a consumer registered if you supply one. Then each
+        iteration will be written to your consumer, and the deferred
+        returned will fire when the iterations are done. Otherwise,
+        the deferred will fire with an L{iteration.IterationProducer}
+        and you will have to register with and run it yourself.
         """
         ip = iteration.IterationProducer(dr)
         if consumer:
@@ -324,7 +324,7 @@ class ThreadLooper(object):
         Twisted's deferToThread.
 
         If you expect a deferred iterator as your result (an instance
-        of L{iteration.Deferator}), supply an L{IConsumer} implementor
+        of L{iteration.Deferator}), supply an C{IConsumer} implementor
         via the I{consumer} keyword. Each iteration will be written to
         it, and the deferred will fire when the iterations are
         done. Otherwise, the deferred will fire with an
@@ -433,7 +433,7 @@ class IterationGetter(object):
 
 class Consumerator(IterationGetter):
     """
-    I act like an L{IConsumer} for your Twisted code and an iterator
+    I act like an C{IConsumer} for your Twisted code and an iterator
     for your blocking code running via a L{ThreadWorker}. This is
     handy when you are using a conventional library that relies on an
     iterator as its input::
@@ -472,8 +472,9 @@ class Consumerator(IterationGetter):
         """
         Runs a loop in a dedicated thread that waits for new iterations to
         be produced. When I get an instance of
-        L{self.IterationStopper}, the loop exits. I then call my "all
-        done" C{Deferred} and delete my reference to the producer.
+        L{IterationGetter.IterationStopper}, the loop exits. I then
+        call my "all done" C{Deferred} and delete my reference to the
+        producer.
         """
         self.runState = 'running'
         while True:
@@ -546,7 +547,7 @@ class Consumerator(IterationGetter):
     
     def registerProducer(self, producer, streaming):
         """
-        L{IConsumer} implementation
+        C{IConsumer} implementation
         """
         if hasattr(self, 'producer'):
             raise RuntimeError()
@@ -558,7 +559,7 @@ class Consumerator(IterationGetter):
 
     def unregisterProducer(self):
         """
-        L{IConsumer} implementation
+        C{IConsumer} implementation
         """
         if not hasattr(self, 'producer'):
             return defer.succeed(None)
@@ -589,7 +590,7 @@ class Filerator(IterationGetter):
         """
         Runs a loop in a dedicated thread that waits for new iterations to
         be written. When I get an instance of
-        L{self.IterationStopper}, the loop exits.
+        L{IterationGetter.IterationStopper}, the loop exits.
         """
         self.runState = 'running'
         while True:

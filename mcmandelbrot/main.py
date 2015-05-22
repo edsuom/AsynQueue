@@ -26,26 +26,29 @@
 
 
 """
-An example of C{AsynQueue} in action. Can be fun to play with if you
-have a multicore CPU. You will need the following packages, which you
-can get via C{pip install}:
-
-  - C{weave} (part of SciPy)
-  - C{numpy} (part of SciPy)
-  - C{matplotlib}
-  - C{asynqueue} (Duh...)
-
+An example of C{AsynQueue} in action. Can be fun to play with if
+you have a multicore CPU. You will need the following packages, which
+you can get via C{pip install}: C{weave} (part of SciPy); C{numpy}
+(part of SciPy); C{matplotlib}; and of course C{asynqueue}.
 
 Command line usage::
 
   mcmandelbrot
-    [-s steepness] [-N values] [-o imageFile]
-    N cr ci crPM [ciPM]
+    [-d <description>,] [-N, <iterations>,]
+    [-s, <steepness>,] [-o, <imageFile>,]
+    Nx, cr, ci, crPM[, ciPM]
 
-Produces chunks of a PNG image, to stdout if you don't specify an
-imageFile with the C{-o} option.
+Writes PNG image to stdout unless B{-o} is set, then saves it to
+I{imageFile}. In that case, prints some stats about the
+multiprocessing computation to I{stdout}.
 
-Example: C{mcm 2000 -0.630 0 1.4 1.2 >overview.png}
+To see an overview displayed with ImageMagick's I{display} command::
+
+  mcmandelbrot 2000 -0.630 0 1.4 1.2 |display
+
+Write a detailed view to the image I{detail.png}::
+
+  mcmandelbrot -o detail.png 3000 -0.73249 +0.21653 0.0112
 
 """
 

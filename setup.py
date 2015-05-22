@@ -45,7 +45,7 @@ kw = {'version':'0.9.1',
       'install_requires':required,
       'packages':['asynqueue', 'mcmandelbrot'],
       'package_data':{
-          'mcmandelbrot': ['*.csv', 'mcm.css', 'mcm.js', 'blank.jpg'],
+          'mcmandelbrot': ['mcm.css', 'mcm.js', 'blank.jpg'],
           },
       'entry_points':{
           'console_scripts': [
@@ -87,6 +87,15 @@ Asynchronous task queueing based on the Twisted framework, with task
 prioritization and a powerful worker interface. Worker implementations
 are included for running tasks asynchronously in the main thread, in
 separate threads, and in separate Python interpreters (multiprocessing).
+
+Includes an example package "mcMandelbrot" that generates Mandelbrot
+set images, row by row, demonstrating the power of asynchronous
+multi-core processing. An instance of ProcessQueue dispatches the
+computations for each row of pixels to workers running on separate
+Python process. The color-mapped RGB results are collected as they
+come back and intelligently buffered for iterating in a proper
+sequence to a third-party PNG library that wouldn't ordinarily play
+nice with Twisted.
 """.split("\n"))
 
 ### Finally, run the setup

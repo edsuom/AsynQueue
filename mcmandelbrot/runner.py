@@ -102,7 +102,7 @@ class Runner(object):
         write-capable object I{fh}.
 
         The image is centered at location I{cr, ci} in the complex
-        plane, plus or minus I{crPM} on the real axis and I{ciPM on
+        plane, plus or minus I{crPM} on the real axis and I{ciPM} on
         the imaginary axis.
 
         @return: A C{Deferred} that fires with the total elasped time

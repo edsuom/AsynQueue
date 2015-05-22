@@ -514,7 +514,7 @@ class ListConsumer(object):
             
     def registerProducer(self, producer, streaming):
         """
-        L{IConsumer} implementation.
+        C{IConsumer} implementation.
         """
         if hasattr(self, 'producer'):
             raise RuntimeError()
@@ -525,7 +525,7 @@ class ListConsumer(object):
 
     def unregisterProducer(self):
         """
-        L{IConsumer} implementation.
+        C{IConsumer} implementation.
         """
         if hasattr(self, 'producer'):
             del self.producer
@@ -637,19 +637,19 @@ class IterationProducer(object):
             
     def pauseProducing(self):
         """
-        L{IPushProducer} implementation.
+        C{IPushProducer} implementation.
         """
         self.paused = True
 
     def resumeProducing(self):
         """
-        L{IPushProducer} implementation.
+        C{IPushProducer} implementation.
         """
         self.paused = False
 
     def stopProducing(self):
         """
-        L{IPushProducer} implementation.
+        C{IPushProducer} implementation.
         """
         self.running = False
         self.dr.stop()

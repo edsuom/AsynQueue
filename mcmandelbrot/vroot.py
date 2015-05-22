@@ -26,9 +26,9 @@
 
 
 """
-The L{HTML_VRoot} combines with the L{HTML_Baton} to provide a
-powerful way to generate an HTML page. Adapted from another project
-for use in the C{mcmandelbrot} demo site.
+The L{VRoot} combines with the L{Baton} to provide a powerful way
+to generate an HTML page. Adapted from another project for use in the
+C{mcmandelbrot} demo site.
 """
 
 from contextlib import contextmanager
@@ -66,8 +66,8 @@ def openPackageFile(fileName):
 
 class Baton(object):
     """
-    The VRoot gives an instance of me a reference e to a virtual root
-    element and then passes my instance to a context caller. The
+    The L{VRoot} gives an instance of me a reference I{e} to a virtual
+    root element and then passes my instance to a context caller. The
     caller can use my convenience methods to generate XML subelements
     of the virtual root element, with placeholders for raw
     xml/html. Then, when the caller is done, I convert the tree from
@@ -140,8 +140,8 @@ class Baton(object):
 
         You can specify a CSS class for the new subelement.
 
-        DO NOT USE this method in a VROOT's entryMethod! Doing so will
-        screw up the lastParent. It is for context callers.
+        B{Do not use} this method in a VROOT's entryMethod! Doing so
+        will screw up the I{lastParent}. It is for context callers.
         """
         self.lastParent = self.seParent
         e = self.eChild = newElement(tag, self.seParent)
@@ -220,9 +220,9 @@ class Baton(object):
     
     def ns(self, tag, *args):
         """
-        Generates a new child of THE PARENT to the last-generated
-        child or another sibling element specified. The new child will
-        then be considered the last-generated one.
+        Generates a new child of B{the parent} to the last-generated child
+        or another sibling element specified. The new child will then
+        be considered the last-generated one.
 
         Repeated calls to this method (with or without a sibling
         element specified) will result in siblings rather than a nested
@@ -494,13 +494,13 @@ class VRoot(object):
     HTML document. When you get done, I'll put an XML string in the
     baton, with the XML tag stripped out and replaced with HTML tags.
 
-    The baton has tons of convenience methods for generating tags.
+    The baton has tons of convenience methods for generating tags::
 
-    with (me) as vroot:
-        ncx = vroot.se('ncx')
-        ...
-    xml = vroot.xml [ or = vroot() ]
-    ...
+      with (me) as vroot:
+          ncx = vroot.se('ncx')
+          ...
+      xml = vroot.xml [ or = vroot() ]
+      ...
 
     Call my instance to get the XML or HTML as a string.
     """
@@ -522,7 +522,8 @@ class VRoot(object):
     
     def insert(self, v, tag, name, typ=None):
         """
-        Inserts the text read from the named entry in I{headLines}.
+        Inserts the text read from the named entry in my I{headLines}
+        dict.
         """
         v.ns(tag)
         v.textX(u"\n"+u"\n".join(self.headLines[name]))

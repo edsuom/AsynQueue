@@ -106,10 +106,11 @@ class Imager(object):
         as it is generated remotely. When the image is all written,
         calls C{request.finish} and fires the C{Deferred} it returns.
 
-        An example query string, for the basic Mandelbrot Set overview
-        with 1200 points:
+        An example query string, for the basic Mandelbrot set overview
+        with 1200 points::
         
-        C{?N=1200&cr=-0.8&ci=0.0&crpm=1.45&crpi=1.2}
+          ?N=1200&cr=-0.8&ci=0.0&crpm=1.45&crpi=1.2
+        
         """
         x = {}
         d = request.notifyFinish().addErrback(lambda _: None)

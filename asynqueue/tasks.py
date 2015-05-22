@@ -22,7 +22,7 @@
 
 """
 Task management for the task queue workers. The star of this show
-is L{TaskHandler}, which is what turns L{base.PriorityQueue} into a
+is L{TaskHandler}, which is what turns L{base.Queue} into a
 L{base.TaskQueue}.
 
 Be sure to call the L{TaskQueue.shutdown} method (or that of your
