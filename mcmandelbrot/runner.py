@@ -123,8 +123,8 @@ class Runner(object):
         diffs = []
         for k in (0, 1):
             diff = xySpans[k][1] - xySpans[k][0]
-            if diff <= 0:
-                return defer.succeed(0, 0)
+            if diff <= 5E-16:
+                return defer.succeed((0, 0))
             diffs.append(diff)
         xySpans[1].append(int(Nx * diffs[1] / diffs[0]))
         return self.compute(

@@ -106,17 +106,17 @@ class RootResource(resource.Resource):
     def render_GET(self, request):
         request.setHeader("content-type", 'text/html')
         kw = {'permalink': request.uri}
+        kw.update(self.defaultParams)
         if request.args:
             for key, values in request.args.iteritems():
                 kw[key] = http.unquote(values[0])
             kw['img'] = self.imageURL(kw)
             kw['onload'] = None
         else:
-            kw.update(self.defaultParams)
             kw['img'] = self.blankImage
             kw['onload'] = "updateImage()"
         return self.vr(**kw)
-
+        
     def imageURL(self, params):
         """
         Returns a URL for obtaining a Mandelbrot Set image with the
@@ -171,9 +171,9 @@ class RootResource(resource.Resource):
                     for label, name in v.nci(
                             self.formItems, 'div', 'form_item'):
                         v.nc('span', 'form_item')
-                        v.addToMap(name, 'value')
                         v.text(label)
                         v.ns('input', 'position')
+                        v.addToMap(name, 'value')
                         v.set('type', "text")
                         v.set('size', str(self.inputSize))
                         v.set('id', name)
