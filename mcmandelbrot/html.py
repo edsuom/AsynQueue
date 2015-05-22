@@ -66,6 +66,31 @@ book <em>Evolving out of Eden</em>.
 """
 
 class SiteResource(resource.Resource):
+    blankImage = ("blank.jpg", 'image/jpeg')
+
+    def __init__(self, descriptions):
+        self.rr = RootResource(self.blankImage[0])
+        with vroot.openPackageFile(self.blankImage[0]) as fh:
+            imageData = fh.read()
+        self.br = static.Data(imageData, self.blankImage[1])
+        self.ir = ImageResource(descriptions)
+        self.nr = resource.NoResource()
+        resource.Resource.__init__(self)
+
+    def shutdown(self):
+        return self.ir.shutdown()
+        
+    def getChild(self, path, request):
+        if path == "":
+            return self.rr
+        if path == "image.png":
+            return self.ir
+        if path == self.blankImage[0]:
+            return self.br
+        return self.nr
+
+
+class RootResource(resource.Resource):
     defaultParams = {
         'cr':   "-0.630",
         'ci':   "+0.000",
@@ -77,19 +102,25 @@ class SiteResource(resource.Resource):
         ("Imag:", "ci"   ),
         ("+/-",   "crpm" ))
     inputSize = 10
-    blankImage = ("blank.jpg", 'image/jpeg')
-
-    def __init__(self, descriptions):
+    
+    def __init__(self, blankImage):
+        self.blankImage = blankImage
         self.vr = self.vRoot()
-        self.ir = ImageResource(descriptions)
-        with vroot.openPackageFile(self.blankImage[0]) as fh:
-            imageData = fh.read()
-        self.br = static.Data(imageData, self.blankImage[1])
-        self.nr = resource.NoResource()
         resource.Resource.__init__(self)
-
-    def shutdown(self):
-        return self.ir.shutdown()
+        
+    def render_GET(self, request):
+        request.setHeader("content-type", 'text/html')
+        kw = {'permalink': request.uri}
+        if request.args:
+            for key, values in request.args.iteritems():
+                kw[key] = http.unquote(values[0])
+            kw['img'] = self.imageURL(kw)
+            kw['onload'] = None
+        else:
+            kw.update(self.defaultParams)
+            kw['img'] = self.blankImage
+            kw['onload'] = "updateImage()"
+        return self.vr(**kw)
 
     def imageURL(self, params):
         """
@@ -101,29 +132,6 @@ class SiteResource(resource.Resource):
             if name in self.defaultParams:
                 parts.append("{}={}".format(name, value))
         return "/image.png?{}".format('&'.join(parts))
-        
-    def getChild(self, path, request):
-        if path == "":
-            return self
-        if path == "image.png":
-            return self.ir
-        if path == self.blankImage[0]:
-            return self.br
-        return self.nr
-
-    def render_GET(self, request):
-        request.setHeader("content-type", 'text/html')
-        kw = {'permalink': request.uri}
-        if request.args:
-            for key, values in request.args.iteritems():
-                kw[key] = http.unquote(values[0])
-            kw['img'] = self.imageURL(kw)
-            kw['onload'] = None
-        else:
-            kw.update(self.defaultParams)
-            kw['img'] = self.blankImage[0]
-            kw['onload'] = "updateImage()"
-        return self.vr(**kw)
         
     def vRoot(self):
         """
