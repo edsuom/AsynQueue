@@ -104,24 +104,27 @@ class SiteResource(resource.Resource):
         
     def getChild(self, path, request):
         if path == "":
-            kw = {'permalink': request.uri}
-            if request.args:
-                for key, values in request.args.iteritems():
-                    kw[key] = http.unquote(values[0])
-                kw['img'] = self.imageURL(kw)
-                kw['onload'] = None
-            else:
-                kw.update(self.defaultParams)
-                kw['img'] = self.blankImage[0]
-                kw['onload'] = "updateImage()"
-            html = self.vr(**kw)
-            return static.Data(html, 'text/html')
+            return self
         if path == "image.png":
             return self.ir
         if path == self.blankImage[0]:
             return self.br
         return self.nr
-    
+
+    def render_GET(self, request):
+        request.setHeader("content-type", 'text/html')
+        kw = {'permalink': request.uri}
+        if request.args:
+            for key, values in request.args.iteritems():
+                kw[key] = http.unquote(values[0])
+            kw['img'] = self.imageURL(kw)
+            kw['onload'] = None
+        else:
+            kw.update(self.defaultParams)
+            kw['img'] = self.blankImage[0]
+            kw['onload'] = "updateImage()"
+        return self.vr(**kw)
+        
     def vRoot(self):
         """
         Populates my vroot I{vr} with an etree that renders into the HTML
