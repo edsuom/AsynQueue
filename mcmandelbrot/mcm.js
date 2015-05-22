@@ -22,8 +22,8 @@
 // express or implied. See the License for the specific language
 // governing permissions and limitations under the License.
 
-function buildUrl(url, parameters) {
-    // Copied from Michael's answer at
+function buildQS(parameters) {
+    // Adapted from Michael's answer at
     // http://stackoverflow.com/questions/316781/
     //   how-to-build-query-string-with-javascript
     var qs = "";
@@ -33,9 +33,9 @@ function buildUrl(url, parameters) {
     }
     if (qs.length > 0){
 	qs = qs.substring(0, qs.length-1); //chop off last "&"
-	url = url + "?" + qs;
+	qs = "?" + qs;
     }
-    return url;
+    return qs;
 }
 function getParams() {
     var value;
@@ -61,9 +61,11 @@ function updateImage(params) {
     } else {
 	setParams(params);
     }
-    var img = document.getElementById('mandelbrot');
     params.N = document.getElementById('image').clientWidth;
-    img.src = buildUrl("/image.png", params);
+    var qs = buildQS(params);
+    document.getElementById('mandelbrot').src = "/image.png" + qs;
+    var plink = "http://" + window.location.host + qs;
+    document.getElementById('permalink').href = plink;
 }
 function xy(event) {
     var p = {};

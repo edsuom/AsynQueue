@@ -34,10 +34,9 @@ import sys
 
 from twisted.application import internet, service
 from twisted.internet import defer
-from twisted.web import server, resource, static, util
+from twisted.web import server, resource, static, util, http
 
 from mcmandelbrot import vroot, image
-
 
 MY_PORT = 8080
 VERBOSE = True
@@ -52,15 +51,16 @@ ABOUT = """
 Images genera&shy;ted by the <i>mcmandelbrot</i> demo package
 bun&shy;dled with my <a
 href="http://edsuom.com/AsynQueue">AsynQueue</a> asyn&shy;chronous
-processing pack&shy;age, freely available per the Apache License. A
-link back to <a href="http://edsuom.com"><b>edsuom.com</b></a> would
-be apprec&shy;iated.
+processing pack&shy;age, which is freely available per the Apache
+License. A link back to <a
+href="http://mcm.edsuom.com"><b>mcm.edsuom.com</b></a> would be
+apprec&shy;iated.
 """
+
 BYLINE = "&mdash;Ed Suominen"
 
 MORE_INFO = """
-Server resources for <a
-href="http://mcm.edsuom.com">mcm.edsuom.com</a> contributed by <a
+CPU and bandwidth resources for this site were con&shy;tributed by <a
 href="http://tellectual.com">Tellectual Press</a>, publisher of my
 book <em>Evolving out of Eden</em>.
 """
@@ -103,15 +103,17 @@ class SiteResource(resource.Resource):
         return "/image.png?{}".format('&'.join(parts))
         
     def getChild(self, path, request):
-        print "\nGC", path, request
         if path == "":
+            kw = {'permalink': request.uri}
             if request.args:
-                kw = request.args.copy()
-                kw['img'] = self.imageURL(request.args)
-                html = self.vr(**kw)
+                for key, values in request.args.iteritems():
+                    kw[key] = http.unquote(values[0])
+                kw['img'] = self.imageURL(kw)
+                kw['onload'] = None
             else:
-                kw = self.defaultParams.copy()
+                kw.update(self.defaultParams)
                 kw['img'] = self.blankImage[0]
+                kw['onload'] = "updateImage()"
             html = self.vr(**kw)
             return static.Data(html, 'text/html')
         if path == "image.png":
@@ -142,8 +144,12 @@ class SiteResource(resource.Resource):
             v.set('href', "http://edsuom.com/AsynQueue")
             v.tail(".")
 
-        vr = vroot.HTML_VRoot(self.defaultTitle)
+        vr = vroot.VRoot(self.defaultTitle)
         with vr as v:
+            v.nc('body')
+            v.addToMap('onload', 'onload')
+            v.nc('div', 'container')
+            v.set('id', 'container')
             v.nc('div', 'first_part')
             #--------------------------------------------------------
             with v.context():
@@ -175,25 +181,33 @@ class SiteResource(resource.Resource):
                     e.set('type', "button")
                     e.set('onclick', "zoomOut()")
                     e.text = "Zoom Out"
-                v.nc('div', 'about')
-                v.textX(ABOUT)
-                v.nc('span', 'byline')
-                v.textX(BYLINE)
-                v.ns('div', 'about large_only')
+                with v.context():
+                    v.nc('div', 'about')
+                    v.textX(ABOUT)
+                    v.nc('span', 'byline')
+                    v.textX(BYLINE)
+                v.nc('div', 'about large_only')
                 v.textX(MORE_INFO)
             v.ns('div', 'second_part')
             #--------------------------------------------------------
             with v.context():
                 v.nc('div', 'image')
                 v.set('id', 'image')
-                v.nc('img', 'mandelbrot')
-                v.addToMap('img', 'src')
-                v.set('id', 'mandelbrot')
-                v.set('onclick', "zoomIn(event)")
-                v.set('onmousemove', "hover(event)")
-            v.nc('div', 'footer')
-            v.set('id', 'hover')
-            v.textX(HOWTO)
+                with v.context():
+                    v.nc('img', 'mandelbrot')
+                    v.addToMap('img', 'src')
+                    v.set('id', 'mandelbrot')
+                    v.set('onclick', "zoomIn(event)")
+                    v.set('onmousemove', "hover(event)")
+                v.nc('div', 'footer')
+                v.nc('div', 'left')
+                v.set('id', 'hover')
+                v.textX(HOWTO)
+                v.ns('div', 'right')
+                v.nc('a', 'bold')
+                v.text("Permalink")
+                v.set('id', 'permalink')
+                v.addToMap('permalink', 'href')
             v.ns('div', 'about small_only')
             v.textX(MORE_INFO)
             return vr

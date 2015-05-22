@@ -41,6 +41,9 @@ div.container {
 .smaller {
     font-size: 90%;
 }
+.bold {
+    font-weight: bold;
+}
 .coords {
     font-size: 70%;
     font-family: monospace;
@@ -141,6 +144,14 @@ div.footer {
     margin-left: 1em;
     margin-right: 1em;
     text-align: justify;
+}
+div.left {
+    float: left;
+    text-align: left;
+}
+div.right {
+    float: right;
+    text-align: right;
 }
 .small_only {
     display: block;

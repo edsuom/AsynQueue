@@ -445,8 +445,12 @@ class Baton(object):
         and applying keywords to my mapped elements.
         """
         for elementID, newValue in kw.iteritems():
-            e, attrName = self.eMap[elementID]
-            e.set(attrName, newValue)
+            if elementID in self.eMap:
+                e, attrName = self.eMap[elementID]
+                if newValue is None:
+                    e.attrib.pop(attrName, None)
+                else:
+                    e.set(attrName, newValue)
         xml = ET.tostring(self.e)
         while True:
             match = self.rePlaceholder.search(xml)
@@ -460,13 +464,35 @@ class Baton(object):
         return "<html>\n{}\n</html>".format(re.sub(r"</?vroot>", r"", xml))
 
 
+class Meta(type):
+    """
+    Load class-wide lists of lines for CSS and JS
+    """
+    def __new__(cls, name, parents, dct):
+        dct['headLines'] = {}
+        for fileType, fileName in dct['headFiles'].iteritems():
+            lines = []
+            fh = openPackageFile(fileName)
+            for line in fh:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith('/'):
+                    continue
+                if stripped.startswith('#'):
+                    continue
+                lines.append(line.rstrip())
+            fh.close()
+            dct['headLines'][fileType] = lines
+        return super(Meta, cls).__new__(cls, name, parents, dct)
+
+
 class VRoot(object):
     """
     I am a context manager for passing you a baton with a virtual root
     element (my "e" attribute) to which you can add elements, e.g., an
     HTML document. When you get done, I'll put an XML string in the
-    baton. You can strip out the XML tag. You can also specify a tag
-    for wrapping the stripped content (e.g., "<html>...</html>").
+    baton, with the XML tag stripped out and replaced with HTML tags.
 
     The baton has tons of convenience methods for generating tags.
 
@@ -477,46 +503,47 @@ class VRoot(object):
     ...
 
     Call my instance to get the XML or HTML as a string.
-
     """
     # Number of spaces to indent each XML level
     indent = 2  
 
-    replaceXML = None
     versionXML = 1.0
+    charset = "utf-8"
+    replaceXML = "html"
+    headFiles = {'css': "mcm.css", 'js': "mcm.js"}
+    
+    __metaclass__ = Meta
 
-    reEmptyItem = re.compile(
-        r'<([a-zA-Z\:]+)\s+[^>]*[^/>](>)</([a-zA-Z\:]+)>')
-
-    def fixCloseTags(self, text):
-        while True:
-            match = self.reEmptyItem.search(text)
-            if not match:
-                break
-            if match.group(1) != match.group(3):
-                raise ValueError(
-                    "Malformed XML in substring '{}'".format(match.group(0)))
-            text = text[:match.start(2)] + " />"
-        return text
-
-    def xmlToUnicode(self):
+    def __init__(self, title):
+        self.title = title
+        self.metaTags = [
+            {'name':"viewport",
+             'content':"width=device-width, initial-scale=1"}]
+    
+    def insert(self, v, tag, name, typ=None):
         """
-        Return a pretty-printed XML string for my vroot element. From
-        http://pymotw.com/2/xml/etree/ElementTree/create.html
+        Inserts the text read from the named entry in I{headLines}.
         """
-        kw = {}
-        if getattr(self, 'encoding', None):
-            kw['encoding'] = self.encoding
-        rough_string = ET.tostring(self.b.e, **kw)
-        reparsed = minidom.parseString(rough_string)
-        kw['indent'] = " " * self.indent
-        xml = reparsed.toprettyxml(**kw)
-        if isinstance(xml, str):
-            # A string with ascii-encoded unicode was returned from
-            # Et.tostring, so decode it into a unicode object for
-            # consistency
-            xml = codecs.decode(xml, 'utf-8')
-        return self.fixCloseTags(xml)
+        v.ns(tag)
+        v.textX(u"\n"+u"\n".join(self.headLines[name]))
+        if typ:
+            v.set('type', typ)
+
+    def head(self, v):
+        with v.context():
+            h = v.nc('head')
+            v.nc('title')
+            # There might be HTML formatting chars in the title string
+            v.textX(self.title)
+            # Meta
+            v.meta(
+                h, charset=self.charset,
+                content="application/xhtml+xml",
+                http_equiv="Content-Type")
+            for kw in self.metaTags:
+                v.meta(h, **kw)
+            self.insert(v, 'style', 'css')
+            self.insert(v, 'script', 'js', "text/javascript")
 
     def __call__(self, **kw):
         """
@@ -539,93 +566,13 @@ class VRoot(object):
             if value:
                 setattr(self.b, name, value)
         # Possible custom entry method
-        self.entryMethod(self.b)
-        if getattr(self.b, 'eChild', None) is not None:
-            self.b.seParent = self.b.lastParent = self.b.eChild
+        self.head(self.b)
         return self.b
 
     def __exit__(self, etype, value, trace):
         if etype is not None:
-            try:
-                xml = self.xmlToUnicode(self)
-            except:
-                xml = u"<Invalid>"
-            print u"\nIncomplete Vroot Element: {}\n{}\n".format(
-                xml, '-'*79)
             traceback.print_exception(etype, value, trace)
             sys.exit(1)
 
-
-class HV_Meta(type):
-    """
-    Load class-wide lists of lines for CSS and JS
-    """
-    def __new__(cls, name, parents, dct):
-        dct['headLines'] = {}
-        for fileType, fileName in dct['headFiles'].iteritems():
-            lines = []
-            fh = openPackageFile(fileName)
-            for line in fh:
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                if stripped.startswith('/'):
-                    continue
-                if stripped.startswith('#'):
-                    continue
-                lines.append(line.rstrip())
-            fh.close()
-            dct['headLines'][fileType] = lines
-        return super(HV_Meta, cls).__new__(cls, name, parents, dct)
             
             
-class HTML_VRoot(VRoot):
-    """
-    L{VRoot} for HTML.
-    """
-    __metaclass__ = HV_Meta
-    
-    charset = "utf-8"
-    replaceXML = "html"
-
-    headFiles = {'css': "mcm.css", 'js': "mcm.js"}
-
-    def __init__(self, title):
-        self.title = title
-        self.metaTags = [
-            {'name':"viewport",
-             'content':"width=device-width, initial-scale=1"}]
-
-    def insert(self, v, tag, name, typ=None):
-        """
-        Inserts the text read from the named entry in I{headLines}.
-        """
-        v.ns(tag)
-        v.textX(u"\n"+u"\n".join(self.headLines[name]))
-        if typ:
-            v.set('type', typ)
-
-    def head(self, v):
-        h = v.nc('head')
-        v.nc('title')
-        # There might be HTML formatting chars in the title string
-        v.textX(self.title)
-        # Meta
-        v.meta(
-            h, charset=self.charset,
-            content="application/xhtml+xml",
-            http_equiv="Content-Type")
-        for kw in self.metaTags:
-            v.meta(h, **kw)
-        self.insert(v, 'style', 'css')
-        self.insert(v, 'script', 'js', "text/javascript")
-    
-    def entryMethod(self, v):
-        self.head(v)
-        # BODY/DIV
-        v.rp()
-        v.nc('body')
-        v.set('onload', "updateImage()")
-        v.nc('div', 'container')
-        v.set('id', 'container')
-        # The rest is up to the context caller
