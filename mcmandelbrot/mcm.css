@@ -111,6 +111,7 @@ div.form {
 div.form_item {
     display: inline;
     margin: 0;
+    padding-top: 4px;
     padding-left: 10px;
     padding-right: 4px;
     white-space: nowrap;
@@ -124,14 +125,16 @@ div.image {
 img.mandelbrot {
     border: 2px solid grey;
 }
+img[src*="blank.jpg"] {
+    width: 100%;
+}
 div.about, div.footer {
     line-height: 1.2;
     font-family: Arial, Helvetica, sans-serif;
-    padding-top: 0;
     font-size: 80%;
 }
 div.about {
-    margin-top: 1em;
+    clear: both;
     margin-left: 1em;
     text-align: justify;
 }
@@ -141,8 +144,8 @@ div.about {
 }
 div.footer {
     clear: both;
-    margin-left: 1em;
-    margin-right: 1em;
+    margin: 0.5em;
+    padding-top: 0;
     text-align: justify;
 }
 div.left {
@@ -159,7 +162,12 @@ div.right {
 .large_only {
     display: none;
 }
-
+#hover {
+    font-size: 80%;
+}
+#more_info {
+    padding-top: 0.7em;
+}
 
 /* Landscape screen */
 @media screen and (min-device-width: 1120px) {
@@ -197,22 +205,27 @@ div.right {
     }
     div.about {
 	margin-left: 0;
-	margin-top: 2em;
+	margin-top: 1em;
     }
     .byline {
 	display: block;
 	text-align: right;
-	padding-top: 0.5em;
     }
     div.second_part {
 	float: right;
 	border-left: 3px black;
 	width: 900px;
     }
+    div.footer {
+	margin: 0.5em 1em;
+    }
     .small_only {
 	display: none;
     }
     .large_only {
 	display: block;
+    }
+    #hover {
+	font-size: 100%;
     }
 }

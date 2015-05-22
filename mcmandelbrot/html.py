@@ -57,7 +57,7 @@ href="http://mcm.edsuom.com"><b>mcm.edsuom.com</b></a> would be
 apprec&shy;iated.
 """
 
-BYLINE = "&mdash;Ed Suominen"
+BYLINE = " &mdash;Ed Suominen"
 
 MORE_INFO = """
 CPU and bandwidth resources for this site were con&shy;tributed by <a
@@ -214,6 +214,7 @@ class RootResource(resource.Resource):
                 v.set('id', 'permalink')
                 v.addToMap('permalink', 'href')
             v.ns('div', 'about small_only')
+            v.set('id', 'more_info')
             v.textX(MORE_INFO)
             return vr
 

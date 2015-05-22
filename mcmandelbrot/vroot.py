@@ -479,7 +479,7 @@ class Meta(type):
                     continue
                 if stripped.startswith('/'):
                     continue
-                if stripped.startswith('#'):
+                if stripped.startswith('# '):
                     continue
                 lines.append(line.rstrip())
             fh.close()
