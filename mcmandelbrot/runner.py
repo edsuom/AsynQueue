@@ -88,7 +88,7 @@ class Runner(object):
     @property
     def N_processes(self):
         maxValue = min([
-            self.N_maxProcesses, asynqueue.ProcessQueue.cores()-1])
+            self.N_maxProcesses, asynqueue.ProcessQueue.cores()])
         return max([self.N_minProcesses, maxValue])
 
     def log(self, *args):
