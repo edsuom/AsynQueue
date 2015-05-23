@@ -590,7 +590,7 @@ class TaskQueue(object):
           worker gets a task assignment for the call, after which the
           call will be retried.
 
-        @keyword consumer: An implementor of L{interfaces.IConsumer}
+        @keyword consumer: An implementor of C{interfaces.IConsumer}
           that will receive iterations if the result of the call is an
           interator. In such case, the returned result is a deferred
           that fires (with a reference to the consumer) when the

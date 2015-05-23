@@ -239,7 +239,7 @@ class DeferredTracker(object):
 
 class DeferredLock(defer.DeferredLock):
     """
-    I am a modified form of L{defer.DeferredLock} lock that lets you
+    I am a modified form of C{defer.DeferredLock} lock that lets you
     shut things down when you get the lock.
 
     Raises an exception if you try to acquire the lock after a
@@ -269,7 +269,7 @@ class DeferredLock(defer.DeferredLock):
         
     def acquire(self, vip=False):
         """
-        Like L{defer.DeferredLock.acquire} except with a I{vip}
+        Like C{defer.DeferredLock.acquire} except with a I{vip}
         option. That lets you cut ahead of everyone in the regular
         waiting list and gets the next lock, after anyone else in the
         VIP line who is waiting from their own call of this method.

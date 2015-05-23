@@ -183,7 +183,7 @@ class Deferator(object):
     until I raise L{StopIteration} just like a regular iterable.
 
     B{NOTE}: There are two very important rules. First, you B{must}
-    wrap my iteration in a L{defer.inlineCallbacks} loop or otherwise
+    wrap my iteration in a C{defer.inlineCallbacks} loop or otherwise
     wait for each yielded deferred to fire before asking for the next
     one. Second, you must call the L{stop} method of the Deferator (or
     the deferreds it yields) before doing a C{break} or C{return} to

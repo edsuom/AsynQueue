@@ -5,5 +5,5 @@ recursive-include asynqueue/test *.py
 include mcmandelbrot/mcm.css
 include mcmandelbrot/mcm.js
 include mcmandelbrot/blank.jpg
+recursive-include mcmandelbrot/test *.py
 
-exclude mcmandelbrot/diverging_map.py

@@ -266,7 +266,7 @@ class RemoteRunner(object):
         plane, plus or minus I{crPM} on the real axis and I{ciPM} on
         the imaginary axis.
 
-        @see: L{runner.run}.
+        @see: L{runner.Runner.run}.
 
         This method doesn't call L{setup}; that is taken care of by
         L{image.Imager} for HTTP requests and by L{writeImage} for
