@@ -29,8 +29,7 @@ body {
 div.container {
     background: white;
     position: relative;
-    max-width: 900px;
-    padding: 5px;
+    max-width: 800px;
     margin: auto;
     box-sizing: border-box;
 }
@@ -170,13 +169,13 @@ div.right {
 }
 
 /* Landscape screen */
-@media screen and (min-device-width: 1120px) {
+@media screen and (min-device-width: 1020px) {
     div.container {
-	max-width: 1150px;
+	max-width: 1040px;
     }
     div.first_part {
 	float: left;
-	max-width: 230px;
+	max-width: 250px;
     }
     div.heading, div.subheading { 
 	float: none;
@@ -214,7 +213,8 @@ div.right {
     div.second_part {
 	float: right;
 	border-left: 3px black;
-	width: 900px;
+	width: 770px;
+	padding-top: 0;
     }
     div.footer {
 	margin: 0.5em 1em;
