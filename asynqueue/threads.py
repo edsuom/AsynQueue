@@ -30,6 +30,7 @@ import threading
 
 from zope.interface import implements
 from twisted.internet import defer, reactor
+from twisted.python import threadpool
 from twisted.python.failure import Failure
 from twisted.internet.interfaces import IConsumer, IPushProducer
 
@@ -358,7 +359,7 @@ class ThreadLooper(object):
         self.dLock.addStopper(self.thread.join)
         return self.dLock.stop()
 
-
+        
 class IterationGetter(object):
     """
     Abstract base class for objects that munch data on one end and act
@@ -366,12 +367,57 @@ class IterationGetter(object):
 
     @see: L{Consumerator} and L{Filerator}.
     """
+    maxThreads = 20
+    
     class IterationStopper:
         pass
-    
+
     def __init__(self):
+        self.setup()
         self.runState = 'init'
-        self.d = defer.Deferred()
+        self.dList = []
+
+    @classmethod
+    def setup(cls):
+        if not hasattr(cls, 'pool'):
+            cls.pool = threadpool.ThreadPool(
+                minthreads=1, maxthreads=cls.maxThreads,
+                name="AsynQueue.IterationGetter")
+            reactor.addSystemEventTrigger('before', 'shutdown', cls.shutdown)
+        if not hasattr(cls, 'dt'):
+            cls.dt = util.DeferredTracker()
+    
+    @classmethod
+    def shutdown(cls):
+        def ready(null):
+            if hasattr(cls, 'pool'):
+                cls.pool.stop()
+                del cls.pool
+        return cls.dt.deferToLast().addCallback(ready)
+        
+    def start(self):
+        """
+        Call this when I should start listening for iterations.
+
+        Sets up locks for my iteration-consuming thread (from my
+        C{ThreadPool}), the blocking-iterator thread, and the
+        next-iteration event. Lock both of my iteration-processing
+        loops until an iteration is received, but leaves the
+        next-iteration lock I{nLock} unlocked. The iteration-consuming
+        thread will lock it to overwrite the blocking-iterator
+        thread's value of each iteration.
+
+        Calls my subclass's L{loop} method in its own thread. If too
+        many threads are currently open, queues the loop call until
+        one finishes up in some other instance of me.
+        """
+        def done(success, result):
+            reactor.callFromThread(d.callback, None)
+        
+        self.runState = 'started'
+        d = defer.Deferred()
+        self.dt.put(d)
+        self.dList.append(d)
         # Locks for my iteration-consuming thread, the
         # blocking-iterator thread, and the next-iteration event
         self.cLock = threading.Semaphore()
@@ -381,16 +427,12 @@ class IterationGetter(object):
         # iteration is received
         self.cLock.acquire()
         self.bLock.acquire()
-        # We leave the next-iteration lock unlocked; the
-        # iteration-consuming thread will lock it to overwrite the
-        # blocking-iterator thread's value of each iteration
-
-    def start(self):
-        """
-        Call this when I should start listening for iterations.
-        """
-        self.thread = threading.Thread(name=repr(self), target=self.loop)
-        self.thread.start()
+        # Start the class-wide threadpool if this is the first time
+        # it's been used
+        if not self.pool.started:
+            self.pool.start()
+        # Call my subclass's loop function
+        self.pool.callInThreadWithCallback(done, self.loop)
 
     def loop(self):
         """
@@ -402,9 +444,7 @@ class IterationGetter(object):
         """
         Returns a C{Deferred} that fires when I am done iterating.
         """
-        d = defer.Deferred()
-        self.d.chainDeferred(d)
-        return d
+        return defer.DeferredList(self.dList)
         
     # Iterator implementation -------------------------------------------------
     # Call in its own thread
@@ -499,7 +539,6 @@ class Consumerator(IterationGetter):
         # blocking iterations stopped.
         self.runState = 'stopping'
         self.nLock.acquire()
-        reactor.callFromThread(self.d.callback, None)
         self.runState = 'stopped'
         reactor.callFromThread(delattr, self, 'producer')
         
@@ -613,7 +652,6 @@ class Filerator(IterationGetter):
         self.runState = 'stopping'
         self.nLock.acquire()
         self.runState = 'stopped'
-        reactor.callFromThread(self.d.callback, None)
     
     def write(self, data):
         """

@@ -369,6 +369,53 @@ class TestThreadLooper(TestCase):
         self.assertEqual(len(valueList), 5)
 
 
+class TestableIterationGetter(threads.IterationGetter):
+    def loop(self):
+        """
+        Just one iteration value per run of this method
+        """
+        self.runState = 'running'
+        if not hasattr(self, 'values'):
+            self.values = []
+        self.cLock.acquire()
+        value = self.value
+        self.values.append(value)
+        self.nLock.acquire()
+        self.bIterationValue = value
+        self.bLock.release()
+        self.runState = 'stopping'
+
+
+class TestIterationGetter(TaskMixin, TestCase):
+    verbose = False
+
+    def setUp(self):
+        self.tig = TestableIterationGetter()
+
+    def tearDown(self):
+        return self.tig.shutdown()
+
+    def test_basic(self):
+        self.tig.start()
+        self.tig.value = 'foo'
+        self.tig.cLock.release()
+        self.assertEqual(self.tig.next(), 'foo')
+
+    @defer.inlineCallbacks
+    def test_reuse(self):
+        xList = []
+        for x in xrange(20):
+            xList.append(x)
+            self.tig.start()
+            self.tig.value = x
+            self.tig.cLock.release()
+            self.assertEqual(self.tig.next(), x)
+        # This is really just to also test the deferUntilDone method
+        # while we're at it
+        yield self.tig.deferUntilDone()
+        self.assertEqual(self.tig.values, xList)
+
+
 class TestConsumerator(TaskMixin, TestCase):
     verbose = False
 
@@ -376,9 +423,11 @@ class TestConsumerator(TaskMixin, TestCase):
         self.q = threads.ThreadQueue()
         self.c = threads.Consumerator()
 
+    @defer.inlineCallbacks
     def tearDown(self):
-        return self.q.shutdown()
-        
+        yield self.c.shutdown()
+        yield self.q.shutdown()
+    
     @defer.inlineCallbacks
     def test_withPushProducer(self):
         N = 10
@@ -431,8 +480,10 @@ class TestFilerator(TaskMixin, TestCase):
             self.q.attachWorker(worker)
         self.f = threads.Filerator()
 
+    @defer.inlineCallbacks
     def tearDown(self):
-        return self.q.shutdown()
+        yield self.f.shutdown()
+        yield self.q.shutdown()
         
     @defer.inlineCallbacks
     def test_inMainThread(self):
