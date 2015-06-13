@@ -48,11 +48,11 @@ class TaskMixin:
         return 2*x
             
     def _blockingIteratorUser(self, iterator, maxTime=0.2):
-        self.values = []
+        values = []
         for x in iterator:
             # Doesn't this just seem rude after using Twisted a while?
-            self.values.append(self._blockingTask(x, maxTime))
-        return self.values
+            values.append(self._blockingTask(x, maxTime))
+        return values
 
 
 class TestThreadQueue(TaskMixin, TestCase):
@@ -368,6 +368,17 @@ class TestThreadLooper(TestCase):
             valueList.append(value)
         self.assertEqual(len(valueList), 5)
 
+    @defer.inlineCallbacks
+    def test_deferToThread_iteratorRaw(self):
+        valueGenerator = yield self.t.deferToThread(
+            self.stuff.stringerator, raw=True)
+        self.msg("Call to iterator returned: {}", repr(valueGenerator))
+        valueList = []
+        for value in valueGenerator:
+            self.assertApproximates(value, 0.2, 0.05)
+            valueList.append(value)
+        self.assertEqual(len(valueList), 5)
+
 
 class TestableIterationGetter(threads.IterationGetter):
     def loop(self):
@@ -387,10 +398,11 @@ class TestableIterationGetter(threads.IterationGetter):
 
 
 class TestIterationGetter(TaskMixin, TestCase):
-    verbose = False
+    verbose = True
+    maxThreads = 5
 
     def setUp(self):
-        self.tig = TestableIterationGetter()
+        self.tig = TestableIterationGetter(self.maxThreads)
 
     def tearDown(self):
         return self.tig.shutdown()
@@ -404,7 +416,7 @@ class TestIterationGetter(TaskMixin, TestCase):
     @defer.inlineCallbacks
     def test_reuse(self):
         xList = []
-        for x in xrange(20):
+        for x in xrange(4*self.maxThreads):
             xList.append(x)
             self.tig.start()
             self.tig.value = x
@@ -415,13 +427,23 @@ class TestIterationGetter(TaskMixin, TestCase):
         yield self.tig.deferUntilDone()
         self.assertEqual(self.tig.values, xList)
 
+    @defer.inlineCallbacks
+    def test_waitForFreeThread(self):
+        dList = []
+        for x in xrange(4*self.maxThreads):
+            dList.append(
+                self.tig.deferToThreadInPool(self._blockingTask, x, 0.1))
+        yList = yield defer.gatherResults(dList)
+        self.assertEqual(yList, range(0, 8*self.maxThreads, 2))
+
 
 class TestConsumerator(TaskMixin, TestCase):
     verbose = False
-
+    maxThreads = 3
+    
     def setUp(self):
         self.q = threads.ThreadQueue()
-        self.c = threads.Consumerator()
+        self.c = threads.Consumerator(maxThreads=self.maxThreads)
 
     @defer.inlineCallbacks
     def tearDown(self):
@@ -468,6 +490,30 @@ class TestConsumerator(TaskMixin, TestCase):
         self.assertEqual(len(values), N)
         self.assertEqual(values, range(0, 2*N, 2))
         yield producer.d
+
+    @defer.inlineCallbacks
+    def test_waitForFreeThread(self):
+        Nc = 2*self.maxThreads
+        N = 100
+        cList = []
+        dList = []
+        for k in xrange(Nc):
+            c = self.c if k == 0 else threads.Consumerator()
+            cList.append(c)
+            totalTime = 0.1
+            producer = RangeProducer(c, N, True, totalTime/(4*N), totalTime/N)
+            d = threads.deferToThread(
+                self._blockingIteratorUser, c, 0.01, raw=True)
+            dList.append(d)
+        yield defer.DeferredList([c.deferUntilDone() for c in cList])
+        valueLists = yield defer.gatherResults(dList)
+        self.assertEqual(len(valueLists), Nc)
+        previousValues = None
+        for values in valueLists:
+            self.assertEqual(len(values), N)
+            self.assertEqual(values, range(0, 2*N, 2))
+            self.assertNotEqual(id(values), previousValues)
+            previousValues = values
 
 
 class TestFilerator(TaskMixin, TestCase):

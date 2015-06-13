@@ -365,17 +365,36 @@ class PoolUser(object):
     Abstract base class for objects that access a global thread pool
     instead of starting their own threads.
     """
-    maxThreads = 20
+    minThreads = 2
+    maxThreads = 10
     
     @classmethod
-    def setup(cls):
+    def setup(cls, maxThreads=None):
+        """
+        Sets up all present and future instances of L{Consumerator},
+        L{Filerator}, L{OrderedItemProducer}, and any other subclasses
+        of me with a thread pool having at least two and no more than
+        I{maxThreads} threads.
+
+        If this method is called with a thread pool already
+        instantiated, and I{maxThreads} is specified and different
+        from the current value, it adjusts the maximum thread pool
+        size for B{all} instances, current and future, absent yet
+        another call with still different values.
+        """
+        if maxThreads:
+            if hasattr(cls, '_pool') and maxThreads != cls.maxThreads:
+                cls._pool.adjustPoolSize(
+                    minThreads=cls.minThreads,
+                    maxThreads=maxThreads)
+            cls.maxThreads = maxThreads
         if not hasattr(cls, '_pool'):
             cls._pool = threadpool.ThreadPool(
-                minthreads=1, maxthreads=cls.maxThreads,
+                minthreads=cls.minThreads, maxthreads=cls.maxThreads,
                 name="AsynQueue.IterationGetter")
             reactor.addSystemEventTrigger('before', 'shutdown', cls.shutdown)
-        if not hasattr(cls, 'dt'):
-            cls.dt = util.DeferredTracker()
+        if not hasattr(cls, 'dtp'):
+            cls.dtp = util.DeferredTracker()
     
     @classmethod
     def shutdown(cls):
@@ -383,7 +402,24 @@ class PoolUser(object):
             if hasattr(cls, '_pool'):
                 cls._pool.stop()
                 del cls._pool
-        return cls.dt.deferToLast().addCallback(ready)
+        return cls.dtp.deferToAll().addCallback(ready)
+
+    @classmethod
+    def deferToThreadInPool(cls, f, *args, **kw):
+        """
+        Runs the C{f-args-kw} call combo in one of my threads, returning a
+        C{Deferred} that fires with the eventual result. Can be run
+        from the class or any instance of me with the exact same result.
+        """
+        def done(success, result):
+            f = d.callback if success else d.errback
+            reactor.callFromThread(f, result)
+        d = defer.Deferred()
+        cls.dtp.put(d)
+        if not cls._pool.started:
+            cls._pool.start()
+        cls._pool.callInThreadWithCallback(done, f, *args, **kw)
+        return d
 
     @property
     def pool(self):
@@ -395,7 +431,7 @@ class PoolUser(object):
             self._pool.start()
         return self._pool
 
-    
+
 class IterationGetter(PoolUser):
     """
     Abstract base class for objects that munch data on one end and act
@@ -406,8 +442,8 @@ class IterationGetter(PoolUser):
     class IterationStopper:
         pass
 
-    def __init__(self):
-        self.setup()
+    def __init__(self, maxThreads=None):
+        self.setup(maxThreads)
         self.runState = 'init'
         self.dList = []
 
@@ -432,7 +468,7 @@ class IterationGetter(PoolUser):
         
         self.runState = 'started'
         d = defer.Deferred()
-        self.dt.put(d)
+        self.dtp.put(d)
         self.dList.append(d)
         # Locks for my iteration-consuming thread, the
         # blocking-iterator thread, and the next-iteration event
@@ -448,6 +484,27 @@ class IterationGetter(PoolUser):
 
     def loop(self):
         """
+        Override this method to generate a value for my iterations. The
+        method must be synchronized with a series of locking
+        primitives:
+
+        1. First, wait to acquire I{cLock}. This will be released when
+           a value has been given to my subclass instance, e.g.,
+           through its C{write} method. At this point, you can
+           retrieve the value and let your value provider know it is
+           free to provide more.
+
+        2. Then wait to acquire I{nLock}. This will be released when
+           the L{next} method has obtained its next iteration value
+           from I{bIterationValue}. At this point, overwrite
+           I{bIterationValue} with the new value you've just obtained,
+           or with an instance of L{IterationStopper} if iteration is
+           done.
+        
+        3. Release I{bLock} to let the L{next} loop know it can
+           process the next iteration value (or iteration stopper) now
+           in I{bIterationValue}.
+        
         @see: L{Consumerator.loop} and L{Filerator.loop}
         """
         raise NotImplementedError("You must override this in a subclass")
@@ -503,19 +560,19 @@ class Consumerator(IterationGetter):
     started right away. Otherwise, call my L{registerProducer} method
     with the producer and whether it is streaming (push) or not.
 
-    @ivar runState: 'init', 'running', 'stopping', 'stopped'
+    @ivar runState: 'init', 'started', 'running', 'stopping', 'stopped'
 
     @ivar d: A C{Deferred} that fires when iterations are done.
     """
     implements(IConsumer)
 
-    def __init__(self, producer=None):
+    def __init__(self, producer=None, maxThreads=None):
         """
         @param producer: The producer for me to register, if you want to
           supply an C{IPushProducer} one on instantiation. Otherwise,
           use L{registerProducer}.
         """
-        super(Consumerator, self).__init__()
+        super(Consumerator, self).__init__(maxThreads)
         self.dLock = util.DeferredLock()
         if producer:
             self.registerProducer(producer, True)
@@ -581,14 +638,14 @@ class Consumerator(IterationGetter):
         """
         def handleData(null, x):
             self.cIterationValue = x
-            if self.runState == 'running':
+            if self.runState in ('started', 'running'):
                 # Release my iteration-consuming loop to work on the next
                 # iteration value
                 self.cLock.release()
                 # The producer can and should write another iteration now
                 self.producer.resumeProducing()
 
-        if self.streaming and self.runState == 'running':
+        if self.streaming and self.runState in ('started', 'running'):
             # The producer is a IPushProducer, so tell it to hold off
             # on any more iteration values for the moment while
             # everything it's sent (and may yet send) gets processed
@@ -628,8 +685,8 @@ class Filerator(IterationGetter):
 
     You must call my L{close} method to stop me from iterating.
     """
-    def __init__(self):
-        super(Filerator, self).__init__()
+    def __init__(self, maxThreads=None):
+        super(Filerator, self).__init__(maxThreads)
         self.itemBuffer = []
         self.start()
 
@@ -736,8 +793,8 @@ class OrderedItemProducer(PoolUser):
     """
     implements(IPushProducer)
     
-    def __init__(self):
-        self.setup()
+    def __init__(self, maxThreads=None):
+        self.setup(maxThreads)
         self.itemBuffer = {}
         self.k1, self.k2 = 0, 0
         self.seriesID = hash(self)
@@ -775,6 +832,7 @@ class OrderedItemProducer(PoolUser):
             self.stopProducing()
         dStarted = defer.Deferred()
         self.dFinished = defer.Deferred()
+        self.dtp.put(self.dFinished)
         self.pool.callInThread(runner)
         return dStarted
     
