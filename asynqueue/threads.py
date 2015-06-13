@@ -359,28 +359,18 @@ class ThreadLooper(object):
         self.dLock.addStopper(self.thread.join)
         return self.dLock.stop()
 
-        
-class IterationGetter(object):
-    """
-    Abstract base class for objects that munch data on one end and act
-    like iterators to yield it on the other end.
 
-    @see: L{Consumerator} and L{Filerator}.
+class PoolUser(object):
+    """
+    Abstract base class for objects that access a global thread pool
+    instead of starting their own threads.
     """
     maxThreads = 20
     
-    class IterationStopper:
-        pass
-
-    def __init__(self):
-        self.setup()
-        self.runState = 'init'
-        self.dList = []
-
     @classmethod
     def setup(cls):
-        if not hasattr(cls, 'pool'):
-            cls.pool = threadpool.ThreadPool(
+        if not hasattr(cls, '_pool'):
+            cls._pool = threadpool.ThreadPool(
                 minthreads=1, maxthreads=cls.maxThreads,
                 name="AsynQueue.IterationGetter")
             reactor.addSystemEventTrigger('before', 'shutdown', cls.shutdown)
@@ -390,11 +380,37 @@ class IterationGetter(object):
     @classmethod
     def shutdown(cls):
         def ready(null):
-            if hasattr(cls, 'pool'):
-                cls.pool.stop()
-                del cls.pool
+            if hasattr(cls, '_pool'):
+                cls._pool.stop()
+                del cls._pool
         return cls.dt.deferToLast().addCallback(ready)
-        
+
+    @property
+    def pool(self):
+        """
+        Returns a reference to the class-wide threadpool, starting it if
+        this is the first time it's been used.
+        """
+        if not self._pool.started:
+            self._pool.start()
+        return self._pool
+
+    
+class IterationGetter(PoolUser):
+    """
+    Abstract base class for objects that munch data on one end and act
+    like iterators to yield it on the other end.
+
+    @see: L{Consumerator} and L{Filerator}.
+    """
+    class IterationStopper:
+        pass
+
+    def __init__(self):
+        self.setup()
+        self.runState = 'init'
+        self.dList = []
+
     def start(self):
         """
         Call this when I should start listening for iterations.
@@ -427,11 +443,7 @@ class IterationGetter(object):
         # iteration is received
         self.cLock.acquire()
         self.bLock.acquire()
-        # Start the class-wide threadpool if this is the first time
-        # it's been used
-        if not self.pool.started:
-            self.pool.start()
-        # Call my subclass's loop function
+        # Call my subclass's loop function in a pool thread
         self.pool.callInThreadWithCallback(done, self.loop)
 
     def loop(self):
@@ -690,7 +702,7 @@ class Filerator(IterationGetter):
             self.write(self.IterationStopper())
 
 
-class OrderedItemProducer(object):
+class OrderedItemProducer(PoolUser):
     """
     Produces blocking iterations in the order they are requested via
     an asynchronous function call.
@@ -725,6 +737,7 @@ class OrderedItemProducer(object):
     implements(IPushProducer)
     
     def __init__(self):
+        self.setup()
         self.itemBuffer = {}
         self.k1, self.k2 = 0, 0
         self.seriesID = hash(self)
@@ -744,7 +757,9 @@ class OrderedItemProducer(object):
         call to L{start}.
 
         @return: A C{Deferred} that fires when the blocking call has
-          started in a dedicated thread. Shouldn't take long at all.
+          started in its own thread. Shouldn't take long at all,
+          unless the pool is fully occupied and we need to wait for a
+          thread to get freed up.
         """
         def started():
             self.dLock.release()
@@ -760,8 +775,7 @@ class OrderedItemProducer(object):
             self.stopProducing()
         dStarted = defer.Deferred()
         self.dFinished = defer.Deferred()
-        thread = threading.Thread(name=repr(self), target=runner)
-        thread.start()
+        self.pool.callInThread(runner)
         return dStarted
     
     def produceItem(self, fp, *args, **kw):
