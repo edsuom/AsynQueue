@@ -278,8 +278,8 @@ class TaskQueue(object):
       down by that point.
 
     @keyword warn: Merely log errors via an 'asynqueue' logger with
-      ERROR events. The default is to stop the reactor and raise an
-      exception when an error is encountered.
+      ERROR events. The default is to stop the reactor and print an
+      error message on C{stderr} when an error is encountered.
 
     @keyword verbose: Provide detailed info about tasks that are logged
       or result in errors.
@@ -289,7 +289,7 @@ class TaskQueue(object):
 
     @keyword returnFailure: If a task raises an exception, call its
       errback with a Failure. Default is to either log an error (if
-      'warn' is set) or stop the queue.
+      'warn' is set) or stop the reactor.
     """
     def __init__(self, *args, **kw):
         # Options
@@ -486,8 +486,9 @@ class TaskQueue(object):
                 elif not self.warn:
                     # ...stop the reactor
                     import sys
-                    sys.stderr.write("\nERROR: {}".format(result))
-                    print "\nShutting down in one second!\n"
+                    for msg in ("ERROR: {}".format(result),
+                                "Shutting down in one second!\n"):
+                        sys.stderr.write("\n{}".format(msg))
                     self._dc = reactor.callLater(1.0, reactor.stop)
                 return result
         if status in "rc":

@@ -150,8 +150,8 @@ class Runner(object):
                 # Trap ValueError caused by mid-stream cancellation
                 if not isinstance(e, StopIteration):
                     if "rows" not in e.message and "height" not in e.message:
-                        raise e
-
+                        print "Error generating PNG: {}".format(e.message)
+        
         crMin, crMax, Nx = xSpan
         ciMin, ciMax, Ny = ySpan
         # We have at most 5 calls in the process queue for each worker

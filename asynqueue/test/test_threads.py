@@ -24,38 +24,19 @@
 Unit tests for asynqueue.threads
 """
 
-import time, random, threading
+import time, random, threading, sys, logging
+from StringIO import StringIO
 from contextlib import contextmanager
 from twisted.internet import defer, reactor
+from twisted.python.failure import Failure
 
 from util import TestStuff
 import base, tasks, iteration, threads
 from testbase import deferToDelay, RangeProducer, RangeWriter, \
-    IterationConsumer, TestCase
+    Tasks, IterationConsumer, TestHandler, TestCase
 
 
-class TaskMixin:
-    def _producterator(self, x, N=7):
-        for y in xrange(N):
-            yield x*y
-
-    def _blockingTask(self, x, maxTime=0.2):
-        delay = random.uniform(0.0, maxTime)
-        self.msg(
-            "Running {:f} sec. task in thread {}",
-            delay, threading.currentThread().getName())
-        time.sleep(delay)
-        return 2*x
-            
-    def _blockingIteratorUser(self, iterator, maxTime=0.2):
-        values = []
-        for x in iterator:
-            # Doesn't this just seem rude after using Twisted a while?
-            values.append(self._blockingTask(x, maxTime))
-        return values
-
-
-class TestThreadQueue(TaskMixin, TestCase):
+class TestThreadQueue(Tasks, TestCase):
     verbose = False
 
     def tearDown(self):
@@ -88,8 +69,73 @@ class TestThreadQueue(TaskMixin, TestCase):
             self.assertEqual(y, 2.0*k)
         yield q.shutdown()
 
+    def _bogusCall(self, **kw):
+        if not hasattr(self, 'q'):
+            self.q = threads.ThreadQueue(**kw)
+        result = self.q.call(self._divideBy, 1, 0)
+        self.msg("Bogus call returns {}", result)
+        return result
         
-class TestThreadWorker(TaskMixin, TestCase):
+    @defer.inlineCallbacks
+    def test_error_default(self):
+        stderr = sys.stderr
+        sys.stderr = StringIO()
+        try:
+            result = yield self._bogusCall()
+            self.msg("Bogus call result: {}", result)
+        except Exception as e:
+            self.fail("Exception raised")
+        self.assertIn("Exception 'integer division", result)
+        self.assertIn("ERROR:", sys.stderr.getvalue())
+        sys.stderr.close()
+        sys.stderr = stderr
+
+    @defer.inlineCallbacks
+    def test_error_warn(self):
+        stderr = sys.stderr
+        sys.stderr = StringIO()
+        handler = TestHandler(self.isVerbose())
+        logging.getLogger('asynqueue').addHandler(handler)
+        try:
+            result = yield self._bogusCall(warn=True)
+            self.msg("Bogus call result: {}", result)
+        except Exception as e:
+            self.fail("Exception raised")
+        self.assertIn("Exception 'integer division", result)
+        self.assertEqual(
+            len(sys.stderr.getvalue()), 0,
+            "STDERR not blank: '{}'".format(sys.stderr.getvalue()))
+        self.assertGreater(len(handler.records), 0)
+        for record in handler.records:
+            if record.levelno == logging.ERROR:
+                break
+        else:
+            self.fail("No ERROR record found in log handler")
+        sys.stderr.close()
+        sys.stderr = stderr
+
+    @defer.inlineCallbacks
+    def test_error_returnFailure(self):
+        def failed(failureObj):
+            self.assertIn('integer division', failureObj.getTraceback())
+            self.failedAsExpected = True
+        
+        stderr = sys.stderr
+        sys.stderr = StringIO()
+        try:
+            yield self._bogusCall(returnFailure=True).addErrback(failed)
+        except Exception as e:
+            self.fail("Exception raised")
+        self.assertTrue(self.failedAsExpected)
+        self.assertEqual(
+            len(sys.stderr.getvalue()), 0,
+            "STDERR not blank: '{}'".format(sys.stderr.getvalue()))
+        sys.stderr.close()
+        sys.stderr = stderr
+
+        
+        
+class TestThreadWorker(Tasks, TestCase):
     verbose = False
     
     def setUp(self):
@@ -397,7 +443,7 @@ class TestableIterationGetter(threads.IterationGetter):
         self.runState = 'stopping'
 
 
-class TestIterationGetter(TaskMixin, TestCase):
+class TestIterationGetter(Tasks, TestCase):
     verbose = True
     maxThreads = 5
 
@@ -437,7 +483,7 @@ class TestIterationGetter(TaskMixin, TestCase):
         self.assertEqual(yList, range(0, 8*self.maxThreads, 2))
 
 
-class TestConsumerator(TaskMixin, TestCase):
+class TestConsumerator(Tasks, TestCase):
     verbose = False
     maxThreads = 3
     
@@ -514,9 +560,9 @@ class TestConsumerator(TaskMixin, TestCase):
             self.assertEqual(values, range(0, 2*N, 2))
             self.assertNotEqual(id(values), previousValues)
             previousValues = values
+        
 
-
-class TestFilerator(TaskMixin, TestCase):
+class TestFilerator(Tasks, TestCase):
     verbose = False
 
     def setUp(self):
@@ -571,11 +617,14 @@ class TestFilerator(TaskMixin, TestCase):
         yield self.f.deferUntilDone()
 
         
-class TestOrderedItemProducer(TaskMixin, TestCase):
+class TestOrderedItemProducer(Tasks, TestCase):
     verbose = False
 
     def setUp(self):
         self.p = threads.OrderedItemProducer()
+
+    def tearDown(self):
+        return self.p.shutdown()
 
     def fb(self, i):
         result = []
@@ -626,6 +675,22 @@ class TestOrderedItemProducer(TaskMixin, TestCase):
         outputs = yield self.p.stop()
         inputs2x.sort(key=lambda x: x[0])
         self.assertEqual(outputs, [x[1] for x in inputs2x])
+
+    @defer.inlineCallbacks
+    def test_handleException(self):
+        def failed(failureObj):
+            self.assertIn("Whoops", failureObj.getTraceback())
+            self.failedAsExpected = True
+        pDelay = 0.02
+        bDelay = 0.04
+        yield self.p.start(self._unreliableIteratorUser)
+        inputs = []
+        for x in xrange(100):
+            delay = random.uniform(0, pDelay)
+            item = yield self.p.produceItem(self.fp, x, delay)
+            inputs.append(item)
+        yield self.p.stop().addErrback(failed)
+        self.assertEqual(self.failedAsExpected, True)
 
                                    
                                    

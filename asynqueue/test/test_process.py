@@ -24,6 +24,8 @@
 Unit tests for asynqueue.process
 """
 
+import sys, logging
+from StringIO import StringIO
 from time import time
 
 import numpy as np
@@ -31,7 +33,78 @@ import numpy as np
 from twisted.internet import defer
 
 import base, process
-from testbase import blockingTask, TestCase, IterationConsumer
+from testbase import blockingTask, Tasks, \
+    TestHandler, TestCase, IterationConsumer
+
+
+class TestProcessQueue(TestCase):
+    def setUp(self):
+        self.t = Tasks()
+
+    def tearDown(self):
+        return self.q.shutdown()
+        
+    def _bogusCall(self, **kw):
+        if not hasattr(self, 'q'):
+            self.q = process.ProcessQueue(1, **kw)
+        return self.q.call(self.t._divideBy, 1, 0)
+    
+    @defer.inlineCallbacks
+    def test_error_default(self):
+        stderr = sys.stderr
+        sys.stderr = StringIO()
+        try:
+            result = yield self._bogusCall()
+            self.msg("Bogus call result: {}", result)
+        except Exception as e:
+            self.fail("Exception raised")
+        self.assertIn("Exception 'integer division", result)
+        self.assertIn("ERROR:", sys.stderr.getvalue())
+        sys.stderr.close()
+        sys.stderr = stderr
+
+    @defer.inlineCallbacks
+    def test_error_warn(self):
+        stderr = sys.stderr
+        sys.stderr = StringIO()
+        handler = TestHandler(self.isVerbose())
+        logging.getLogger('asynqueue').addHandler(handler)
+        try:
+            result = yield self._bogusCall(warn=True)
+            self.msg("Bogus call result: {}", result)
+        except Exception as e:
+            self.fail("Exception raised")
+        self.assertIn("Exception 'integer division", result)
+        self.assertEqual(
+            len(sys.stderr.getvalue()), 0,
+            "STDERR not blank: '{}'".format(sys.stderr.getvalue()))
+        self.assertGreater(len(handler.records), 0)
+        for record in handler.records:
+            if record.levelno == logging.ERROR:
+                break
+        else:
+            self.fail("No ERROR record found in log handler")
+        sys.stderr.close()
+        sys.stderr = stderr
+
+    @defer.inlineCallbacks
+    def test_error_returnFailure(self):
+        def failed(failureObj):
+            self.assertIn('integer division', failureObj.getTraceback())
+            self.failedAsExpected = True
+        
+        stderr = sys.stderr
+        sys.stderr = StringIO()
+        try:
+            yield self._bogusCall(returnFailure=True).addErrback(failed)
+        except Exception as e:
+            self.fail("Exception raised")
+        self.assertTrue(self.failedAsExpected)
+        self.assertEqual(
+            len(sys.stderr.getvalue()), 0,
+            "STDERR not blank: '{}'".format(sys.stderr.getvalue()))
+        sys.stderr.close()
+        sys.stderr = stderr
 
 
 class TestProcessWorker(TestCase):

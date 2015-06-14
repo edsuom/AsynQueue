@@ -464,8 +464,9 @@ class IterationGetter(PoolUser):
         one finishes up in some other instance of me.
         """
         def done(success, result):
-            reactor.callFromThread(d.callback, None)
-        
+            f = d.callback if success else d.errback
+            reactor.callFromThread(f, result)
+
         self.runState = 'started'
         d = defer.Deferred()
         self.dtp.put(d)
@@ -825,15 +826,15 @@ class OrderedItemProducer(PoolUser):
             # This function runs via the queue in my dedicated thread
             reactor.callFromThread(started)
             # The actual blocking call
-            result = fb(self.i, *args, **kw)
-            reactor.callFromThread(finished, result)
-        def finished(result):
-            self.dFinished.callback(result)
+            return fb(self.i, *args, **kw)
+        def finished(success, result):
+            if not self.dFinished.called:
+                reactor.callFromThread(self.dFinished.callback, result)
             self.stopProducing()
         dStarted = defer.Deferred()
         self.dFinished = defer.Deferred()
         self.dtp.put(self.dFinished)
-        self.pool.callInThread(runner)
+        self.pool.callInThreadWithCallback(finished, runner)
         return dStarted
     
     def produceItem(self, fp, *args, **kw):
@@ -848,6 +849,15 @@ class OrderedItemProducer(PoolUser):
         you don't want to use them for concurrency limiting; they are
         accounted for in L{stop}.
 
+        If an exception is raised during the call, the I{dFinished}
+        callback is called with a corresponding C{Failure} object and
+        iterations will be stopped. This makes more sense than firing
+        an errback of the C{Deferred} returning from this
+        C{produceItem} method, because it's the end result of calling
+        L{stop} to indicate that iterations are done. *That* is when
+        the user should expect a status of the overall item-producing
+        operation.
+
         If my L{stopProducing} method has been called, I no longer
         produce iterations and calls to this method do not run
         I{fp}. The returned C{Deferred} fires immediately with C{None}.
@@ -856,6 +866,10 @@ class OrderedItemProducer(PoolUser):
             # We have a result, but we need to wait our turn to
             # actually produce it
             return self.dLock.acquire().addCallback(gotLock, item)
+        def oops(failureObj):
+            self.stop()
+            if not self.dFinished.called:
+                self.dFinished.callback(failureObj)
         def gotLock(lock, item):
             if self.k2 == k1 and self.produce:
                 self._writeItem(item)
@@ -868,7 +882,9 @@ class OrderedItemProducer(PoolUser):
             return defer.succeed(None)
         k1 = self.k1
         self.k1 += 1
-        d = defer.maybeDeferred(fp, *args, **kw).addCallback(gotItem)
+        d = defer.maybeDeferred(fp, *args, **kw)
+        d.addCallback(gotItem)
+        d.addErrback(oops)
         self.dt.put(d)
         return d
 
@@ -881,8 +897,10 @@ class OrderedItemProducer(PoolUser):
         I{fb} and that function should exit. Whatever value it returns
         will fire the C{Deferred} that is returned here.
 
-        If I{fb} exited early for some reason, the C{Deferred} this
-        method returns will have fired already.
+        This method's C{Deferred} may have fired already, if I{fb}
+        exited early for some reason, or with a C{Failure} object that
+        may have been generated either by the iteration caller or by a
+        call to the I{fp} function of L{produceItem}.
 
         Repeated calls to this method make no sense and will be
         rewarded with deferreds immediately firing with C{None}.

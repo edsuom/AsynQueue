@@ -24,7 +24,8 @@
 Intelligent import, Mock objects, and an improved TestCase for AsynQueue
 """
 
-import re, sys, os.path, time, random
+import re, sys, os.path, time, random, logging, threading
+from StringIO import StringIO
 
 from zope.interface import implements
 from twisted.internet import reactor, defer, task
@@ -78,6 +79,54 @@ class MsgBase(object):
                 proto += "\n{}".format("-"*40)
             print proto.format(*args)
 
+
+class Tasks(MsgBase):
+    def _producterator(self, x, N=7):
+        for y in xrange(N):
+            yield x*y
+
+    def _divideBy(self, x, y):
+        return x / y
+    
+    def _blockingTask(self, x, maxTime=0.2):
+        delay = random.uniform(0.01, maxTime)
+        self.msg(
+            "Running {:f} sec. task in thread {}",
+            delay, threading.currentThread().getName())
+        time.sleep(delay)
+        return 2*x
+            
+    def _blockingIteratorUser(self, iterator, maxTime=0.2):
+        values = []
+        for x in iterator:
+            # Doesn't this just seem rude after using Twisted a while?
+            values.append(self._blockingTask(x, maxTime))
+        return values
+
+    def _unreliableIteratorUser(self, iterator, pErr=0.1):
+        values = []
+        for x in iterator:
+            # Doesn't this just seem rude after using Twisted a while?
+            values.append(x)
+            if random.random() < pErr:
+                raise Exception("Whoops...")
+        return values
+
+            
+class TestHandler(MsgBase, logging.StreamHandler):
+    def __init__(self, verbose=False):
+        self.stream = StringIO()
+        logging.StreamHandler.__init__(self, self.stream)
+        self.verbose = verbose
+        self.records = []
+        self.setFormatter(logging.Formatter(
+            '%(levelname)s: %(message)s'))
+        
+    def emit(self, record):
+        self.records.append(record)
+        if self.verbose:
+            return logging.StreamHandler.emit(self, record)
+            
 
 class DeferredIterable(object):
     def __init__(self, x):
