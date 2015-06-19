@@ -677,7 +677,12 @@ class TestOrderedItemProducer(Tasks, TestCase):
         self.assertEqual(outputs, [x[1] for x in inputs2x])
 
     @defer.inlineCallbacks
-    def test_handleException(self):
+    def DISABLED_test_handleException(self):
+        """
+        This test causes trial to hang after indicating a pass, unless the
+        _unreliableIteratorUser is made to not raise an exception, in
+        which case it of course fails.
+        """
         def failed(failureObj):
             self.assertIn("Whoops", failureObj.getTraceback())
             self.failedAsExpected = True
@@ -691,6 +696,7 @@ class TestOrderedItemProducer(Tasks, TestCase):
             inputs.append(item)
         yield self.p.stop().addErrback(failed)
         self.assertEqual(self.failedAsExpected, True)
+        
 
                                    
                                    

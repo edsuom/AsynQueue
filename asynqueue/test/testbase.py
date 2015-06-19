@@ -106,7 +106,6 @@ class Tasks(MsgBase):
     def _unreliableIteratorUser(self, iterator, pErr=0.1):
         values = []
         for x in iterator:
-            # Doesn't this just seem rude after using Twisted a while?
             values.append(x)
             if random.random() < pErr:
                 raise Exception("Whoops...")

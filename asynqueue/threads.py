@@ -823,13 +823,13 @@ class OrderedItemProducer(PoolUser):
             self.dLock.release()
             dStarted.callback(None)
         def runner():
-            # This function runs via the queue in my dedicated thread
             reactor.callFromThread(started)
             # The actual blocking call
             return fb(self.i, *args, **kw)
         def finished(success, result):
             if not self.dFinished.called:
-                reactor.callFromThread(self.dFinished.callback, result)
+                reactor.callFromThread(
+                    self.dFinished.callback, (success, result))
             self.stopProducing()
         dStarted = defer.Deferred()
         self.dFinished = defer.Deferred()
@@ -867,9 +867,7 @@ class OrderedItemProducer(PoolUser):
             # actually produce it
             return self.dLock.acquire().addCallback(gotLock, item)
         def oops(failureObj):
-            self.stop()
-            if not self.dFinished.called:
-                self.dFinished.callback(failureObj)
+            self.stop(failureObj)
         def gotLock(lock, item):
             if self.k2 == k1 and self.produce:
                 self._writeItem(item)
@@ -889,7 +887,7 @@ class OrderedItemProducer(PoolUser):
         return d
 
     @defer.inlineCallbacks
-    def stop(self):
+    def stop(self, failureObj=None):
         """
         Call this to indicate that iterations are done. After any pending
         calls from L{produceItem} are done, my L{Consumerator} will
@@ -909,10 +907,12 @@ class OrderedItemProducer(PoolUser):
         yield self.dLock.acquire()
         yield self.i.stop()
         if hasattr(self, 'dFinished'):
-            result = yield self.dFinished
+            success, result = yield self.dFinished
             del self.dFinished
         else:
             result = None
+        if failureObj:
+            result = failureObj
         self.dLock.release()
         defer.returnValue(result)
         
