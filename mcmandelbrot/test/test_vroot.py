@@ -155,10 +155,11 @@ class TestableVRoot(vroot.VRoot):
 
 class TestVRoot(TestCase):
     def setUp(self):
-        self.v = TestableVRoot()
+        self.v = TestableVRoot("Testing")
         
     def test_basic(self):
-        self.assertIs(self.v(), None)
+        b = self.v.__enter__()
+        self.assertIsInstance(b, vroot.Baton)
         tagText = (('foo', "First"), ('bar', "Second"))
         with self.v as v:
             for tag, text in tagText:
@@ -176,14 +177,6 @@ class TestVRoot(TestCase):
             self.checkOccurrences(
                 r'<{}[^>]+>{}</{}>'.format(tag, text, tag), xml, 1)
         self.assertPattern(r'<p\s+class="classy">Classy Text</p>', xml)
-
-    def test_se(self):
-        with self.v as v:
-            e = v.se('p')
-        self.assertEqual(self.v._seParentAtEntryStart, v.e)
-        self.assertEqual(v.eChild, e)
-        self.assertEqual(v.seParent, self.v._eTest)
-        self.assertEqual(self.v._eTest[0], e)
 
     def test_p(self):
         with self.v as v:
@@ -223,7 +216,7 @@ class MockBaton(object):
 
 class TestHTML_VRoot(TestCase):
     def setUp(self):
-        self.vr = vroot.HTML_VRoot("Random Title")
+        self.vr = vroot.VRoot("Random Title")
 
     def test_head(self):
         self.vr.favicon = 'favicon.ico'
@@ -238,16 +231,15 @@ class TestHTML_VRoot(TestCase):
         self.checkBegins("<html>", html)
         self.checkOccurrences(r'</?html[^>]*>', html, 2)
         self.checkOccurrences(r'</?head[^>]*>', html, 2)
-        self.assertIn('css', html)
         self.checkOccurrences(r'</?body[^>]*>', html, 2)
-        self.checkOccurrences(r'</?div[^>]*>', html, 2)
         self.assertPattern(
-            r'<body>[\s\n]*<div\s+[^>]+>[\s\n]*<p>just this one', html)
+            r'<body>[\s\n]*<p>just this one', html)
 
     def test_basic(self):
         with self.vr as v:
+            v.nc('body')
             v.nc('p')
-            v.text("Just this one paragraph inside a div.")
+            v.text("Just this one paragraph.")
         html = self.vr().lower()
         self.checkHTML(html)
 

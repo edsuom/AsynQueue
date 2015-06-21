@@ -26,27 +26,7 @@
 
 
 """
-An example of C{AsynQueue} in action. Can be fun to play with if you
-have a multicore CPU. You will need the following packages, which you
-can get via C{pip install}:
-
-  - C{weave} (part of SciPy)
-  - C{numpy} (part of SciPy)
-  - C{matplotlib}
-  - C{asynqueue} (Duh...)
-
-
-Command line usage::
-
-  mcmandelbrot
-    [-s steepness] [-N values] [-o imageFile]
-    N cr ci crPM [ciPM]
-
-Produces chunks of a PNG image, to stdout if you don't specify an
-imageFile with the C{-o} option.
-
-Example: C{mcm 2000 -0.630 0 1.4 1.2 >overview.png}
-
+Runner for Mandelbrot set computation processes.
 """
 
 import sys, time, array
@@ -77,9 +57,9 @@ class Runner(object):
     msgProto = "{} ({:+16.13f} +/-{:10E}, {:+16.13f} +/-{:10E}) "+\
                "{:d} pixels in {:4.2f} sec"
     
-    def __init__(self, N_values, steepness, stats=False, verbose=False):
+    def __init__(self, N_values, stats=False, verbose=False):
         self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
-        self.mv = MandelbrotValuer(N_values, steepness)
+        self.mv = MandelbrotValuer(N_values)
         self.verbose = verbose
 
     def shutdown(self):

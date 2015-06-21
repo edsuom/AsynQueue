@@ -178,8 +178,9 @@ class MandelbrotValuer(object):
     }
     """
     vars = ['x', 'z', 'ci', 'qd', 'km']
+    steepness = 3
 
-    def __init__(self, N_values, steepness):
+    def __init__(self, N_values):
         """
         Constructor:
 
@@ -189,12 +190,8 @@ class MandelbrotValuer(object):
           is evaluated with the values summed, the actual range of
           values for each point is 5 times greater.
 
-        @param steepness: The amount to rescale the values after
-          scaling to the -0.5 to 0.5 range and before applying the
-          logistic function and color mapping.
         """
         self.N_values = N_values
-        self.steepness = steepness
         self.cm = ColorMapper()
         # The maximum possible escape value is mapped to 1.0, before
         # exponent and then color mapping are applied

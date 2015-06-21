@@ -468,9 +468,11 @@ class Meta(type):
     """
     Load class-wide lists of lines for CSS and JS
     """
+    headFiles = {'css': "mcm.css", 'js': "mcm.js"}
+    
     def __new__(cls, name, parents, dct):
         dct['headLines'] = {}
-        for fileType, fileName in dct['headFiles'].iteritems():
+        for fileType, fileName in cls.headFiles.iteritems():
             lines = []
             fh = openPackageFile(fileName)
             for line in fh:
@@ -480,6 +482,8 @@ class Meta(type):
                 if stripped.startswith('/'):
                     continue
                 if stripped.startswith('# '):
+                    continue
+                if stripped == '#':
                     continue
                 lines.append(line.rstrip())
             fh.close()
@@ -510,7 +514,7 @@ class VRoot(object):
     versionXML = 1.0
     charset = "utf-8"
     replaceXML = "html"
-    headFiles = {'css': "mcm.css", 'js': "mcm.js"}
+
     
     __metaclass__ = Meta
 

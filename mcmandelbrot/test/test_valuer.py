@@ -45,7 +45,7 @@ class TestMandelbrotValuer(TestCase):
                "from ({:+f}, {:+f}) to ({:+f}, {:+f}):\n{}\n"
     
     def setUp(self):
-        self.mv = valuer.MandelbrotValuer(1000, 3)
+        self.mv = valuer.MandelbrotValuer(1000)
 
     @contextmanager
     def _crpmToXQD(self, cr, ci, crpm, N):
