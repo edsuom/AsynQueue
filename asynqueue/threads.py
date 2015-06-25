@@ -489,22 +489,22 @@ class IterationGetter(PoolUser):
         method must be synchronized with a series of locking
         primitives:
 
-        1. First, wait to acquire I{cLock}. This will be released when
-           a value has been given to my subclass instance, e.g.,
-           through its C{write} method. At this point, you can
-           retrieve the value and let your value provider know it is
-           free to provide more.
-
-        2. Then wait to acquire I{nLock}. This will be released when
-           the L{next} method has obtained its next iteration value
-           from I{bIterationValue}. At this point, overwrite
-           I{bIterationValue} with the new value you've just obtained,
-           or with an instance of L{IterationStopper} if iteration is
-           done.
-        
-        3. Release I{bLock} to let the L{next} loop know it can
-           process the next iteration value (or iteration stopper) now
-           in I{bIterationValue}.
+            1. First, wait to acquire I{cLock}. This will be released
+               when a value has been given to my subclass instance,
+               e.g., through its C{write} method. At this point, you
+               can retrieve the value and let your value provider know
+               it is free to provide more.
+    
+            2. Then wait to acquire I{nLock}. This will be released
+               when the L{next} method has obtained its next iteration
+               value from I{bIterationValue}. At this point, overwrite
+               I{bIterationValue} with the new value you've just
+               obtained, or with an instance of L{IterationStopper} if
+               iteration is done.
+            
+            3. Release I{bLock} to let the L{next} loop know it can
+               process the next iteration value (or iteration stopper)
+               now in I{bIterationValue}.
         
         @see: L{Consumerator.loop} and L{Filerator.loop}
         """

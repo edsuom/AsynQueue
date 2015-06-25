@@ -66,6 +66,9 @@ function updateImage(params) {
     document.getElementById('mandelbrot').src = "/image.png" + qs;
     var plink = "http://" + window.location.host + qs;
     document.getElementById('permalink').href = plink;
+    params.N = 2048;
+    var qs = buildQS(params);
+    document.getElementById('hd').href = "/image.png" + qs;
 }
 function xy(event) {
     var p = {};

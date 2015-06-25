@@ -97,6 +97,7 @@ class RootResource(resource.Resource):
         ("Imag:", "ci"   ),
         ("+/-",   "crpm" ))
     inputSize = 10
+    pxHD = 2048
     
     def __init__(self, blankImage):
         self.blankImage = blankImage
@@ -110,22 +111,28 @@ class RootResource(resource.Resource):
         if request.args:
             for key, values in request.args.iteritems():
                 kw[key] = http.unquote(values[0])
-            kw['img'] = self.imageURL(kw)
             kw['onload'] = None
+            kw['img'] = self.imageURL(kw)
+            kw['hd'] = self.imageURL(kw, N=self.pxHD)
         else:
-            kw['img'] = self.blankImage
             kw['onload'] = "updateImage()"
+            kw['img'] = self.blankImage
+            kw['hd'] = self.imageURL(self.defaultParams, N=self.pxHD)
         return self.vr(**kw)
         
-    def imageURL(self, params):
+    def imageURL(self, params, **kw):
         """
         Returns a URL for obtaining a Mandelbrot Set image with the
         parameters in the supplied dict I{params}.
         """
+        def addPart():
+            parts.append("{}={}".format(name, value))
         parts = []
         for name, value in params.iteritems():
             if name in self.defaultParams:
-                parts.append("{}={}".format(name, value))
+                addPart()
+        for name, value in kw.iteritems():
+            addPart()
         return "/image.png?{}".format('&'.join(parts))
         
     def vRoot(self):
@@ -210,6 +217,11 @@ class RootResource(resource.Resource):
                 v.textX(HOWTO)
                 v.ns('div', 'right')
                 v.nc('a', 'bold')
+                v.text("2048px")
+                v.tailX("&nbsp;|&nbsp;")
+                v.set('id', 'hd')
+                v.addToMap('hd', 'href')
+                v.ns('a', 'bold')
                 v.text("Permalink")
                 v.set('id', 'permalink')
                 v.addToMap('permalink', 'href')
