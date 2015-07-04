@@ -33,7 +33,7 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version':'0.9.1',
+kw = {'version':'0.9.2',
       'license':'Apache License (2.0)',
       'platforms':'OS Independent',
 
@@ -41,7 +41,8 @@ kw = {'version':'0.9.1',
       'author':"Edwin A. Suominen",
       'author_email':"valueprivacy-foss@yahoo.com",
       'maintainer':'Edwin A. Suominen',
-
+      'maintainer_email':"valueprivacy-foss@yahoo.com",
+      
       'install_requires':required,
       'packages':['asynqueue', 'mcmandelbrot'],
       'package_data':{
@@ -82,21 +83,25 @@ kw['description'] = " ".join("""
 Asynchronous task queueing based on the Twisted framework.
 """.split("\n"))
 
-kw['long_description'] = " ".join("""
+kw['long_description'] = """
 Asynchronous task queueing based on the Twisted framework, with task
 prioritization and a powerful worker interface. Worker implementations
 are included for running tasks asynchronously in the main thread, in
 separate threads, and in separate Python interpreters (multiprocessing).
 
-Includes an example package "mcMandelbrot" that generates Mandelbrot
+Includes an example package mcMandelbrot_ that generates Mandelbrot
 set images, row by row, demonstrating the power of asynchronous
-multi-core processing. An instance of ProcessQueue dispatches the
+multi-core processing. An instance of ProcessQueue_ dispatches the
 computations for each row of pixels to workers running on separate
-Python process. The color-mapped RGB results are collected as they
+Python processes. The color-mapped RGB results are collected as they
 come back and intelligently buffered for iterating in a proper
 sequence to a third-party PNG library that wouldn't ordinarily play
 nice with Twisted.
-""".split("\n"))
+
+.. _mcMandelbrot: http://edsuom.com/mcMandelbrot.html
+
+.. _ProcessQueue: http://edsuom.com/AsynQueue/asynqueue.process.ProcessQueue.html
+"""
 
 ### Finally, run the setup
 setup(name=NAME, **kw)

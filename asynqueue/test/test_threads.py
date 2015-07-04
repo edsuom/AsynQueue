@@ -508,7 +508,7 @@ class TestConsumerator(Tasks, TestCase):
             len(values), timeSpent)
         self.assertEqual(len(values), N)
         self.assertEqual(values, range(0, 2*N, 2))
-        self.assertAlmostEqual(timeSpent, 1.1*totalTime, 2)
+        self.assertAlmostEqual(timeSpent, 1.1*totalTime, 1)
         yield self.c.deferUntilDone()
 
     @defer.inlineCallbacks
@@ -523,7 +523,7 @@ class TestConsumerator(Tasks, TestCase):
             len(values), timeSpent)
         self.assertEqual(len(values), N)
         self.assertEqual(values, range(0, 2*N, 2))
-        self.assertAlmostEqual(timeSpent, 1.05*totalTime, 2)
+        self.assertAlmostEqual(timeSpent, 1.05*totalTime, 1)
         yield self.c.deferUntilDone()
         
     @defer.inlineCallbacks
@@ -590,7 +590,7 @@ class TestFilerator(Tasks, TestCase):
             len(values), timeSpent)
         self.assertEqual(len(values), N)
         self.assertEqual(values, range(0, 2*N, 2))
-        self.assertAlmostEqual(timeSpent, 1.1*totalTime, 2)
+        self.assertAlmostEqual(timeSpent, 1.1*totalTime, 1)
         yield self.f.deferUntilDone()
 
     @defer.inlineCallbacks
@@ -613,7 +613,7 @@ class TestFilerator(Tasks, TestCase):
             len(values), timeSpent)
         self.assertEqual(len(values), N)
         self.assertEqual(values, range(0, 2*N, 2))
-        self.assertAlmostEqual(timeSpent, totalTime, 2)
+        self.assertAlmostEqual(timeSpent, totalTime, 1)
         yield self.f.deferUntilDone()
 
         
