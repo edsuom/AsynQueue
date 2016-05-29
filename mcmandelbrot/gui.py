@@ -32,16 +32,32 @@ B{TODO}
 
 """
 
-from PyQt4 import QtGUI
+import sys
 
-class MainWindow(QtGui.QMainWindow):
+from PyQt5 import QtWidgets as qtw
+app = qtw.QApplication(sys.argv)
+import qt5reactor
+qt5reactor.install()
+
+from twisted.internet import reactor
+
+
+TITLE = "mcMandelbrot - Interactive Mandelbrot Set Viewer"
+
+
+class MainWindow(qtw.QWidget):
     """
     I act as the main window for the QApplication object.
     """
-    def __init__(self, Nx, cr, ci, crPM):
+    def setup(self):
         """
-        Instantiates me with a left panel containing form fields and user
+        Sets me up me with a left panel containing form fields and user
         control buttons and a right panel with the image.
         """
-        QtGui.QMainWindow.__init__(self)
-        reactor.callWhenRunning(self.show)
+        self.setWindowTitle(TITLE)
+        self.show()
+
+
+w = MainWindow()
+reactor.callWhenRunning(w.setup)
+reactor.run()

@@ -65,8 +65,8 @@ class ColorMapper(object):
         limits = [255, 220, 180]
         bluecycle = [20, 120]
         rgb = self._rangeMap(N, ranges, limits)
-        rgb[:,2] += bluecycle[0]*np.sin(
-            np.linspace(0, bluecycle[1]*2*3.141591, N)) + bluecycle[0]
+        x = bluecycle[0]*np.sin(np.linspace(0, bluecycle[1]*2*3.141591, N))
+        rgb[:,2] += x.astype(np.uint8) + bluecycle[0]
         return rgb
 
     def _rangeMap(self, N, ranges, limits):
