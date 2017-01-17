@@ -37,12 +37,14 @@ Another useful object for development are my L{showResult} and
 L{whichThread} decorator functions, which you can use together.
 """
 
-import cPickle as pickle
 import sys, traceback, inspect, threading
 from contextlib import contextmanager
 
 from twisted.internet import defer
 from twisted.python import reflect
+
+from asynqueue import va
+pickle = va.pickle
 
 
 def hashIt(*args):
@@ -50,7 +52,7 @@ def hashIt(*args):
     Returns a pretty much unique 32-bit hash for pretty much any
     python object.
     """
-    total = 0L
+    total = va.long(0)
     for x in args:
         if isinstance(x, dict):
             for k, key in enumerate(sorted(x.keys())):
@@ -81,7 +83,7 @@ def showResult(f):
             resultInfo = str(result)
             if len(callInfo) + len(resultInfo) > 70:
                 callInfo += "\n"
-            print "\n{} -> {}".format(callInfo, resultInfo)
+            print("\n{} -> {}".format(callInfo, resultInfo))
             return result
 
         SR_STUFF[0] += 1

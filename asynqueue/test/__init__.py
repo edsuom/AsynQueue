@@ -29,7 +29,7 @@ import sys, os.path
 # Ensure that the package under test and its modules can all be imported by
 # name only
 packagePath = os.path.dirname(__file__)
-for k in xrange(2):
+for k in range(2):
     packagePath = os.path.dirname(packagePath)
     if packagePath not in sys.path:
-	sys.path.insert(0, packagePath)
+        sys.path.insert(0, packagePath)

@@ -44,7 +44,7 @@ kw = {'version':'0.9.2',
       'maintainer_email':"valueprivacy-foss@yahoo.com",
       
       'install_requires':required,
-      'packages':['asynqueue', 'mcmandelbrot'],
+      'packages':['asynqueue', 'asynqueue.test', 'mcmandelbrot'],
       'package_data':{
           'mcmandelbrot': ['mcm.css', 'mcm.js', 'blank.jpg'],
           },

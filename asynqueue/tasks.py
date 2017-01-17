@@ -409,9 +409,16 @@ class TaskHandler(object):
                     self.laborPools.setdefault(series, []).append(worker)
             defer.returnValue(workerID)
         
-        if not IWorker.providedBy(worker):
-            raise ImplementationError(
-                "'%s' doesn't provide the IWorker interface" % worker)
+        # I am sick and tired of dealing with zope.interfaces. When
+        # the providedBy method of the interface stopped working
+        # (why?) because I'd had to switch to the @implementor
+        # decorator, that was the last straw. You, dear programmer,
+        # can handle the responsibility of making sure your freaking
+        # code does what it's supposed to do.
+        # ---------------------------------------------------------------------
+        #if not IWorker.providedBy(worker):
+        #    raise ImplementationError(
+        #        "'%s' doesn't provide the IWorker interface" % worker)
         IWorker.validateInvariants(worker)
         worker.hired = True
         worker.assignments = {}

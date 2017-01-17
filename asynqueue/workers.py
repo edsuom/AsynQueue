@@ -24,21 +24,23 @@
 Implementors of the L{interfaces.IWorker} interface. These objects
 are what handle the tasks in your L{base.TaskQueue}.
 """
+from __future__ import absolute_import
 import sys, os, os.path, tempfile, shutil
 
-from zope.interface import implements
+from zope.interface import implementer
 from twisted.internet import defer
 
-from interfaces import IWorker
-import errors, info, util, iteration
+from asynqueue import errors, info, util, iteration
+from asynqueue.interfaces import IWorker
 
 
 # Make all our workers importable from this module
-from threads import ThreadWorker
-from process import ProcessWorker
-from wire import WireWorker
+from asynqueue.threads import ThreadWorker
+from asynqueue.process import ProcessWorker
+from asynqueue.wire import WireWorker
 
 
+@implementer(IWorker)
 class AsyncWorker(object):
     """
     I implement an L{IWorker} that runs tasks in the Twisted main
@@ -57,7 +59,6 @@ class AsyncWorker(object):
     knows; it might be useful where you want the benefits of priority
     queueing without leaving the Twisted mindset even for a moment.
     """
-    implements(IWorker)
     cQualified = ['async', 'local']
     
     def __init__(self, series=[], raw=False):

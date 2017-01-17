@@ -30,7 +30,7 @@ multiprocessing.
 from time import time
 import multiprocessing as mp
 
-from zope.interface import implements
+from zope.interface import implementer
 from twisted.internet import defer
 from twisted.python.failure import Failure
 
@@ -88,6 +88,7 @@ class ProcessQueue(TaskQueue):
         return defer.DeferredList(dList).addCallback(lambda _: result)
 
 
+@implementer(IWorker)
 class ProcessWorker(object):
     """
     I implement an L{IWorker} that runs tasks in a dedicated worker
@@ -159,7 +160,6 @@ class ProcessWorker(object):
     """
     backoff = 1.10 # This is the iteration.Delay default, anyhow
     
-    implements(IWorker)
     cQualified = ['process', 'local']
 
     @staticmethod

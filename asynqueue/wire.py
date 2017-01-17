@@ -644,7 +644,7 @@ def runServer(description, wwuFQN):
     a L{WireWorkerUniverse} subclass with I{wwu}.
     """
     def running():
-        print "AsynQueue WireServer listening at {}".format(description)
+        print("AsynQueue WireServer listening at {}".format(description))
         sys.stdout.flush()
     
     ws = WireServer(wwuFQN)

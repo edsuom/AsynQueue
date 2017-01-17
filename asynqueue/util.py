@@ -35,16 +35,16 @@ unless perhaps you come up with an entirely new kind of
 L{interfaces.IWorker} implementation.
 """
 
-import os, signal
+import os, signal, sys
 from time import time
-import cPickle as pickle
 import cProfile as profile
 from contextlib import contextmanager
 
 from twisted.internet import defer, reactor, protocol
 from twisted.python.failure import Failure
 
-import errors, info, iteration
+from asynqueue import va, errors, info, iteration
+pickle = va.pickle
 
 
 def o2p(obj):
@@ -146,6 +146,7 @@ class TestStuff(object):
         return 2*x
 # ----------------------------------------------------------------------------
 
+
 class ProcessProtocol(object):
     """
     I am a simple protocol for spawning a subordinate process.
@@ -166,7 +167,7 @@ class ProcessProtocol(object):
             if data and not self.d.called:
                 self.d.callback(data)
         if childFD == 2:
-            print "\nERROR: {}".format(data)
+            print("\nERROR: {}".format(data))
             #self.stopper(self.pid)
             
     def childConnectionLost(self, childFD):

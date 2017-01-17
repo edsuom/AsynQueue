@@ -28,7 +28,7 @@ L{ThreadQueue.deferToThread}.
 
 import threading
 
-from zope.interface import implements
+from zope.interface import implementer
 from twisted.internet import defer, reactor
 from twisted.python import threadpool
 from twisted.python.failure import Failure
@@ -96,6 +96,7 @@ class ThreadQueue(TaskQueue):
             self, 'd', self.worker.t.deferToThread, f, *args, **kw)
 
 
+@implementer(IWorker)
 class ThreadWorker(object):
     """
     I implement an L{IWorker} that runs tasks in a dedicated worker
@@ -108,7 +109,6 @@ class ThreadWorker(object):
       perform. Usually left blank, unless you want only some workers
       doing certain tasks.
     """
-    implements(IWorker)
     cQualified = ['thread', 'local']
 
     def __init__(self, series=[], raw=False):
@@ -541,6 +541,7 @@ class IterationGetter(PoolUser):
         return value
 
 
+@implementer(IConsumer)
 class Consumerator(IterationGetter):
     """
     I act like an C{IConsumer} for your Twisted code and an iterator
@@ -565,8 +566,6 @@ class Consumerator(IterationGetter):
 
     @ivar d: A C{Deferred} that fires when iterations are done.
     """
-    implements(IConsumer)
-
     def __init__(self, producer=None, maxThreads=None):
         """
         @param producer: The producer for me to register, if you want to
@@ -760,6 +759,7 @@ class Filerator(IterationGetter):
             self.write(self.IterationStopper())
 
 
+@implementer(IPushProducer)
 class OrderedItemProducer(PoolUser):
     """
     Produces blocking iterations in the order they are requested via
@@ -792,8 +792,6 @@ class OrderedItemProducer(PoolUser):
       have to call L{TaskQueue.shutdown} on this eventually when
       you're done with the queue.
     """
-    implements(IPushProducer)
-    
     def __init__(self, maxThreads=None):
         self.setup(maxThreads)
         self.itemBuffer = {}

@@ -27,7 +27,7 @@ The L{TaskQueue} and its immediate support staff.
 import heapq, logging
 from contextlib import contextmanager
 
-from zope.interface import implements
+from zope.interface import implementer
 from twisted.python.failure import Failure
 from twisted.internet import reactor, interfaces, defer
 # Use C Deferreds if possible, for efficiency
@@ -97,6 +97,7 @@ class Priority(object):
         heapq.heapify(self.heap)
 
 
+@implementer(interfaces.IPushProducer)
 class LoadInfoProducer(object):
     """
     Produces task queue loading information.
@@ -110,8 +111,6 @@ class LoadInfoProducer(object):
     @ivar consumer: A list of the consumers for whom I'm producing
       information.
     """
-    implements(interfaces.IPushProducer)
-    
     def __init__(self):
         self.queued = 0
         self.producing = True

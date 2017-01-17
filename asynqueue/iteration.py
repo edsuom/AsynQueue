@@ -40,14 +40,12 @@ multiprocessing module.
 
 import time, inspect
 
-from zope.interface import implements
+from zope.interface import implementer
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 from twisted.internet.interfaces import IPushProducer, IConsumer
 
-import errors
-# Almost everybody in the package imports this module, so it can
-# import very little from the package.
+from asynqueue import va, errors
 
 
 def deferToDelay(delay):
@@ -224,8 +222,8 @@ class Deferator(object):
     L{Prefetcherator} will be constructed internally.
     """
     builtIns = (
-        str, unicode,
-        list, tuple, bytearray, buffer, dict, set, frozenset)
+        str, va.unicode,
+        list, tuple, bytearray, va.buffer, dict, set, frozenset)
     
     @classmethod
     def isIterator(cls, obj):
@@ -474,6 +472,7 @@ class Prefetcherator(object):
         return self._tryNext().addCallback(done)
 
 
+@implementer(IConsumer)
 class ListConsumer(object):
     """
     Bare-bones iteration consumer.
@@ -488,8 +487,6 @@ class ListConsumer(object):
 
     Set any attributes you want me to have using keywords.
     """
-    implements(IConsumer)
-
     def __init__(self, **kw):
         self.x = {}
         self.count = 0
@@ -560,7 +557,8 @@ class ListConsumer(object):
         """
         return item
 
-        
+
+@implementer(IPushProducer)
 class IterationProducer(object):
     """
     Producer of iterations from a L{Deferator}. 
@@ -570,8 +568,6 @@ class IterationProducer(object):
     I'm done iterating or when the consumer has stopped me, whichever
     comes first.
     """
-    implements(IPushProducer)
-
     def __init__(self, dr, consumer=None):
         if not isinstance(dr, Deferator):
             raise TypeError("Object {} is not a Deferator".format(repr(dr)))
