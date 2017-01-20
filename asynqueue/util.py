@@ -43,7 +43,8 @@ from contextlib import contextmanager
 from twisted.internet import defer, reactor, protocol
 from twisted.python.failure import Failure
 
-from asynqueue import va, errors, info, iteration
+from asynqueue import errors, info, iteration
+from asynqueue.va import va
 pickle = va.pickle
 
 

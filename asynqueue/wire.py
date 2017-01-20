@@ -39,11 +39,11 @@ from twisted.internet.protocol import Factory
 from twisted.application.service import Application
 from twisted.application.internet import StreamServerEndpointService
 
-from info import Info
-from util import o2p, p2o
-import errors, util, iteration
-from interfaces import IWorker
-from threads import ThreadLooper
+from asynqueue.info import Info
+from asynqueue.util import o2p, p2o
+from asynqueue.interfaces import IWorker
+from asynqueue.threads import ThreadLooper
+from asynqueue import errors, util, iteration
 
 
 DEFAULT_SOCKET = b"unix:/var/run/wire"

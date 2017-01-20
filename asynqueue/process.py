@@ -34,9 +34,9 @@ from zope.interface import implementer
 from twisted.internet import defer
 from twisted.python.failure import Failure
 
-from base import TaskQueue
-from interfaces import IWorker
-import errors, util, iteration, info
+from asynqueue.base import TaskQueue
+from asynqueue.interfaces import IWorker
+from asynqueue import errors, util, iteration, info
 
 
 class ProcessQueue(TaskQueue):

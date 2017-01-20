@@ -45,7 +45,8 @@ from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 from twisted.internet.interfaces import IPushProducer, IConsumer
 
-from asynqueue import va, errors
+from asynqueue import errors
+from asynqueue.va import va
 
 
 def deferToDelay(delay):

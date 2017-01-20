@@ -38,8 +38,8 @@ except:
 else:
     defer.Deferred = cdefer.Deferred
 
-import errors, tasks, iteration
-from info import Info
+from asynqueue import errors, tasks, iteration
+from asynqueue.info import Info
 
 
 class Priority(object):

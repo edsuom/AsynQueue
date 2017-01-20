@@ -29,8 +29,8 @@ import logging
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 
-import base
-from testbase import DeferredIterable, MockWorker, TestCase
+from asynqueue import base
+from asynqueue.test.testbase import DeferredIterable, MockWorker, TestCase
 
 
 VERBOSE = False
@@ -44,7 +44,7 @@ class TestPriority(TestCase):
         dList = []
         for item in (2,1,4,0,3):
             self.heap.put(item)
-        for item in xrange(5):
+        for item in range(5):
             d = self.heap.get()
             d.addCallback(self.failUnlessEqual, item)
             dList.append(d)
@@ -52,9 +52,9 @@ class TestPriority(TestCase):
 
     def test_getBeforePut(self):
         dList, items = [], []
-        for item in xrange(5):
+        for item in range(5):
             self.heap.put(item)
-        for item in xrange(5):
+        for item in range(5):
             d = self.heap.get()
             d.addCallback(items.append)
             dList.append(d)
@@ -63,10 +63,10 @@ class TestPriority(TestCase):
     
     def test_cancel(self):
         dList, items = [], []
-        for item in xrange(5):
+        for item in range(5):
             self.heap.put(item)
         self.heap.cancel(lambda x: x is 2)
-        for item in xrange(4):
+        for item in range(4):
             d = self.heap.get()
             d.addCallback(items.append)
             dList.append(d)
@@ -100,12 +100,12 @@ class TestTaskQueue(TestCase):
             self.failUnlessEqual(len(mutable), N)
             self.failUnlessEqual(
                 sum(mutable),
-                sum([2*x for x in xrange(N)]))
+                sum([2*x for x in range(N)]))
 
         worker = MockWorker(0.01)
         self.queue.attachWorker(worker)
         dList = []
-        for x in xrange(N):
+        for x in range(N):
             d = self.queue.call(lambda y: 2*y, x)
             d.addCallback(lambda result: mutable.append(result))
             dList.append(d)
@@ -121,7 +121,7 @@ class TestTaskQueue(TestCase):
             self.failUnlessEqual(len(mutable), N)
             self.failUnlessEqual(
                 sum(mutable),
-                sum([2*x for x in xrange(N)]))
+                sum([2*x for x in range(N)]))
 
         IDs = []
         for runDelay in (0.05, 0.1, 0.4):
@@ -130,7 +130,7 @@ class TestTaskQueue(TestCase):
             self.assertNotIn(ID, IDs)
             IDs.append(ID)
         dList = []
-        for x in xrange(N):
+        for x in range(N):
             d = self.queue.call(lambda y: 2*y, x)
             d.addCallback(lambda result: mutable.append(result))
             dList.append(d)
@@ -154,7 +154,7 @@ class TestTaskQueue(TestCase):
         worker = threads.ThreadWorker()
         self.queue.attachWorker(worker)
         for N in (0, 1, 10):
-            dr = yield self.queue.call(xrange, N)
+            dr = yield self.queue.call(range, N)
             count = 0
             for k, d in enumerate(dr):
                 x = yield d
@@ -176,7 +176,7 @@ class TestTaskQueueErrors(TestCase):
         def emit(self, record):
             self.records.append(record)
             if self.verbose:
-                print "LOGGED:", record.getMessage()
+                print("LOGGED: {}".format(record.getMessage()))
     
     def setUp(self):
         self.handler = self.TestHandler(self.verbose)
@@ -243,7 +243,7 @@ class TestTaskQueueErrors(TestCase):
     def test_spew(self):
         N = 10
         self.newQueue(spew=True)
-        for x in xrange(N):
+        for x in range(N):
             y = yield self.queue.call(self.timesTwo, x)
             self.assertEqual(y, 2*x)
         self.assertEqual(len(self.handler.records), N)

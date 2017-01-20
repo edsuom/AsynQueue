@@ -25,15 +25,14 @@ Unit tests for asynqueue.threads
 """
 
 import time, random, threading, sys, logging
-from StringIO import StringIO
 from contextlib import contextmanager
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 
-from util import TestStuff
-import base, tasks, iteration, threads
-from testbase import deferToDelay, RangeProducer, RangeWriter, \
-    Tasks, IterationConsumer, TestHandler, TestCase
+from asynqueue.util import TestStuff
+from asynqueue import base, tasks, iteration, threads
+from asynqueue.test.testbase import deferToDelay, RangeProducer, RangeWriter, \
+    Tasks, IterationConsumer, TestHandler, TestCase, StringIO
 
 
 class TestThreadQueue(Tasks, TestCase):

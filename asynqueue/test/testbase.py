@@ -25,17 +25,20 @@ Intelligent import, Mock objects, and an improved TestCase for AsynQueue
 """
 
 import re, sys, os.path, time, random, logging, threading
-from StringIO import StringIO
 
-from zope.interface import implements
+from zope.interface import implementer
 from twisted.internet import reactor, defer, task
 from twisted.internet.interfaces import IProducer, IConsumer
 
 from twisted.trial import unittest
 
-from info import Info
-from interfaces import IWorker
-import iteration
+from asynqueue.info import Info
+from asynqueue.interfaces import IWorker
+from asynqueue import iteration
+
+from asynqueue.va import va
+StringIO = va.StringIO
+unicode = va.unicode
 
 
 VERBOSE = False
@@ -77,7 +80,7 @@ class MsgBase(object):
             if args and args[-1] == "-":
                 args = args[:-1]
                 proto += "\n{}".format("-"*40)
-            print proto.format(*args)
+            print(proto.format(*args))
 
 
 class Tasks(MsgBase):
@@ -166,6 +169,7 @@ class ProcessProtocol(MsgBase):
         self.msg("Process Ended")
 
 
+@implementer(IProducer)
 class RangeProducer(object):
     """
     Produces an integer range of values like C{xrange}.
@@ -173,8 +177,6 @@ class RangeProducer(object):
     Fires a C{Deferred} accessible via my I{d} attribute when the
     range has been produced.
     """
-    implements(IProducer)
-
     def __init__(self, consumer, N, streaming, minInterval, maxInterval=None):
         """
         Constructs an instance of me to produce a range of I{N} integer
@@ -233,6 +235,7 @@ class RangeProducer(object):
             self.consumer.unregisterProducer()
 
 
+@implementer(IProducer)
 class RangeWriter(object):
     """
     Writes an integer range of values like C{xrange} to a file-like
@@ -241,8 +244,6 @@ class RangeWriter(object):
     Fires a C{Deferred} accessible via my I{d} attribute when the
     range has been written.
     """
-    implements(IProducer)
-
     def __init__(self, fh, N, minInterval, maxInterval=None):
         """
         Constructs an instance of me to produce a range of I{N} integer
@@ -280,10 +281,9 @@ class RangeWriter(object):
         if self.k == self.N:
             self.produce = False
             
-        
-class IterationConsumer(MsgBase):
-    implements(IConsumer)
 
+@implementer(IConsumer)
+class IterationConsumer(MsgBase):
     def __init__(self, verbose=False, stopAfter=None):
         self.verbose = verbose
         self.producer = None
@@ -350,9 +350,8 @@ class MockTask(object):
         pass
 
 
+@implementer(IWorker)
 class MockWorker(MsgBase):
-    implements(IWorker)
-
     cQualified = []
 
     def __init__(self, runDelay=0.0, verbose=False):

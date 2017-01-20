@@ -43,8 +43,9 @@ from contextlib import contextmanager
 from twisted.internet import defer
 from twisted.python import reflect
 
-from asynqueue import va
+from asynqueue.va import va
 pickle = va.pickle
+unicode = va.unicode
 
 
 def hashIt(*args):
@@ -445,7 +446,7 @@ class Info(object):
         text += self._funcText(func) + "("
         if args:
             text += ", ".join([str(x) for x in args])
-        for name, value in kw.iteritems():
+        for name, value in va.iteritems(kw):
             text += ", {}={}".format(name, value)
         text += ")"
         if 'thread' in callDict:

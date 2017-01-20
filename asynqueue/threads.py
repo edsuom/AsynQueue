@@ -35,9 +35,9 @@ from twisted.python.failure import Failure
 from twisted.internet.interfaces import IConsumer, IPushProducer
 
 
-from base import TaskQueue
-from interfaces import IWorker
-import errors, util, iteration
+from asynqueue.base import TaskQueue
+from asynqueue.interfaces import IWorker
+from asynqueue import errors, util, iteration
 
 
 _DTL = [None]

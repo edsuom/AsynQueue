@@ -40,9 +40,10 @@ except:
 else:
     defer.Deferred = cdefer.Deferred
 
-from info import Info
-from interfaces import IWorker
-from errors import ImplementationError
+from asynqueue.info import Info
+from asynqueue.interfaces import IWorker
+from asynqueue.errors import ImplementationError
+from asynqueue.va import va
 
 
 class Task(object):
@@ -143,7 +144,7 @@ class Task(object):
         func = self.callTuple[0]
         args = ", ".join([str(x) for x in self.callTuple[1]])
         kw = "".join(
-            [", %s=%s" % item for item in self.callTuple[2].iteritems()])
+            [", %s=%s" % item for item in va.iteritems(self.callTuple[2])])
         if func.__class__.__name__ == "function":
             funcName = func.__name__
         elif callable(func):
@@ -216,7 +217,7 @@ class TaskFactory(object):
         currently found in any series.
         """
         if series not in self.seriesNumbers:
-            eachSeries = [0] + self.seriesNumbers.values()
+            eachSeries = [0] + list(self.seriesNumbers.values())
             maxCurrentSN = max(eachSeries)
             self.seriesNumbers[series] = maxCurrentSN
         self.seriesNumbers[series] += 1
@@ -268,7 +269,7 @@ class AssignmentFactory(object):
         """
         Cancel this worker's assignment requests
         """
-        for series, dList in getattr(worker, 'assignments', {}).iteritems():
+        for series, dList in va.iteritems(getattr(worker, 'assignments', {})):
             requestsWaiting = self.waiting.get(series, [])
             for d in dList:
                 if d in requestsWaiting:
@@ -477,7 +478,7 @@ class TaskHandler(object):
             return defer.succeed([])
         worker.hired = False
         self.assignmentFactory.cancelRequests(worker)
-        for series, workerList in self.laborPools.iteritems():
+        for series, workerList in va.iteritems(self.laborPools):
             if worker in workerList:
                 workerList.remove(worker)
         if crash:
