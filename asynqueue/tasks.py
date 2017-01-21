@@ -154,7 +154,7 @@ class Task(object):
             args = ("%s, " % func) + args
         return "Task: %s(%s%s)" % (funcName, args, kw)
 
-    def __cmp__(self, other):
+    def __lt__(self, other):
         """
         Numeric comparisons between tasks are based on their priority, with
         higher (lower-numbered) priorities being considered 'less' and thus
@@ -165,10 +165,32 @@ class Task(object):
         instead of a task.
         """
         if other is None:
-            return -1
-        return cmp(self.priority, other.priority)
+            return True
+        return self.priority < other.priority
 
+    def __gt__(self, other):
+        """
+        Numeric comparisons between tasks are based on their priority, with
+        higher (lower-numbered) priorities being considered 'less' and thus
+        sorted first.
 
+        A task can never greater (i.e., worse) priority than a C{None}
+        object, which has the worst priority of anything.
+        """
+        if other is None:
+            return False
+        return self.priority > other.priority
+
+    def __eq__(self, other):
+        """
+        A task can never have the same priority as a C{None} object, which
+        has the worst priority of anything.
+        """
+        if other is None:
+            return False
+        return self.priority == other.priority
+
+    
 class TaskFactory(object):
     """
     I generate L{Task} instances with the right priority setting for effective
