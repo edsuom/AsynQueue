@@ -56,7 +56,7 @@ def hashIt(*args):
     total = va.long(0)
     for x in args:
         if isinstance(x, dict):
-            for k, key in enumerate(sorted(x.keys())):
+            for k, key in enumerate(sorted(va.keys(x))):
                 total += hashIt(k, key, x[key])
         elif isinstance(x, (list, tuple)):
             for k, value in enumerate(x):

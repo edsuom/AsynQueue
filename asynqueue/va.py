@@ -60,6 +60,16 @@ class VA(object):
             return iter(dictionary.items())
         return dictionary.iteritems()
 
+    def keys(self, dictionary):
+        """
+        Call this with your dict to get a static list of keys instead of
+        calling C{keys} on the dict.
+        """
+        result = dictionary.keys()
+        if self.py3:
+            result = list(result)
+        return result
+    
 
 # Ready-made!
 va = VA()

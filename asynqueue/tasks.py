@@ -399,7 +399,7 @@ class TaskHandler(object):
             return unfinishedTasks
 
         dList = []
-        for workerID in self.workers.keys():
+        for workerID in va.keys(self.workers):
             d = self.terminate(workerID, timeout=timeout)
             dList.append(d)
         return defer.gatherResults(dList).addCallback(gotResults)

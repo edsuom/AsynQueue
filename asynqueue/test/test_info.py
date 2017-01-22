@@ -30,8 +30,8 @@ from zope.interface import implements
 from twisted.internet import defer
 from twisted.internet.interfaces import IConsumer
 
-import util, info
-from testbase import deferToDelay, blockingTask, Picklable, TestCase
+from asynqueue import util, info
+from asynqueue.test.testbase import deferToDelay, blockingTask, Picklable, TestCase
 
 
 class TestFunctions(TestCase):
@@ -148,7 +148,7 @@ class TestInfo(TestCase):
                 callInfo = x.aboutCall()
                 self.assertPattern("foo\({:d}\)".format(k), callInfo)
         dList = []
-        for k in xrange(5):
+        for k in range(5):
             dList.append(deferToDelay(
                 0.5*random.random()).addCallback(tryInfo, k))
         return defer.DeferredList(dList).addCallback(

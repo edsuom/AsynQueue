@@ -501,7 +501,7 @@ class ListConsumer(object):
         Call to get a (deferred) list of what I consumed.
         """
         def done(null):
-            return [self.x[key] for key in sorted(self.x.keys())]
+            return [self.x[key] for key in sorted(va.keys(self.x))]
         
         dList = [d for d in self.dPending if not d.called]
         if hasattr(self, 'dp'):

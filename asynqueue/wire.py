@@ -45,6 +45,8 @@ from asynqueue.interfaces import IWorker
 from asynqueue.threads import ThreadLooper
 from asynqueue import errors, util, iteration
 
+from asynqueue.va import va
+
 
 DEFAULT_SOCKET = b"unix:/var/run/wire"
 DEFAULT_WWU_FQN = "asynqueue.wire.WireWorkerUniverse"
@@ -623,7 +625,7 @@ class ServerManager(object):
     @defer.inlineCallbacks
     def done(self, pid=None):
         if pid is None:
-            for pid in self.processInfo.keys():
+            for pid in va.keys(self.processInfo):
                 yield self.done(pid)
         elif pid in self.processInfo:
             thisInfo = self.processInfo[pid]
