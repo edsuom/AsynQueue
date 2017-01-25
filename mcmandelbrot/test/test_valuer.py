@@ -32,8 +32,8 @@ import numpy as np
 
 from twisted.internet import defer
 
-import valuer
-from testbase import TestCase
+from mcmandelbrot import valuer
+from mcmandelbrot.test.testbase import TestCase
 
 
 class TestMandelbrotValuer(TestCase):

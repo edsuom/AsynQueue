@@ -59,7 +59,7 @@ import sys
 
 from twisted.internet import defer, reactor
 
-import runner, wire
+from mcmandelbrot import runner, wire
 
 
 def run(*args, **kw):

@@ -40,8 +40,9 @@ from twisted.internet.interfaces import IPushProducer
 
 import asynqueue
 from asynqueue.threads import OrderedItemProducer
+from asynqueue.process import ProcessQueue
 
-from valuer import MandelbrotValuer
+from mcmandelbrot.valuer import MandelbrotValuer
 
 
 class Runner(object):
@@ -58,7 +59,7 @@ class Runner(object):
                "{:d} pixels in {:4.2f} sec"
     
     def __init__(self, N_values, stats=False, verbose=False):
-        self.q = asynqueue.ProcessQueue(self.N_processes, callStats=stats)
+        self.q = ProcessQueue(self.N_processes, callStats=stats)
         self.mv = MandelbrotValuer(N_values)
         self.verbose = verbose
 
@@ -68,7 +69,7 @@ class Runner(object):
     @property
     def N_processes(self):
         maxValue = min([
-            self.N_maxProcesses, asynqueue.ProcessQueue.cores()])
+            self.N_maxProcesses, ProcessQueue.cores()])
         return max([self.N_minProcesses, maxValue])
 
     def log(self, *args):

@@ -10,7 +10,7 @@ from xml.etree.ElementTree import SubElement as se
 from testbase import TestCase
 
 # Module under test
-import vroot
+from mcmandelbrot import vroot
 
 
 VERBOSE = True

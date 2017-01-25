@@ -30,8 +30,9 @@ from twisted.internet import defer
 
 from asynqueue.threads import ThreadWorker
 
-import wire
-from testbase import deferToDelay, FakeFile, MockWireWorker, TestCase
+from mcmandelbrot import wire
+from mcmandelbrot.test.testbase import \
+    deferToDelay, FakeFile, MockWireWorker, TestCase
 
 
 class TestMandelbrotWorkerUniverse(TestCase):

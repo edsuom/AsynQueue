@@ -34,7 +34,8 @@ from twisted.trial import unittest
 
 from asynqueue.info import Info
 from asynqueue.threads import deferToThread
-from asynqueue import iteration, AsyncWorker
+from asynqueue import iteration
+from asynqueue.workers import AsyncWorker
 
 
 VERBOSE = False

@@ -45,8 +45,7 @@ from twisted.internet.interfaces import IPushProducer
 import asynqueue
 from asynqueue.threads import Consumerator
 
-
-from colormap import ColorMapper
+from mcmandelbrot.colormap import ColorMapper
 
 
 class my_info(custom_info):

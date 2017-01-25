@@ -28,8 +28,8 @@ import png
 
 from twisted.internet import defer
 
-import runner
-from testbase import deferToDelay, FakeFile, TestCase
+from mcmandelbrot import runner
+from mcmandelbrot.test.testbase import deferToDelay, FakeFile, TestCase
 
 
 class TestRunner(TestCase):

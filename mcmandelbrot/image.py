@@ -34,7 +34,7 @@ import urlparse
 
 from twisted.internet import defer
 
-import wire
+from mcmandelbrot import wire
 
 
 class RunnerToken(object):

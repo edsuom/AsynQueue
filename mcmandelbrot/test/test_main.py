@@ -28,8 +28,8 @@ import png
 
 from twisted.internet import defer
 
-import main
-from testbase import TestCase
+from mcmandelbrot import main
+from mcmandelbrot.test.testbase import TestCase
 
     
 class TestRun(TestCase):
