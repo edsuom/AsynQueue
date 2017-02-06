@@ -31,9 +31,9 @@ Python processes (L{workers.ProcessWorker}).
 
 from __future__ import absolute_import
 
-#from .workers import *
-#from .base import TaskQueue
-#from .threads import ThreadQueue
-#from .process import ProcessQueue
-#from .info import showResult, Info
-#from .util import DeferredTracker, DeferredLock
+from .workers import *
+from .base import TaskQueue
+from .threads import ThreadQueue
+from .process import ProcessQueue
+from .info import showResult, Info
+from .util import DeferredTracker, DeferredLock
