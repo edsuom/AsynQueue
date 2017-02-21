@@ -328,8 +328,9 @@ class ThreadLooper(object):
         of L{iteration.Deferator}), supply an C{IConsumer} implementor
         via the I{consumer} keyword. Each iteration will be written to
         it, and the deferred will fire when the iterations are
-        done. Otherwise, the deferred will fire with an
-        L{iteration.Deferator}.
+        done. Otherwise, unless the I{raw} option has been set C{True}
+        in my constructor or as a keyword to this call, the deferred
+        will fire with an L{iteration.Deferator}.
         """
         def done(statusResult):
             status, result = statusResult
