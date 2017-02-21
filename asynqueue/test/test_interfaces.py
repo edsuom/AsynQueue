@@ -28,8 +28,8 @@ import multiprocessing as mp
 import zope.interface
 from twisted.internet import defer
 
-import errors, interfaces
-from testbase import TestCase
+from asynqueue import errors, interfaces
+from asynqueue.test.testbase import TestCase
 
 
 VERBOSE = True

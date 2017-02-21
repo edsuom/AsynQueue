@@ -594,6 +594,8 @@ class TestFilerator(Tasks, TestCase):
 
     @defer.inlineCallbacks
     def test_inBlockingThread(self):
+        # WHY does this now fail, but not when run under the debugger
+        # with "trial -b" or when repeated with "trial -u"?
         def blockingWriter(interval):
             t0 = time.time()
             for x in xrange(N):

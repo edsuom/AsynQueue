@@ -25,14 +25,20 @@ Unit tests for asynqueue.tasks
 """
 
 import copy
-import zope.interface
+from zope.interface import implementer
 from twisted.internet import defer, reactor
 
-import tasks, errors, workers
-from testbase import MockTask, MockWorker, TestCase
+from asynqueue import tasks, errors, workers
+from asynqueue.interfaces import IWorker
+from asynqueue.test.testbase import MockTask, MockWorker, TestCase
 
 
 VERBOSE = False
+
+
+@implementer(IWorker)
+class AttrBogus(object):
+    cQualified = 'foo'
 
 
 class TestTask(TestCase):
@@ -160,10 +166,6 @@ class TestTaskHandlerHiring(TestCase):
         return self.th.shutdown()
         
     def test_hireRejectBogus(self):
-        class AttrBogus(object):
-            zope.interface.implements(workers.IWorker)
-            cQualified = 'foo'
-
         self.failUnlessRaises(
             errors.ImplementationError, self.th.hire, None)
         self.failUnlessRaises(

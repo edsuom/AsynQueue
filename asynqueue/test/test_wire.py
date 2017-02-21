@@ -30,9 +30,9 @@ from copy import copy
 from twisted.internet import defer, reactor, endpoints
 from twisted.protocols import amp
 
-from util import TestStuff, o2p, p2o
-import base, iteration, util, misc, wire
-from testbase import deferToDelay, TestCase
+from asynqueue import base, iteration, util, misc, wire
+from asynqueue.util import TestStuff, o2p, p2o
+from asynqueue.test.testbase import deferToDelay, TestCase
 
 
 class TestWireWorker(TestCase):
