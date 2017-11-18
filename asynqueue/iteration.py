@@ -268,11 +268,12 @@ class Deferator(object):
                 self.callTuple = (pf.getNext, [], {})
                 return
         # Nothing worked; make me equivalent to an empty iterator
-        self.moreLeft = False
         self.representation = repr([])
         # The non-existent iteration was "complete" since nothing was
         # terminated prematurely.
         self._callback(True)
+        # Nothing more left, because equivalent to empty
+        self.moreLeft = False
     
     def __repr__(self):
         """
@@ -343,8 +344,11 @@ class Deferator(object):
         For convenience, each C{Deferred} that I yield while iterating
         has a reference to this method via its own C{stop} attribute.
         """
-        self.moreLeft = False
         self._callback(False)
+        # Now that my Deferred's callback has been fired, there really
+        # is no more left--if my iterating function runs in a thread,
+        # it no longer need stay alive for me.
+        self.moreLeft = False
 
 
 class Prefetcherator(object):

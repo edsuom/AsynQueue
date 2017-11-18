@@ -357,6 +357,9 @@ class ProcessUniverse(object):
                     connection.send(self.next(callSpec))
             else:
                 # A task call
+                #
+                # TODO: Make this work with deferreds. Probably need
+                # to start a reactor in each process.
                 status, result = self.runner(callSpec)
                 if status == 'i':
                     # Due to the pipe between worker and process, we

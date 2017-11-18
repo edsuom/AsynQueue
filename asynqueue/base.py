@@ -326,9 +326,11 @@ class TaskQueue(object):
         
     def isRunning(self):
         """
-        Returns C{True} if my task handler and queue are running,
-        C{False} otherwise.
+        Returns C{True} if shutdown has not been initiated and both my
+        task handler and queue are running, C{False} otherwise.
         """
+        if getattr(self, '_shutdownInitiated', False):
+            return False
         return self.th.isRunning and self.q.isRunning()
         
     def shutdown(self):
@@ -337,21 +339,30 @@ class TaskQueue(object):
         you're done with me. Calls L{Queue.shutdown}, among other
         things.
         """
-        def cleanup(stuff):
-            if hasattr(self, '_triggerID'):
-                reactor.removeSystemEventTrigger(self._triggerID)
-                del self._triggerID
+        def oops(failure):
+            failure.printDetailedTraceback()
+            
+        def handlerDown(unfinishedTasks):
+            print "SD-HD", self, unfinishedTasks
+            return self.q.shutdown().addCallbacks(queueDown, oops)
+
+        def queueDown(unhandledItems):
             if hasattr(self, '_dc') and self._dc.active():
                 self._dc.cancel()
             for dc in tasks.Task.timeoutCalls:
                 if dc.active():
                     dc.cancel()
-            return stuff
-        
+            print "SD-QD", self, unhandledItems
+
+        print "SD-1", self, self.isRunning()
         if not self.isRunning():
             return defer.succeed(None)
-        return self.th.shutdown().addCallback(
-            lambda _: self.q.shutdown()).addCallback(cleanup)
+        self._shutdownInitiated = True
+        if hasattr(self, '_triggerID'):
+            reactor.removeSystemEventTrigger(self._triggerID)
+            del self._triggerID
+        print "SD-2", self, self.th
+        return self.th.shutdown().addCallbacks(handlerDown, oops)
 
     def attachWorker(self, worker):
         """

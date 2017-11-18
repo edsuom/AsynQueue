@@ -242,7 +242,21 @@ class Info(object):
           callable I{f} is a method.
         """
         if metaArgs:
-            if metaArgs == self.lastMetaArgs and not hasattr(self, 'pastInfo'):
+            equiv = True
+            if self.lastMetaArgs is None:
+                equiv = False
+            elif len(metaArgs) != len(self.lastMetaArgs):
+                equiv = False
+            else:
+                for k, arg in enumerate(metaArgs):
+                    try:
+                        thisEquiv = (arg == self.lastMetaArgs[k])
+                    except:
+                        thisEquiv = False
+                    if not thisEquiv:
+                        equiv = False
+                        break
+            if equiv and not hasattr(self, 'pastInfo'):
                 # We called this already with the same metaArgs and
                 # without any pastInfo to reckon with, so there's
                 # nothing to do.

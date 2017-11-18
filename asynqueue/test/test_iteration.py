@@ -78,12 +78,14 @@ class TestDeferator(TestCase):
     @defer.inlineCallbacks
     def test_iterates(self):
         x = [5, 4, 3, 2, 1, 0]
+        N = len(x)
         ig = IteratorGetter(x)
         dr = iteration.Deferator(repr(ig), ig.getNext, slowness=0.2)
         for k, d in enumerate(dr):
             value = yield d
             self.msg("Item #{:d}: {}", k+1, value)
             self.assertEqual(value, k)
+            self.assertEqual(dr.moreLeft, k < N-1)
         status = yield dr.d
         self.assertTrue(status)
         self.assertEqual(len(ig.x), 0)
@@ -91,17 +93,21 @@ class TestDeferator(TestCase):
     @defer.inlineCallbacks
     def test_iterates_and_breaks(self):
         x = [5, 4, 3, 2, 1, 0]
+        N = len(x)
         ig = IteratorGetter(x)
         dr = iteration.Deferator(repr(ig), ig.getNext, slowness=0.2)
         for k, d in enumerate(dr):
             value = yield d
             self.msg("Item #{:d}: {}", k+1, value)
             self.assertEqual(value, k)
+            self.assertTrue(dr.moreLeft)
             if k == 2:
                 d.stop()
+                self.assertFalse(dr.moreLeft)
                 break
         status = yield dr.d
         self.assertFalse(status)
+        self.assertFalse(dr.moreLeft)
         self.assertEqual(len(ig.x), 3)
 
 

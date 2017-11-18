@@ -124,6 +124,7 @@ class ThreadWorker(object):
           call.
         """
         self.tasks = []
+        self.tasksPendingBeforeShutdown = {}
         self.iQualified = series
         self.t = ThreadLooper(raw)
 
@@ -161,6 +162,8 @@ class ThreadWorker(object):
                     ip = iteration.IterationProducer(dr, consumer)
                     statusResult = ('i', ip)
             task.d.callback(statusResult)
+            if task in self.tasksPendingBeforeShutdown:
+                self.tasksPendingBeforeShutdown.pop(task).callback(None)
         
         self.tasks.append(task)
         f, args, kw = task.callTuple
@@ -174,7 +177,17 @@ class ThreadWorker(object):
         @return: A C{Deferred} that fires when the task loop has ended and
           its thread has terminated.
         """
-        return self.t.stop()
+        def tasksDone(null):
+            print "TW-stop-2", self
+            return self.t.stop()
+        
+        dList = []
+        for task in self.tasks:
+            d = defer.Deferred()
+            self.tasksPendingBeforeShutdown[task] = d
+            dList.append(d)
+        print "TW-stop-1", self
+        return defer.DeferredList(dList).addCallback(tasksDone)
 
     def crash(self):
         """
@@ -221,6 +234,8 @@ class ThreadLooper(object):
         self.event = threading.Event()
         self.thread = threading.Thread(name=repr(self), target=self.loop)
         self.thread.start()
+        # Any running Deferators
+        self.deferators = []
         
     def loop(self):
         """
@@ -246,6 +261,7 @@ class ThreadLooper(object):
                 continue
             if self.callTuple is None:
                 # Shutdown was requested
+                print "SHUTDOWN REQUESTED"
                 break
             status, result = self.runner(self.callTuple)
             # We are about to call back the shared deferred, so clear
@@ -296,6 +312,7 @@ class ThreadLooper(object):
                 # OK, we can iterate this
                 result = iteration.Deferator(
                     repr(pf), self.deferToThread, pf.getNext)
+                self.deferators.append(result)
             else:
                 # An iterator, but not one we could prefetch
                 # from. Probably empty.
@@ -351,14 +368,22 @@ class ThreadLooper(object):
         @return: A C{Deferred} that fires when the task loop has ended and
           its thread has terminated.
         """
-        if not self.threadRunning:
-            return defer.succeed(None)
-        # Tell the thread to quit with a null task
-        self.callTuple = None
-        self.event.set()
-        # Now stop the lock
-        self.dLock.addStopper(self.thread.join)
-        return self.dLock.stop()
+        def deferatorsDone(null):
+            print "TL-STOP-2", self.threadRunning
+            if self.threadRunning:
+                # Tell the thread to quit with a null task
+                self.callTuple = None
+                self.event.set()
+                # Now stop the lock
+                print "TL-STOP-3"
+                self.dLock.addStopper(self.thread.join)
+                print "TL-STOP-4"
+                return self.dLock.stop()
+
+        print "TL-STOP-1", len(self.deferators)
+        return defer.DeferredList(
+            [dr.d for dr in self.deferators if dr.moreLeft]).addCallback(
+                deferatorsDone)
 
 
 class PoolUser(object):
