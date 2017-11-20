@@ -369,8 +369,9 @@ class ThreadLooper(object):
 
     def stop(self):
         """
-        @return: A C{Deferred} that fires when the task loop has ended and
-          its thread has terminated.
+        @return: A C{Deferred} that fires when all tasks and Deferators
+        are done, the task loop has ended, and its thread has
+        terminated.
         """
         def deferatorsDone(null):
             if self.threadRunning:

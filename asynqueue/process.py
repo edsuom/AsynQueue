@@ -198,6 +198,7 @@ class ProcessWorker(object):
         # Tools
         self.delay = iteration.Delay(backoff=self.backoff)
         self.dLock = util.DeferredLock()
+        self.dt = util.DeferredTracker()
         # Multiprocessing with (Gasp! Twisted heresy!) standard lib Python
         self.cMain, cProcess = mp.Pipe()
         pu = ProcessUniverse(raw, callStats)
@@ -295,7 +296,10 @@ class ProcessWorker(object):
                 pf = iteration.Prefetcherator(ID)
                 ok = yield pf.setup(self.next, ID)
                 if ok:
+                    # OK, we can iterate this
                     result = iteration.Deferator(pf)
+                    # Make sure Deferator is done before shutting down
+                    self.dt.put(result.d)
                     if consumer:
                         result = iteration.IterationProducer(result, consumer)
                 else:
@@ -305,16 +309,17 @@ class ProcessWorker(object):
             if task in self.tasks:
                 self.tasks.remove(task)
             task.callback((status, result))
-    
+
+    @defer.inlineCallbacks
     def stop(self):
         """
-        @return: A C{Deferred} that fires when the task loop has ended and
-          its process terminated.
+        The resulting C{Deferred} fires when all tasks and Deferators are
+        done, the task loop has ended, and its process has terminated.
         """
-        def terminationTaskDone(null):
-            self._killProcess()
-            return self.dLock.stop()            
-        return self.run(None).addCallback(terminationTaskDone)
+        yield self.dt.deferToAll()
+        yield self.run(None)
+        yield self.dLock.stop()
+        self._killProcess()
 
     def crash(self):
         self._killProcess()
@@ -356,10 +361,9 @@ class ProcessUniverse(object):
                     # A next-iteration call
                     connection.send(self.next(callSpec))
             else:
-                # A task call
-                #
-                # TODO: Make this work with deferreds. Probably need
-                # to start a reactor in each process.
+                # A task call. Note that the process cannot return a
+                # Deferred. There should only be one Twisted reactor
+                # running, in the main process.
                 status, result = self.runner(callSpec)
                 if status == 'i':
                     # Due to the pipe between worker and process, we

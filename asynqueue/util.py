@@ -195,7 +195,7 @@ class DeferredTracker(object):
             return anything
 
         if not isinstance(d, defer.Deferred):
-            raise TypeError("Object {} is not a deferred".format(repr(d)))
+            raise TypeError("Object {} is not a Deferred".format(repr(d)))
         d.addBoth(transparentCallback)
         self.dList.append(d)
         return d
