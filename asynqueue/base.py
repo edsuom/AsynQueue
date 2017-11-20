@@ -313,9 +313,6 @@ class TaskQueue(object):
         # Start things up with my very own live asynchronous queue
         # using a TaskHandler
         self.q = Queue(self.th, self.timeout)
-        # Provide for a clean shutdown
-        self._triggerID = reactor.addSystemEventTrigger(
-            'before', 'shutdown', self.shutdown)
 
     def __len__(self):
         """
@@ -338,6 +335,13 @@ class TaskQueue(object):
         You must call this and wait for the C{Deferred} it returns when
         you're done with me. Calls L{Queue.shutdown}, among other
         things.
+
+        In an earlier version, there was a system event trigger that
+        called this method before shutdown. But, in user code, that
+        had the unfortunate side effect of killing task queues before
+        all the tasks that might need to run in them could be
+        called. So you have to make sure to call this method sometime
+        yourself.
         """
         def oops(failure):
             failure.printDetailedTraceback()

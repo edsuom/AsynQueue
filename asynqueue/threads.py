@@ -174,11 +174,15 @@ class ThreadWorker(object):
 
     def stop(self):
         """
-        @return: A C{Deferred} that fires when the task loop has ended and
-          its thread has terminated.
+        Returns a C{Deferred} that fires when all pending tasks have been
+        run, the task loop has ended and its thread has terminated.
+
+        Waits for all pending tasks to finish because they run in the
+        task loop and can't do so once the task loop has ended. So the
+        list of outstanding tasks that is the deferred result should
+        always be empty.
         """
         def tasksDone(null):
-            print "TW-stop-2", self
             return self.t.stop()
         
         dList = []
@@ -186,7 +190,6 @@ class ThreadWorker(object):
             d = defer.Deferred()
             self.tasksPendingBeforeShutdown[task] = d
             dList.append(d)
-        print "TW-stop-1", self
         return defer.DeferredList(dList).addCallback(tasksDone)
 
     def crash(self):
@@ -261,7 +264,6 @@ class ThreadLooper(object):
                 continue
             if self.callTuple is None:
                 # Shutdown was requested
-                print "SHUTDOWN REQUESTED"
                 break
             status, result = self.runner(self.callTuple)
             # We are about to call back the shared deferred, so clear
@@ -369,18 +371,14 @@ class ThreadLooper(object):
           its thread has terminated.
         """
         def deferatorsDone(null):
-            print "TL-STOP-2", self.threadRunning
             if self.threadRunning:
                 # Tell the thread to quit with a null task
                 self.callTuple = None
                 self.event.set()
                 # Now stop the lock
-                print "TL-STOP-3"
                 self.dLock.addStopper(self.thread.join)
-                print "TL-STOP-4"
                 return self.dLock.stop()
 
-        print "TL-STOP-1", len(self.deferators)
         return defer.DeferredList(
             [dr.d for dr in self.deferators if dr.moreLeft]).addCallback(
                 deferatorsDone)
