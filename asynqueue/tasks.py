@@ -396,15 +396,12 @@ class TaskHandler(object):
             for result in results:
                 unfinishedTasks.extend(result)
             self.isRunning = False
-            print "TH-SD-GR", self, len(unfinishedTasks)
             return unfinishedTasks
 
         dList = []
         for workerID in va.keys(self.workers):
-            print "\t{}".format(workerID)
             d = self.terminate(workerID, timeout=timeout)
             dList.append(d)
-        print "TH-SD", self, len(dList)
         return defer.gatherResults(dList).addCallback(gotResults)
 
     def hire(self, worker):

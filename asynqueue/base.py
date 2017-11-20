@@ -329,7 +329,8 @@ class TaskQueue(object):
         if getattr(self, '_shutdownInitiated', False):
             return False
         return self.th.isRunning and self.q.isRunning()
-        
+
+    @defer.inlineCallbacks
     def shutdown(self):
         """
         You must call this and wait for the C{Deferred} it returns when
@@ -345,28 +346,16 @@ class TaskQueue(object):
         """
         def oops(failure):
             failure.printDetailedTraceback()
-            
-        def handlerDown(unfinishedTasks):
-            print "SD-HD", self, unfinishedTasks
-            return self.q.shutdown().addCallbacks(queueDown, oops)
 
-        def queueDown(unhandledItems):
+        if self.isRunning():
+            self._shutdownInitiated = True
+            yield self.th.shutdown().addErrback(oops)
+            yield self.q.shutdown().addErrback(oops)
             if hasattr(self, '_dc') and self._dc.active():
                 self._dc.cancel()
-            for dc in tasks.Task.timeoutCalls:
-                if dc.active():
-                    dc.cancel()
-            print "SD-QD", self, unhandledItems
-
-        print "SD-1", self, self.isRunning()
-        if not self.isRunning():
-            return defer.succeed(None)
-        self._shutdownInitiated = True
-        if hasattr(self, '_triggerID'):
-            reactor.removeSystemEventTrigger(self._triggerID)
-            del self._triggerID
-        print "SD-2", self, self.th
-        return self.th.shutdown().addCallbacks(handlerDown, oops)
+                for dc in tasks.Task.timeoutCalls:
+                    if dc.active():
+                        dc.cancel()
 
     def attachWorker(self, worker):
         """

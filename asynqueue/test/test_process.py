@@ -196,6 +196,7 @@ class TestProcessWorkerStats(TestCase):
 
     @defer.inlineCallbacks
     def test_queueStats(self):
+        yield self.queue.shutdown()
         self.queue = process.ProcessQueue(2, callStats=True)
         yield self._runCall(blockingTask, 0, 10, None)
         statsFromQueue = yield self.queue.stats()

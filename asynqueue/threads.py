@@ -237,8 +237,9 @@ class ThreadLooper(object):
         self.event = threading.Event()
         self.thread = threading.Thread(name=repr(self), target=self.loop)
         self.thread.start()
-        # Any running Deferators
-        self.deferators = []
+        # Deferred Tracker to wait for any running Deferators before
+        # shutdown
+        self.dt = util.DeferredTracker()
         
     def loop(self):
         """
@@ -314,7 +315,8 @@ class ThreadLooper(object):
                 # OK, we can iterate this
                 result = iteration.Deferator(
                     repr(pf), self.deferToThread, pf.getNext)
-                self.deferators.append(result)
+                # Make sure Deferator is done before shutting down
+                self.dt.put(result.d)
             else:
                 # An iterator, but not one we could prefetch
                 # from. Probably empty.
@@ -378,10 +380,7 @@ class ThreadLooper(object):
                 # Now stop the lock
                 self.dLock.addStopper(self.thread.join)
                 return self.dLock.stop()
-
-        return defer.DeferredList(
-            [dr.d for dr in self.deferators if dr.moreLeft]).addCallback(
-                deferatorsDone)
+        return self.dt.deferToAll().addCallback(deferatorsDone)
 
 
 class PoolUser(object):
