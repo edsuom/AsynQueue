@@ -124,7 +124,10 @@ class ThreadWorker(object):
           call.
         """
         self.tasks = []
+        # Is this really necessary?
+        # -----------------------------------------
         self.tasksPendingBeforeShutdown = {}
+        # -----------------------------------------
         self.iQualified = series
         self.t = ThreadLooper(raw)
 
