@@ -82,16 +82,13 @@ class Delay(object):
     @ivar backoff: The backoff exponent.
     @type backoff: float
     """
-    interval = 0.001
-    backoff = 1.10
+    _interval = 0.001
+    _backoff = 1.10
 
     def __init__(self, interval=None, backoff=None, timeout=None):
-        if interval:
-            self.interval = interval
-        if backoff:
-            self.backoff = backoff
-        if timeout:
-            self.timeout = timeout
+        self.interval = self._interval if interval is None else interval
+        self.backoff = self._backoff if backoff is None else backoff
+        if timeout: self.timeout = timeout
         if self.backoff < 1.0 or self.backoff > 1.3:
             raise ValueError(
                 "Unworkable backoff {:f}, keep it in 1.0-1.3 range".format(
@@ -112,7 +109,7 @@ class Delay(object):
         d = defer.Deferred()
         reactor.callLater(delay, d.callback, None)
         return d
-
+    
     @defer.inlineCallbacks
     def untilEvent(self, eventChecker):
         """

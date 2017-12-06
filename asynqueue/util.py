@@ -179,62 +179,40 @@ class ProcessProtocol(object):
 
 class DeferredTracker(object):
     """
-    I allow you to track and wait for deferreds without actually having
-    received a reference to them.
+    I allow you to track and wait for Deferreds without actually
+    having received a reference to them, or interfering with their
+    callback chains.
     """
     def __init__(self):
-        self.dList = []
+        self.dCount = 0
     
     def put(self, d):
         """
         Put another C{Deferred} in the tracker.
         """
         def transparentCallback(anything):
-            if d in self.dList:
-                self.dList.remove(d)
+            self.dCount -= 1
             return anything
 
-        if not isinstance(d, defer.Deferred):
-            raise TypeError("Object {} is not a Deferred".format(repr(d)))
+        self.dCount += 1
         d.addBoth(transparentCallback)
-        self.dList.append(d)
         return d
 
-    def _sweep(self):
-        for d in self.dList:
-            if d.called:
-                self.dList.remove(d)
-        
-    def deferToAll(self):
+    def deferToAll(self, timeout=None):
         """
         Return a C{Deferred} that tracks all active deferreds that haven't
-        yet fired. When the tracked deferreds fire, the returned
-        deferred fires, too.
-        """
-        # Sweep of already called deferreds is only done when waiting
-        # for all unfired ones
-        self._sweep()
-        return defer.DeferredList(self.dList)
+        yet fired. When all the tracked deferreds fire, the returned
+        deferred fires, too, with C{True}. The tracked deferreds do
+        not get bogged down by the callback chain for the Deferred
+        returned by this method.
 
-    def deferToLast(self):
+        If the tracked deferreds never fire and a specified I{timeout}
+        expires, the returned deferred will fire with C{False}.
         """
-        Return a C{Deferred} that tracks the C{Deferred} that was most
-        recently put in the tracker. When the tracked deferred fires,
-        the returned deferred fires, too.
-        """
-        def transparentCallback(anything):
-            d.callback(None)
-            # Any already called deferreds remaining are now removed
-            self._sweep()
-            return anything
-
-        # The last-added of ALL remaining deferreds is chained to,
-        # even if already called
-        if self.dList:
-            d = defer.Deferred()
-            self.dList[-1].addBoth(transparentCallback)
-            return d
-        return defer.succeed(None)
+        if self.dCount == 0:
+            return defer.succeed(True)
+        return iteration.Delay(timeout=timeout).untilEvent(
+            lambda: self.dCount == 0)
 
 
 class DeferredLock(defer.DeferredLock):

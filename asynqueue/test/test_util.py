@@ -24,7 +24,7 @@
 Unit tests for asynqueue.util
 """
 
-import gc, random, threading
+import gc, random, threading, time
 from zope.interface import implements
 from twisted.internet import defer
 from twisted.internet.interfaces import IConsumer
@@ -54,6 +54,7 @@ class TestDeferredTracker(TestCase):
 
     def setUp(self):
         self._flag = False
+        self._count = 0
         self.dt = util.DeferredTracker()
 
     def _setFlag(self):
@@ -63,9 +64,11 @@ class TestDeferredTracker(TestCase):
     def _slowStuff(self, N, delay=None, maxDelay=0.2):
         def done(null, k):
             self._flag = False
+            self._count -= 1
             return k
         dList = []
         for k in xrange(N):
+            self._count += 1
             if delay is None:
                 delay = maxDelay*random.random()
             d = deferToDelay(delay).addCallback(done, k)
@@ -75,23 +78,22 @@ class TestDeferredTracker(TestCase):
     @defer.inlineCallbacks
     def test_basic(self):
         # Nothing in there yet, immediate
+        t0 = time.time()
         yield self.dt.deferToAll()
-        yield self.dt.deferToLast()
+        self.assertAlmostEqual(time.time()-t0, 0, 3)
         # Put some in and wait for them
         for d in self._slowStuff(3):
             self.dt.put(d)
+        self.assertEqual(self._count, 3)
         yield self.dt.deferToAll()
-        self.assertEqual(len(self.dt.dList), 0)
-        # Put some in with the same delay and defer to the last one
+        self.assertEqual(self._count, 0)
+        # Put some in with the same delay and defer to all
         for d in self._slowStuff(3, delay=0.5):
             self.dt.put(d)
         self.dt.put(self._setFlag())
-        yield self.dt.deferToLast()
-        self.assertTrue(self._flag)
-        self.assertGreater(len(self.dt.dList), 0)
         yield self.dt.deferToAll()
         self.assertFalse(self._flag)
-        self.assertEqual(len(self.dt.dList), 0)
+        self.assertEqual(self._count, 0)
 
     @defer.inlineCallbacks
     def test_deferToAll_multiple(self):
