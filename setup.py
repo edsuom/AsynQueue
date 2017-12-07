@@ -33,7 +33,7 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version':'0.9.2',
+kw = {'version':'0.9.3',
       'license':'Apache License (2.0)',
       'platforms':'OS Independent',
 
@@ -72,7 +72,7 @@ kw['classifiers'] = [
     
     'License :: OSI Approved :: Apache Software License',
     'Operating System :: OS Independent',
-    'Programming Language :: Python',
+    'Programming Language :: Python :: 2.7',
     'Framework :: Twisted',
 
     'Topic :: System :: Distributed Computing',
@@ -99,6 +99,8 @@ Python processes. The color-mapped RGB results are collected as they
 come back and intelligently buffered for iterating in a proper
 sequence to a third-party PNG library that wouldn't ordinarily play
 nice with Twisted.
+
+Python 3 compatiblity is in the works, but not yet supported.
 
 .. _mcMandelbrot: http://edsuom.com/mcMandelbrot.html
 
