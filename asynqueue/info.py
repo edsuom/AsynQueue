@@ -387,7 +387,7 @@ class Info(object):
         
         For my current callable or a previous one identified by I{ID},
         returns a 3-tuple namespace-ID-name combination suitable for
-        sending to a process worker via L{pickle}.
+        sending to a process worker via C{pickle}.
 
         The first element: If the callable is a method, a pickled or
         fully qualified name (FQN) version of its parent object. This
