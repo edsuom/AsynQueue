@@ -322,7 +322,7 @@ class CallRunner(object):
     I'm used by L{threads.ThreadLooper} and
     L{process.ProcessUniverse}.
     """
-    def __init__(self, raw=False, callStats=False):
+    def __init__(self, raw=False, callStats=False, reactor=None):
         """
         @param raw: Set C{True} to return raw iterators by default instead
           of doing L{iteration} magic.
@@ -335,6 +335,7 @@ class CallRunner(object):
         self.callStats = callStats
         if callStats:
             self.callTimes = []
+        self.reactor = reactor
 
     def __call__(self, callTuple):
         """
@@ -354,6 +355,9 @@ class CallRunner(object):
         desired. The called function never sees that keyword.
         """
         f, args, kw = callTuple
+        if self.reactor:
+            args = [self.reactor, f] + list(args)
+            f = threads.blockingCallFromThread
         raw = kw.pop('raw', None)
         if raw is None:
             raw = self.raw

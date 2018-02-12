@@ -31,12 +31,12 @@ from time import time
 import multiprocessing as mp
 
 from zope.interface import implementer
-from twisted.internet import defer
+from twisted.internet import defer, threads
 from twisted.python.failure import Failure
 
 from asynqueue.base import TaskQueue
 from asynqueue.interfaces import IWorker
-from asynqueue import errors, util, iteration, info
+from asynqueue import errors, util, iteration, info, threads
 
 
 class ProcessQueue(TaskQueue):
@@ -171,7 +171,8 @@ class ProcessWorker(object):
         """
         return mp.cpu_count()
     
-    def __init__(self, series=[], raw=False, callStats=False):
+    def __init__(
+            self, series=[], raw=False, callStats=False, useReactor=False):
         """
         Constructs me with a L{ThreadLooper} and an empty list of tasks.
         
@@ -201,7 +202,7 @@ class ProcessWorker(object):
         self.dt = util.DeferredTracker()
         # Multiprocessing with (Gasp! Twisted heresy!) standard lib Python
         self.cMain, cProcess = mp.Pipe()
-        pu = ProcessUniverse(raw, callStats)
+        pu = ProcessUniverse(raw, callStats, useReactor=False)
         self.process = mp.Process(target=pu.loop, args=(cProcess,))
         self.process.start()
 
@@ -329,11 +330,23 @@ class ProcessWorker(object):
 class ProcessUniverse(object):
     """
     Each process for a L{ProcessWorker} lives in one of these.
+
+    For now, only I{raw} mode is supported with the use of a reactor
+    in the process.
     """
-    def __init__(self, raw=False, callStats=False):
-        self.iterators = {}
-        self.runner = util.CallRunner(raw, callStats)
-    
+    def __init__(self, raw=False, callStats=False, useReactor=False):
+        if useReactor:
+            if not raw:
+                raise ValueError(
+                    "Only raw mode currently supported with process reactor!")
+            from threading import Thread
+            from twisted.internet import reactor
+            Thread(target=reactor.run, args=(False,)).start()
+            self.runner = util.CallRunner(True, callStats, reactor)
+        else:
+            self.iterators = {}
+            self.runner = util.CallRunner(raw, callStats)
+
     def loop(self, connection):
         """
         Runs a loop in a dedicated process that waits for new tasks. The
