@@ -133,7 +133,7 @@ def run(*args, **kw):
     if len(args) < 4:
         print(
             "Usage: [-N values] "+\
-            "[-o imageFile] [-d description] [-g] [-s]" +\
+            "[-o imageFile] [-d description] [-g] [-s] " +\
             "N cr ci crPM [ciPM]")
         sys.exit(1)
     Nx = int(args[0])

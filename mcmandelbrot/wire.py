@@ -102,10 +102,15 @@ class MandelbrotWorkerUniverse(WireWorkerUniverse):
             # get canceled and then for it to shut down.
             self.pendingRuns = {}
             self.runner = runner.Runner(N_values, steepness, verbose=VERBOSE)
+            self.triggerID = reactor.addSystemEventTrigger(
+                'before', 'shutdown', self.shutdown)
         return self.shutdown().addCallback(ready)
 
     @defer.inlineCallbacks
     def shutdown(self):
+        if hasattr(self, 'triggerID'):
+            reactor.removeSystemEventTrigger(self.triggerID)
+            del self.triggerID
         if hasattr(self, 'runner'):
             dList = []
             for ri in self.pendingRuns.itervalues():
@@ -339,7 +344,6 @@ def server(description=None, port=1978, interface=None):
         if interface:
             description += ":interface={}".format(interface)
     mwu = MandelbrotWorkerUniverse()
-    reactor.addSystemEventTrigger('before', 'shutdown', mwu.shutdown)
     ws = WireServer(mwu)
     return ws.run(description)
 

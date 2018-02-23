@@ -534,7 +534,7 @@ class WireRunner(object):
             # No iterator, at least not anymore
             bogusResponse()
         defer.returnValue(response)
-    
+
 
 class WireServer(object):
     """
@@ -572,8 +572,21 @@ class ServerManager(object):
     def __init__(self, wwuFQN=None):
         self.processInfo = {}
         self.wwuFQN = DEFAULT_WWU_FQN if wwuFQN is None else wwuFQN
-        reactor.addSystemEventTrigger('before', 'shutdown', self.done)
-            
+        self.triggerIDs = [
+            reactor.addSystemEventTrigger('before', 'shutdown', self.done),
+            reactor.addSystemEventTrigger('after', 'shutdown', self.shutdown),
+        ]
+
+    def shutdown(self):
+        if hasattr(self, 'tempDir'):
+            try:
+                shutil.rmtree(self.tempDir)
+            except: pass
+            del self.tempDir
+        while self.triggerIDs:
+            ID = self.triggerIDs.pop()
+            reactor.removeSystemEventTrigger(ID)
+        
     def spawn(self, description, niceness=0):
         """
         Spawns a subordinate Python interpreter.
@@ -616,9 +629,6 @@ class ServerManager(object):
         # A unique temp directory for all instances' socket files
         if not hasattr(self, 'tempDir'):
             self.tempDir = tempfile.mkdtemp()
-            reactor.addSystemEventTrigger(
-                'after', 'shutdown',
-                shutil.rmtree, self.tempDir, ignore_errors=True)
         socketFile = os.path.join(self.tempDir, "{}.sock".format(pName))
         return b"unix:{}".format(socketFile)
 

@@ -144,6 +144,7 @@ class MandelbrotValuer(object):
             zr2 = zr * zr;
             zi2 = zi * zi;
         }
+        return k;
     }
     """
     code = """
