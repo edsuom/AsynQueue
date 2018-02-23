@@ -48,20 +48,19 @@ kw = {'version':'0.9.3',
           'asynqueue', 'asynqueue.test',
           'mcmandelbrot', 'mcmandelbrot.test'],
       'package_data':{
-          'mcmandelbrot': ['mcm.css', 'mcm.js', 'blank.jpg'],
+          'mcmandelbrot': ['server-install.sh', 'mcm.*', 'blank.jpg'],
           },
       'entry_points':{
           'console_scripts': [
               'mcmandelbrot = mcmandelbrot.main:run',
           ],
       },
-      
-      'zip_safe':True,
-      }
+}
 
 kw['keywords'] = [
     'Twisted', 'asynchronous', 'threads',
-    'taskqueue', 'queue', 'priority', 'tasks', 'jobs', 'nodes', 'cluster']
+    'taskqueue', 'queue', 'priority', 'tasks', 'jobs', 'nodes', 'cluster'
+]
 
 
 kw['classifiers'] = [
@@ -78,7 +77,7 @@ kw['classifiers'] = [
     'Topic :: System :: Distributed Computing',
     'Topic :: Software Development :: Object Brokering',
     'Topic :: Software Development :: Libraries :: Python Modules',
-    ]
+]
 
 
 kw['description'] = " ".join("""
