@@ -166,7 +166,7 @@ class ProcessProtocol(object):
             if data and not self.d.called:
                 self.d.callback(data)
         if childFD == 2:
-            print "\nERROR: {}".format(data)
+            print("\nERROR: {}".format(data))
             #self.stopper(self.pid)
             
     def childConnectionLost(self, childFD):

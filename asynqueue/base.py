@@ -297,6 +297,7 @@ class TaskQueue(object):
         self.spew = kw.get('spew', False)
         self.returnFailure = kw.get('returnFailure', False)
         if self.warn or self.spew:
+            logging.basicConfig()
             self.logger = logging.getLogger('asynqueue')
             if self.spew:
                 self.logger.setLevel(logging.INFO)

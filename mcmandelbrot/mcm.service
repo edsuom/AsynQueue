@@ -4,7 +4,7 @@ Description=MCM PNG Image Server
 [Service]
 Environment=PYTHONPATH=.
 ExecStart=/usr/local/bin/twistd \
-    --nodaemon --pidfile= --python=mcm.tac
+    --nodaemon --pidfile= --logfile=access.log --python=mcm.tac
 
 WorkingDirectory=/home/mcm/
 

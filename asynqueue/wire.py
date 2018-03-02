@@ -215,7 +215,7 @@ class WireWorker(object):
                 del self.d_lcww
             return super(amp.AMP, self).connectionLost(reason)
     
-    def __init__(self, wwu, description, series=[], raw=False):
+    def __init__(self, wwu, description, series=[], raw=False, thread=False):
         """
         Constructs me with a reference I{wwu} to a L{WireWorkerUniverse}
         and a client connection I{description} and immediately
@@ -229,6 +229,7 @@ class WireWorker(object):
         WireWorkerUniverse.check(wwu)
         self.tasks = []
         self.raw = raw
+        self.thread = thread
         self.iQualified = series
         # Lock that is acquired until AMP connection made
         self.dLock = util.DeferredLock(allowZombies=True)
@@ -320,6 +321,8 @@ class WireWorker(object):
                 kw[name] = value if isinstance(value, str) else o2p(value)
             if self.raw:
                 kw.setdefault('raw', True)
+            if self.thread:
+                kw.setdefault('thread', True)
             # The heart of the matter
             try:
                 response = yield self.ap.callRemote(RunTask, **kw)
@@ -572,34 +575,32 @@ class ServerManager(object):
     def __init__(self, wwuFQN=None):
         self.processInfo = {}
         self.wwuFQN = DEFAULT_WWU_FQN if wwuFQN is None else wwuFQN
-        self.triggerIDs = [
-            reactor.addSystemEventTrigger('before', 'shutdown', self.done),
-            reactor.addSystemEventTrigger('after', 'shutdown', self.shutdown),
-        ]
+        self.triggerID = reactor.addSystemEventTrigger(
+            'before', 'shutdown', self.shutdown)
 
+    @defer.inlineCallbacks
     def shutdown(self):
-        if hasattr(self, 'tempDir'):
-            try:
-                shutil.rmtree(self.tempDir)
-            except: pass
-            del self.tempDir
-        while self.triggerIDs:
-            ID = self.triggerIDs.pop()
-            reactor.removeSystemEventTrigger(ID)
+        if self.triggerID is not None:
+            reactor.removeSystemEventTrigger(self.triggerID)
+            self.triggerID = None
+            yield self.done()
+            if hasattr(self, 'tempDir'):
+                try: shutil.rmtree(self.tempDir)
+                except: pass
+                del self.tempDir
         
     def spawn(self, description, niceness=0):
         """
         Spawns a subordinate Python interpreter.
 
         B{TODO:} Implement (somehow) I{niceness} keyword to accept an
-        integer UNIX nice lvel for the new interpreter process.
+        integer UNIX nice level for the new interpreter process.
 
         @param description: A server description string of the form
-          used by Twisted's C{endpoints.serverFromString}. Default is
-          "unix:/var/run/wire".
+          used by Twisted's C{endpoints.serverFromString}.
 
-        @return: A C{Deferred} that fires with the PID of the new
-          process if it connected OK, or C{None} if not.
+        @return: A C{Deferred} that fires with the description string
+          to the new process if it connected OK, or C{None} if not.
         """
         def ready(response):
             self.processInfo[pt.pid] = {'pt':pt}
