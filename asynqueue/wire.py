@@ -29,7 +29,7 @@ L{WireServer} and have L{WireWorker} connect to it via Twisted AMP. My
 L{ServerManager} is just the thing for that.
 """
 
-import sys, os.path, tempfile, shutil, inspect
+import sys, os, os.path, tempfile, shutil, inspect
 
 from zope.interface import implements
 from twisted.python import reflect
@@ -179,10 +179,10 @@ class WireWorker(object):
     interpreter via Twisted's Asynchronous Messaging Protocol over an
     endpoint that can be a UNIX socket, TCP/IP, SSL, etc. The task
     callable must be a method of a subclass of L{WireWorkerUniverse}
-    that has been imported globally, as C{UNIVERSE}, into the same
-    module as the one in which your instance of me is constructed. No
-    pickled callables are sent over the wire, just strings defining
-    the method name of that class instance.
+    that has been imported into the same module as the one in which
+    your instance of me is constructed. No pickled callables are sent
+    over the wire, just strings defining the method name of that class
+    instance.
 
     For most applications, see L{process.ProcessWorker} instead.
 
@@ -588,8 +588,9 @@ class ServerManager(object):
                 try: shutil.rmtree(self.tempDir)
                 except: pass
                 del self.tempDir
-        
-    def spawn(self, description, niceness=0):
+
+    @defer.inlineCallbacks
+    def spawn(self, description, stdio=False, niceness=0):
         """
         Spawns a subordinate Python interpreter.
 
@@ -597,24 +598,35 @@ class ServerManager(object):
         integer UNIX nice level for the new interpreter process.
 
         @param description: A server description string of the form
-          used by Twisted's C{endpoints.serverFromString}.
+            used by Twisted's C{endpoints.serverFromString}.
 
-        @return: A C{Deferred} that fires with the description string
-          to the new process if it connected OK, or C{None} if not.
+        @return: A C{Deferred} that fires when the new process is
+            running. If in I{stdio} mode, it fires with a
+            L{util.ProcessProtocol} (which includes a I{pid}
+            attribute) for the new process. Otherwise, fires with the
+            integer I{pid} of the new process.
         """
-        def ready(response):
-            self.processInfo[pt.pid] = {'pt':pt}
-            if "AsynQueue WireServer listening" in response:
-                return pt.pid
-            self.done(pt.pid)
-
+        result = None
         # Spawn the AMP server and "wait" for it to indicate it's OK
         args = [
             sys.executable,
             "-m", "asynqueue.wire", description, self.wwuFQN]
-        pp = util.ProcessProtocol(self.done)
-        pt = reactor.spawnProcess(pp, sys.executable, args)
-        return pp.d.addCallback(ready)
+        if stdio:
+            pp = util.ProcessProtocol(self.done)
+            pt = reactor.spawnProcess(pp, sys.executable, args)
+            response = yield pp.d
+            self.processInfo[pt.pid] = {'pt':pt}
+            if "AsynQueue WireServer listening" in response:
+                result = pp
+            else: self.done(pt.pid)
+        else:
+            checker = iteration.Delay()
+            pid = os.spawnl(os.P_NOWAIT, sys.executable, *args)
+            self.processInfo[pid] = None
+            socketPath = description.split(':')[1]
+            yield checker.untilEvent(os.path.exists, socketPath)
+            result = pid
+        defer.returnValue(result)
 
     def newSocket(self):
         """
@@ -640,10 +652,11 @@ class ServerManager(object):
                 yield self.done(pid)
         elif pid in self.processInfo:
             thisInfo = self.processInfo[pid]
-            if 'ap' in thisInfo:
-                yield thisInfo['ap'].transport.loseConnection()
-            if 'pt' in thisInfo:
-                yield thisInfo['pt'].loseConnection()
+            if thisInfo is not None:
+                if 'ap' in thisInfo:
+                    yield thisInfo['ap'].transport.loseConnection()
+                if 'pt' in thisInfo:
+                    yield thisInfo['pt'].loseConnection()
             yield util.killProcess(pid)
             del self.processInfo[pid]
 

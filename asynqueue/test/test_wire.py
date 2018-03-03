@@ -43,7 +43,6 @@ class TestWireWorker(TestCase):
         # This is needed to have a fully qualified wwu
         self.wwu = misc.TestUniverse()
         self.wm = wire.ServerManager('asynqueue.misc.TestUniverse')
-        return self.newServer()
 
     @defer.inlineCallbacks
     def tearDown(self):
@@ -51,27 +50,31 @@ class TestWireWorker(TestCase):
         yield self.wm.done()
 
     @defer.inlineCallbacks
-    def newServer(self):
+    def newServer(self, stdio=False):
         description = self.wm.newSocket()
-        self.pid = yield self.wm.spawn(description)
+        result = yield self.wm.spawn(description, stdio=stdio)
+        self.pid = result.pid if hasattr(result, 'pid') else result
         self.worker = wire.WireWorker(self.wwu, description)
         yield self.queue.attachWorker(self.worker)
     
     @defer.inlineCallbacks
     def test_basic(self):
+        yield self.newServer(True)
         result = yield self.queue.call('add', 1, 2)
         self.assertEqual(result, 3)
 
     @defer.inlineCallbacks
     def test_afterDisconnect(self):
+        yield self.newServer(True)
         yield util.killProcess(self.pid)
         d = self.queue.call('add', 2, 3)
-        yield self.newServer()
+        yield self.newServer(True)
         result = yield d
         self.assertEqual(result, 5)
 
     @defer.inlineCallbacks
     def test_iterate(self):
+        yield self.newServer(True)
         chunks = []
         N1, N2 = 20, 10
         yield self.queue.call('setStuff', N1, N2)
@@ -85,6 +88,12 @@ class TestWireWorker(TestCase):
             chunks.append(chunk)
         self.assertEqual(chunks, stuff)
 
+    @defer.inlineCallbacks
+    def test_basic_not_stdio(self):
+        yield self.newServer()
+        result = yield self.queue.call('add', 1, 2)
+        self.assertEqual(result, 3)
+        
 
 class TestChunkyString(TestCase):
     verbose = False

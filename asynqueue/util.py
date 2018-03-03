@@ -100,17 +100,25 @@ def killProcess(pid):
     the process was alive and had to be killed, C{False} if it was
     already dead.
     """
-    def ready(stdout):
-        pt.loseConnection()
-        if pidString in stdout:
-            os.kill(pid, signal.SIGTERM)
+    def isDead():
+        try:
+            status = os.waitpid(pid, os.WNOHANG)[1]
+        except:
             return True
-        return False
-    pidString = str(pid)
-    pp = ProcessProtocol()
-    args = ("/bin/ps", '-p', pidString)
-    pt = reactor.spawnProcess(pp, args[0], args)
-    return pp.d.addCallback(ready)
+        return status != 0
+
+    def triedTerm(OK):
+        if not OK:
+            os.kill(pid, signal.SIGKILL)
+            return iteration.Delay().untilEvent(
+                isDead).addCallback(lambda _: True)
+        return True
+
+    if isDead():
+        return defer.succeed(False)
+    os.kill(pid, signal.SIGTERM)
+    return iteration.Delay(timeout=5.0).untilEvent(
+        isDead).addCallback(triedTerm)
 
 
 # For Testing

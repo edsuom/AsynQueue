@@ -111,7 +111,7 @@ class Delay(object):
         return d
     
     @defer.inlineCallbacks
-    def untilEvent(self, eventChecker):
+    def untilEvent(self, eventChecker, *args, **kw):
         """
         Returns a C{Deferred} that fires when a call to the supplied
         event-checking callable returns an affirmative (not C{None},
@@ -131,7 +131,7 @@ class Delay(object):
 
         # We do two very quick checks before entering the delay loop,
         # to minimize overhead when dealing with very fast events.
-        if eventChecker():
+        if eventChecker(*args, **kw):
             # First, if the event has happened right away, we don't
             # enter the loop at all.
             defer.returnValue(True)
@@ -143,7 +143,7 @@ class Delay(object):
             # iteration.
             yield self(0)
             while True:
-                if eventChecker():
+                if eventChecker(*args, **kw):
                     defer.returnValue(True)
                     break
                 if hasattr(self, 'timeout') and time.time()-t0 > self.timeout:

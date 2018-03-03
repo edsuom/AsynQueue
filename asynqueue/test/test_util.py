@@ -24,7 +24,7 @@
 Unit tests for asynqueue.util
 """
 
-import gc, random, threading, time
+import os, sys, gc, random, threading, time
 from zope.interface import implements
 from twisted.internet import defer
 from twisted.internet.interfaces import IConsumer
@@ -48,6 +48,19 @@ class TestFunctions(TestCase):
             self.assertEqual(obj, roundTrip)
         self.assertEqual(roundTrip.x, 4.4)
 
+    @defer.inlineCallbacks
+    def test_kill(self):
+        args = [sys.executable]*2
+        args.extend(['-c', "while True: pass"])
+        pid = os.spawnl(os.P_NOWAIT, *args)
+        yield deferToDelay(0.1)
+        wasAlive = yield util.killProcess(pid)
+        self.assertTrue(wasAlive)
+        self.assertFalse(os.path.exists(os.path.join("/proc", str(pid))))
+        yield deferToDelay(0.1)
+        wasAlive = yield util.killProcess(pid)
+        self.assertFalse(wasAlive)
+        
 
 class TestDeferredTracker(TestCase):
     verbose = False
