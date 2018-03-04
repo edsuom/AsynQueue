@@ -134,6 +134,10 @@ class WireWorkerUniverse(amp.CommandLocator):
                 return True
         raise TypeError(
             "You must provide a WireWorkerUniverse subclass instance")
+
+    def __init__(self, wireServer=None):
+        self.ws = wireServer
+        super(WireWorkerUniverse, self).__init__()
     
     @RunTask.responder
     def runTask(self, methodName, args, kw):
@@ -543,28 +547,36 @@ class WireServer(object):
     """
     An AMP server for the remote end of a L{WireWorker}.
     
-    Construct me with either an instance or the fully qualified name
-    of a L{WireWorkerUniverse} subclass. Then call my L{run} method
-    with an endpoint description string to obtain a C{service} that I
-    can start directly or include in the C{application} of a C{.tac}
-    file, thus accepting connections to run tasks.
+    Construct me with an endpoint description string and either an
+    instance or the fully qualified name of a L{WireWorkerUniverse}
+    subclass.
+
+    @ivar service: A L{StreamServerEndpointService} that you can
+        include in the C{application} of a C{.tac} file, thus
+        accepting connections to run tasks.
     """
-    def __init__(self, wwu):
+    triggerID = None
+    
+    def __init__(self, description, wwu):
         if isinstance(wwu, str):
             klass = reflect.namedObject(wwu)
-            wwu = klass()
+            wwu = klass(self)
         WireWorkerUniverse.check(wwu)
         self.factory = Factory()
         self.factory.protocol = lambda: amp.AMP(locator=wwu)
-
-    def run(self, description):
-        """
-        Does B{no} encryption or credential checking (unless you use SSL
-        endpoints).
-        """
         endpoint = endpoints.serverFromString(reactor, description)
-        service = StreamServerEndpointService(endpoint, self.factory)
-        return service
+        self.service = StreamServerEndpointService(endpoint, self.factory)
+
+    def start(self):
+        self.service.startService()
+        self.triggerID = reactor.addSystemEventTrigger(
+            'before', 'shutdown', self.stop)
+        
+    def stop(self):
+        if self.triggerID is None:
+            return defer.succeed(None)
+        self.triggerID = None
+        return self.service.stopService()
 
         
 class ServerManager(object):
@@ -670,12 +682,11 @@ def runServer(description, wwuFQN):
     a L{WireWorkerUniverse} subclass with I{wwu}.
     """
     def running():
+        ws.start()
         print("AsynQueue WireServer listening at {}".format(description))
         sys.stdout.flush()
     
-    ws = WireServer(wwuFQN)
-    service = ws.run(description)
-    service.startService()
+    ws = WireServer(description, wwuFQN)
     reactor.callWhenRunning(running)
     reactor.run()
 

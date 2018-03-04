@@ -33,8 +33,8 @@ def get_mcmWireService():
     number.
     """
     mwu = wire.MandelbrotWorkerUniverse()
-    ws = wire.WireServer(mwu)
-    return ws.run(DESCRIPTION)
+    ws = wire.WireServer(DESCRIPTION, mwu)
+    return ws.service
 
 
 # Create the root-level application object
