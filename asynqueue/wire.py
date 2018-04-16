@@ -219,12 +219,17 @@ class WireWorker(object):
                 del self.d_lcww
             return super(amp.AMP, self).connectionLost(reason)
     
-    def __init__(self, wwu, description, series=[], raw=False, thread=False):
+    def __init__(
+            self, wwu, description,
+            series=[], raw=False, thread=False, N_concurrent=1):
         """
         Constructs me with a reference I{wwu} to a L{WireWorkerUniverse}
         and a client connection I{description} and immediately
         connects to a L{WireServer} running on another Python
         interpreter via the AMP protocol.
+
+        @keyword N_concurrent: The number of tasks I can have outstanding.
+        
         """
         def connected(ap):
             self.ap = ap
@@ -239,6 +244,8 @@ class WireWorker(object):
         self.dLock = util.DeferredLock(allowZombies=True)
         self.dLock.addStopper(self.stopper)
         self.dLock.acquire()
+        # Limit tasks outstanding
+        self.ds = defer.DeferredSemaphore(N_concurrent)
         # Make the connection
         dest = endpoints.clientFromString(reactor, description)
         endpoints.connectProtocol(
@@ -273,7 +280,9 @@ class WireWorker(object):
     def next(self, ID):
         """
         Do a next call of the iterator held by my subordinate, over the
-        wire (socket) and in Twisted fashion.
+        wire (socket) and in Twisted fashion. Highest priority because
+        something is waiting for possibly lots of calls of this to
+        complete.
         """
         yield self.dLock.acquire(vip=True)
         isValid, value = yield self._handleNext(ID)
@@ -313,6 +322,8 @@ class WireWorker(object):
         self.tasks.append(task)
         doNext = task.callTuple[2].pop('doNext', False)
         yield self.dLock.acquire(doNext)
+        self.dLock.release()
+        yield self.ds.acquire()
         # Run the task via AMP, but only if it's connected
         #-----------------------------------------------------------
         if not self.ap.transport.connected:
@@ -333,9 +344,8 @@ class WireWorker(object):
             except:
                 response = {'status':'d', 'result':None}
         #-----------------------------------------------------------
-        # At this point, we can permit another remote call to get
-        # going for a separate task.
-        self.dLock.release()
+        # One less task running now
+        self.ds.release()
         # Process the response. No lock problems even if that
         # involves further remote calls, i.e., GetNext
         status = response['status']
