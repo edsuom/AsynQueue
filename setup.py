@@ -93,7 +93,7 @@ kw['classifiers'] = [
 
 # You get 77 characters. Use them wisely.
 kw['description'] =\
-"Asynchronous task queueing with Twisted: threaded, multiprocess, and remote."
+"Asynchronous task queueing with Twisted: threaded, multicore, and remote."
 
 kw['long_description'] = """
 Asynchronous task queueing based on the Twisted framework, with task
@@ -104,7 +104,7 @@ and even on separate devices using Twisted's Asynchronouse Message
 Protocol.
 
 Includes deferred iteration capability: Calling a task that returns an
-iterator can return a "Deferator" instead, which does the iteration in
+iterator can return a Deferator_ instead, which does the iteration in
 a Twisted-friendly fashion, even over a network connection. You can
 also supply an object conforming to Twisted's IConsumer interface and
 iterations will be fed to it as they become available.
@@ -123,6 +123,8 @@ Python 3 compatiblity is in the works, but not yet supported.
 .. _mcMandelbrot: http://edsuom.com/mcMandelbrot.html
 
 .. _ProcessQueue: http://edsuom.com/AsynQueue/asynqueue.process.ProcessQueue.html
+
+.. _Deferator: http://edsuom.com/AsynQueue/asynqueue.iteration.Deferator.html
 """
 
 ### Finally, run the setup
