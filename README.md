@@ -14,6 +14,14 @@ are included for running tasks asynchronously in the main thread, in
 separate threads, and in separate Python interpreters
 (multiprocessing).
 
+Includes deferred iteration capability: Calling a task that returns an
+iterator can return a
+[Deferator](http://edsuom.com/AsynQueue/asynqueue.iteration.Deferator.html)
+instead, which does the iteration in a Twisted-friendly fashion, even
+over a network connection. You can also supply an object conforming to
+Twisted's IConsumer interface and iterations will be fed to it as they
+become available.
+
 There's a detailed usage example below. Also, see the one provided in
 the example package "mcmandelbrot" that accompanies this README file
 and installs with asynqueue. There is a console entry point for

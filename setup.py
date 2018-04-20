@@ -33,33 +33,43 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version':'0.9.3',
-      'license':'Apache License (2.0)',
-      'platforms':'OS Independent',
+kw = {'version':           "0.9.4",
+      'license':           "Apache License (2.0)",
+      'platforms':         "OS Independent",
 
-      'url':"http://edsuom.com/{}.html".format(NAME),
-      'author':"Edwin A. Suominen",
-      'author_email':"valueprivacy-foss@yahoo.com",
-      'maintainer':'Edwin A. Suominen',
-      'maintainer_email':"valueprivacy-foss@yahoo.com",
-      
-      'install_requires':required,
-      'packages':[
-          'asynqueue', 'asynqueue.test',
-          'mcmandelbrot', 'mcmandelbrot.test'],
-      'package_data':{
-          'mcmandelbrot': ['server-install.sh', 'mcm.*', 'blank.jpg'],
+      'url':               "http://edsuom.com/{}.html".format(NAME),
+      'project_urls':      {
+          'GitHub':     "https://github.com/edsuom/{}".format(NAME),
+          'API':        "http://edsuom.com/{}/{}.html".format(
+              NAME, NAME.lower()),
           },
-      'entry_points':{
+      'author':            "Edwin A. Suominen",
+      'author_email':      "foss@edsuom.com",
+      'maintainer':        "Edwin A. Suominen",
+      'maintainer_email':  "foss@edsuom.com",
+      
+      'install_requires':  required,
+      'packages':          [
+          'asynqueue', 'asynqueue.test',
+          'mcmandelbrot', 'mcmandelbrot.test'
+      ],
+      'package_data':      {
+          'mcmandelbrot': [
+              'server-install.sh', 'mcm.*', 'blank.jpg'
+          ],
+      },
+      'entry_points':      {
           'console_scripts': [
               'mcmandelbrot = mcmandelbrot.main:run',
           ],
       },
+      'test_suite':        "asynqueue.test",
 }
 
 kw['keywords'] = [
-    'Twisted', 'asynchronous', 'threads',
-    'taskqueue', 'queue', 'priority', 'tasks', 'jobs', 'nodes', 'cluster'
+    'twisted', 'asynchronous', 'async', 'threads',
+    'parallel', 'distributed',
+    'task', 'queue', 'priority', 'multicore', 'fractal',
 ]
 
 
@@ -72,23 +82,32 @@ kw['classifiers'] = [
     'License :: OSI Approved :: Apache Software License',
     'Operating System :: OS Independent',
     'Programming Language :: Python :: 2.7',
+    'Programming Language :: Python :: 2 :: Only',
     'Framework :: Twisted',
 
+    'Topic :: System :: Clustering',
     'Topic :: System :: Distributed Computing',
     'Topic :: Software Development :: Object Brokering',
     'Topic :: Software Development :: Libraries :: Python Modules',
 ]
 
-
-kw['description'] = " ".join("""
-Asynchronous task queueing based on the Twisted framework.
-""".split("\n"))
+# You get 77 characters. Use them wisely.
+kw['description'] =\
+"Asynchronous task queueing with Twisted: threaded, multiprocess, and remote."
 
 kw['long_description'] = """
 Asynchronous task queueing based on the Twisted framework, with task
 prioritization and a powerful worker interface. Worker implementations
 are included for running tasks asynchronously in the main thread, in
-separate threads, and in separate Python interpreters (multiprocessing).
+separate threads, in separate Python interpreters (multiprocessing),
+and even on separate devices using Twisted's Asynchronouse Message
+Protocol.
+
+Includes deferred iteration capability: Calling a task that returns an
+iterator can return a "Deferator" instead, which does the iteration in
+a Twisted-friendly fashion, even over a network connection. You can
+also supply an object conforming to Twisted's IConsumer interface and
+iterations will be fed to it as they become available.
 
 Includes an example package mcMandelbrot_ that generates Mandelbrot
 set images, row by row, demonstrating the power of asynchronous
