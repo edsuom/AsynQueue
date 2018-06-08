@@ -228,14 +228,15 @@ class DeferredLock(defer.DeferredLock):
     I am a modified form of C{defer.DeferredLock} lock that lets you
     shut things down when you get the lock.
 
-    Raises an exception if you try to acquire the lock after a
-    shutdown has been initated.
+    The I{allowZombies} keyword is ignored as the lock's behavior has
+    been changed to always return an immediate C{Deferred} from a call
+    to L{acquire} if the lock has been stopped. I mean, why the hell
+    not?
     """
     def __init__(self, allowZombies=False):
         self.N_vips = 0
         self.stoppers = []
         self.running = True
-        self.allowZombies = allowZombies
         super(DeferredLock, self).__init__()
 
     @contextmanager
@@ -260,19 +261,15 @@ class DeferredLock(defer.DeferredLock):
         waiting list and gets the next lock, after anyone else in the
         VIP line who is waiting from their own call of this method.
 
-        If I'm stopped, calling this method results in an error unless
-        I was constructed with I{allowZombies} set C{True}. Then it
-        simply returns an immediate C{Deferred}.
+        If I'm stopped, calling this method simply returns an
+        immediate C{Deferred}.
         """
         def transparentCallback(result):
             self.N_vips -= 1
             return result
         
         if not self.running:
-            if self.allowZombies:
-                return defer.succeed(self)
-            raise errors.QueueRunError(
-                "Can't acquire from a stopped DeferredLock")
+            return defer.succeed(self)
         d = defer.Deferred(canceller=self._cancelAcquire)
         if self.locked:
             if vip:
@@ -292,11 +289,10 @@ class DeferredLock(defer.DeferredLock):
     def release(self):
         """
         Acts like Twisted's regular C{defer.DeferredLock.release} unless
-        I'm stopped and running with the I{allowZombies} option. Then
-        calling this does nothing because the lock is acquired
-        instantly in that condition.
+        I'm stopped. Then calling this does nothing because the lock
+        is acquired instantly in that condition.
         """
-        if not self.running and self.allowZombies:
+        if not self.running:
             return
         return super(DeferredLock, self).release()
         
