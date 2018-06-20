@@ -30,10 +30,10 @@ import threading
 
 from zope.interface import implementer
 from twisted.internet import defer, reactor
-from twisted.python import threadpool
+from twisted.python import threadable, threadpool
 from twisted.python.failure import Failure
 from twisted.internet.interfaces import IConsumer, IPushProducer
-
+threadable.init()
 
 from asynqueue.base import TaskQueue
 from asynqueue.interfaces import IWorker
