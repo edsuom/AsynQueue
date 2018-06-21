@@ -27,6 +27,7 @@ multiprocessing.
 
 @see: L{ProcessQueue} and L{ProcessWorker}.
 """
+import signal
 from time import time
 import multiprocessing as mp
 
@@ -355,6 +356,7 @@ class ProcessUniverse(object):
         @param connection: The sub-process end of an interprocess
         connection.
         """
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         while True:
             # Wait here for the next call
             callSpec = connection.recv()

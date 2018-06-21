@@ -78,6 +78,12 @@ class ThreadQueue(TaskQueue):
     """
     I am a L{TaskQueue} for dispatching arbitrary callables to be run
     by a single worker thread.
+
+    Having one and just one worker thread is surprisingly useful. It
+    lets you do synchronous processing without blocking Twisted's
+    event loop, yet assures you that objects processed during one
+    queued task will not be disturbed until completion of the Deferred
+    callback chain from that task.
     """
     def __init__(self, **kw):
         raw = kw.pop('raw', False)
