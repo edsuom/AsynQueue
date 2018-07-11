@@ -353,6 +353,12 @@ class ProcessUniverse(object):
         Runs a loop in a dedicated process that waits for new tasks. The
         loop exits when a C{None} object is supplied as a task.
 
+        Note that the sub-process can only return a C{Deferred} if I
+        was constructed with I{useReactor} set C{True} and the
+        sub-process has its own reactor running. Otherwise, there
+        should only be a single Twisted reactor running, the one in
+        the main process.
+
         @param connection: The sub-process end of an interprocess
         connection.
         """
@@ -376,9 +382,6 @@ class ProcessUniverse(object):
                     # A next-iteration call
                     connection.send(self.next(callSpec))
             else:
-                # A task call. Note that the process cannot return a
-                # Deferred. There should only be one Twisted reactor
-                # running, in the main process.
                 status, result = self.runner(callSpec)
                 if status == 'i':
                     # Due to the pipe between worker and process, we
