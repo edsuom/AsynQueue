@@ -413,3 +413,29 @@ class ProcessUniverse(object):
                 return None, False
             return value, True
         return None, False
+
+
+class ProcessBase(object):
+    """
+    I am a base class for objects that are handy to pass as arguments
+    to a L{ProcessQueue}.
+
+    For some reason, the multiprocessing package underlying
+    L{ProcessQueue} constructs multiple pickled instances of the same
+    object running in the main process, even when just a single
+    L{ProcessWorker} is being used. My I{data} property returns a dict
+    that is shared by all such instances.
+    """
+    _pb_data = {}
+
+    @property
+    def data(self):
+        pid = mp.current_process().pid
+        return self._pb_data.setdefault(pid, {})
+    
+    def __getattr__(self, name):
+        if name not in self.data:
+            raise AttributeError
+        return self.data[name]
+
+
