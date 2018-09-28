@@ -45,8 +45,7 @@ class TestProcessQueue(TestCase):
         return self.q.shutdown()
         
     def _bogusCall(self, **kw):
-        if not hasattr(self, 'q'):
-            self.q = process.ProcessQueue(1, **kw)
+        self.q = process.ProcessQueue(1, **kw)
         return self.q.call(self.t._divideBy, 1, 0)
     
     @defer.inlineCallbacks
@@ -75,6 +74,7 @@ class TestProcessQueue(TestCase):
         except Exception as e:
             self.fail("Exception raised")
         self.assertIn("Exception 'integer division", result)
+        # Currently, it prints to STDERR. Is that so bad?
         self.assertEqual(
             len(sys.stderr.getvalue()), 0,
             "STDERR not blank: '{}'".format(sys.stderr.getvalue()))
@@ -132,6 +132,15 @@ class TestProcessWorker(TestCase):
         d.addCallback(self.checkStopped)
         return d
 
+    @defer.inlineCallbacks
+    def test_memUsage(self):
+        kb0 = self.worker.memUsage()
+        self.assertIsInstance(kb0, int)
+        t = Tasks()
+        yield self.queue.call(t._memoryIntensiveTask, 1000)
+        kb1 = self.worker.memUsage()
+        self.assertAlmostEqual(float(kb1-kb0)/35904, 1.0, 1)
+    
     def test_stop(self):
         d = self.queue.call(blockingTask, 0)
         d.addCallback(lambda _: self.worker.stop())

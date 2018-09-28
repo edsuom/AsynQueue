@@ -55,7 +55,7 @@ def blockingTask(x, delay=None):
     if delay:
         time.sleep(delay)
     return 2*x
-    
+
 
 class MsgBase(object):
     """
@@ -113,6 +113,11 @@ class Tasks(MsgBase):
             if random.random() < pErr:
                 raise Exception("Whoops...")
         return values
+
+    def _memoryIntensiveTask(self, N):
+        self.blob = []
+        for k in range(N):
+            self.blob.append([float(kk) for kk in range(N)])
 
             
 class TestHandler(MsgBase, logging.StreamHandler):

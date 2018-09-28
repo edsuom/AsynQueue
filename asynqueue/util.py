@@ -330,9 +330,14 @@ class CallRunner(object):
         """
         @param raw: Set C{True} to return raw iterators by default instead
           of doing L{iteration} magic.
+        
         @param callStats: Set C{True} to accumulate a list of
           I{callTimes} for each call. B{Caution:} Can get big with
           lots of calls!
+        
+        @param reactor: Set to an instance of
+          C{twisted.internet.reactor} to have calls run in the
+          reactor.
         """
         self.raw = raw
         self.info = info.Info()
@@ -340,6 +345,8 @@ class CallRunner(object):
         if callStats:
             self.callTimes = []
         self.reactor = reactor
+        if reactor and not raw:
+            raise ValueError("Only raw mode supported with a process reactor!")
 
     def __call__(self, callTuple):
         """

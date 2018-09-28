@@ -24,7 +24,7 @@
 The L{TaskQueue} and its immediate support staff.
 """
 
-import heapq, logging
+import heapq, logging, sys
 from contextlib import contextmanager
 
 from zope.interface import implementer
@@ -297,10 +297,11 @@ class TaskQueue(object):
         self.spew = kw.get('spew', False)
         self.returnFailure = kw.get('returnFailure', False)
         if self.warn or self.spew:
-            logging.basicConfig()
+            handler = logging.StreamHandler(sys.stdout)
+            handler.setFormatter(logging.Formatter(
+                "%(levelname)s: %(message)s"))
             self.logger = logging.getLogger('asynqueue')
-            if self.spew:
-                self.logger.setLevel(logging.INFO)
+            self.logger.setLevel(logging.INFO if self.spew else logging.ERROR)
         if kw.get('verbose', False) or self.spew:
             self.info = Info(remember=True)
         # Bookkeeping

@@ -27,7 +27,7 @@ multiprocessing.
 
 @see: L{ProcessQueue} and L{ProcessWorker}.
 """
-import signal
+import signal, os, os.path, re
 from time import time
 import multiprocessing as mp
 
@@ -159,7 +159,10 @@ class ProcessWorker(object):
 
     @cvar cQualified: 'process', 'local'
     """
-    backoff = 1.10 # This is the iteration.Delay default, anyhow
+    # This is the iteration.Delay default, anyhow
+    backoff = 1.10
+    # For determining worker process memory usage
+    reVmSize = re.compile(r'VmSize:\s+([0-9]+)')
     
     cQualified = ['process', 'local']
 
@@ -191,6 +194,9 @@ class ProcessWorker(object):
           overall if there are lots of calls. Obtain a list of the
           call times here and on the process (2-tuples) with the
           L{stats} method.
+
+        @param useReactor: Set C{True} to use a Twisted reactor in the
+          process. (currently only compatible with I{raw} mode.)
         """
         self.tasks = []
         self.iQualified = series
@@ -247,6 +253,25 @@ class ProcessWorker(object):
                 result.append((self.callTimes[k], pTime))
             return result
         return self.next("").addCallback(gotProcessTimes)
+
+    def memUsage(self):
+        """
+        On a real operating system, returns the memory usage of the Python
+        sub-process I use, in kilobytes as an C{int}, or C{None} if
+        the process is not running.
+        """
+        if os.name != 'posix':
+            raise RuntimeError(
+                "Memory usage checking only supported under POSIX")
+        if not self.process.is_alive(): return
+        pid = self.process.pid
+        filePath = os.path.join("/proc", str(pid), "status")
+        if not os.path.exists(filePath): return
+        with open(filePath) as fh:
+            for line in fh:
+                match = self.reVmSize.match(line)
+                if match:
+                    return int(match.group(1))
     
     # Implementation methods
     # -------------------------------------------------------------------------
