@@ -12,7 +12,8 @@ from mcmandelbrot import wire
 
 
 # tcp:port[:interface]
-DESCRIPTION = b"tcp:port=1978:interface=127.0.0.1"
+DESCRIPTION = b"unix:/home/mcm/socket"
+#DESCRIPTION = b"tcp:port=1978:interface=127.0.0.1"
 
 
 def get_mcmWireService():
