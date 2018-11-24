@@ -96,6 +96,7 @@ class RunTask(amp.Command):
         ('result', amp.String()),
     ]
 
+
 class GetNext(amp.Command):
     """
     With a unique ID, gets the next iteration of data from an iterator

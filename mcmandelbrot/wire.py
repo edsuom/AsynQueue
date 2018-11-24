@@ -344,12 +344,8 @@ def server(description=None, port=1978, interface=None):
         if interface:
             description += ":interface={}".format(interface)
     mwu = MandelbrotWorkerUniverse()
-    ws = WireServer(mwu)
-    return ws.run(description)
+    ws = WireServer(description, mwu)
 
 
-if '/twistd' in sys.argv[0]:
-    application = service.Application("Mandelbrot Set PNG Image Server")
-    server(DESCRIPTION, PORT, INTERFACE).setServiceParent(application)
 
-    
+
