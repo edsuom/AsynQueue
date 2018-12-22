@@ -127,9 +127,8 @@ class Imager(object):
             if hasattr(self, 'dStart'):
                 yield self.dStart
                 del self.dStart
-            timeSpent, N = yield self.runner.run(
+            yield self.runner.run(
                 request, self.Nx,
-                x['cr'], x['ci'], x['crpm'], ciPM,
-                dCancel=d, requester=request.getClient())
+                x['cr'], x['ci'], x['crpm'], ciPM)
             if not d.called:
                 request.finish()
