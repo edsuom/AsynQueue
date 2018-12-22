@@ -193,6 +193,22 @@ class DeferredTracker(object):
     """
     def __init__(self):
         self.dCount = 0
+
+    def lock(self):
+        """
+        Adds a wait condition for me to track that gets removed when you
+        call L{release}. Calling this multiple times before release
+        will add nested wait conditions. Make sure you do a call to
+        L{release} for each L{lock} call!
+        """
+        self.dCount += 1
+
+    def release(self):
+        """
+        Removes a wait condition added by L{lock}. Don't call this unless
+        you've called L{lock}!
+        """
+        if self.dCount: self.dCount -= 1
     
     def put(self, d):
         """

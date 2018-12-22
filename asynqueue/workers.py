@@ -108,6 +108,7 @@ class AsyncWorker(object):
             task.callback((status, result))
 
         def oops(failureObj):
+            #import pdb; pdb.set_trace()
             text = self.info.setCall(f, args, kw).aboutFailure(failureObj)
             task.callback(('e', text))
 
