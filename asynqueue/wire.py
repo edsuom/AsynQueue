@@ -562,9 +562,10 @@ class WireServer(object):
     instance or the fully qualified name of a L{WireWorkerUniverse}
     subclass.
 
-    @ivar service: A L{StreamServerEndpointService} that you can
-        include in the C{application} of a C{.tac} file, thus
-        accepting connections to run tasks.
+    @ivar service: A C{StreamServerEndpointService} from
+        C{twisted.application.internet} that you can include in the
+        C{application} of a C{.tac} file, thus accepting connections
+        to run tasks.
     """
     triggerID = None
     
