@@ -45,8 +45,10 @@ def deferToThread(*fargs, **kw):
     """
     Module-level function that lets you call a function in a dedicated
     thread and get a C{Deferred} to its result, with no fuss on your
-    part. The thread will remain alive and will be used for further
-    calls to this function and this function only.
+    part.
+
+    The thread will remain alive and will be used for further calls to
+    this function and this function only. 
 
     Call with I{f}, I{*args}, and I{**kw} as usual.
 
