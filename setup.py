@@ -4,7 +4,7 @@
 # Asynchronous task queueing based on the Twisted framework, with task
 # prioritization and a powerful worker interface.
 #
-# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# Copyright (C) 2006-2007, 2015, 2018-19 by Edwin A. Suominen,
 # http://edsuom.com/AsynQueue
 #
 # See edsuom.com for API documentation as well as information about
@@ -33,7 +33,7 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version':           "0.9.4",
+kw = {'version':           "0.9.5",
       'license':           "Apache License (2.0)",
       'platforms':         "OS Independent",
 
@@ -118,7 +118,13 @@ come back and intelligently buffered for iterating in a proper
 sequence to a third-party PNG library that wouldn't ordinarily play
 nice with Twisted.
 
-Python 3 compatiblity is in the works, but not yet supported.
+You can try things out after installation by running "mcmandelbrot"
+(with a few options and arguments) from the console. The output of the
+script is a PNG file, which you can view by piping to the free Feh
+image viewer: Just add "|feh -" at the end of the command line.
+
+There was some effort toward Python 3 compatiblity a while ago, but
+it's still not yet supported.
 
 .. _mcMandelbrot: http://edsuom.com/mcMandelbrot.html
 

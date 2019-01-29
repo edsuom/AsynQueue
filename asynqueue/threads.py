@@ -2,7 +2,7 @@
 # Asynchronous task queueing based on the Twisted framework, with task
 # prioritization and a powerful worker interface.
 #
-# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# Copyright (C) 2006-2007, 2015, 2019 by Edwin A. Suominen,
 # http://edsuom.com/AsynQueue
 #
 # See edsuom.com for API documentation as well as information about
@@ -88,6 +88,7 @@ class ThreadQueue(TaskQueue):
     callback chain from that task.
     """
     def __init__(self, **kw):
+        """C{ThreadQueue}(**kw)"""
         raw = kw.pop('raw', False)
         TaskQueue.__init__(self, **kw)
         self.worker = ThreadWorker(raw=raw)
@@ -110,27 +111,28 @@ class ThreadWorker(object):
     I implement an L{IWorker} that runs tasks in a dedicated worker
     thread.
 
-    @cvar cQualified: Task series all instances of me are qualified to
-      perform.
+    @cvar cQualified: A task series that all instances of me are
+      qualified to perform.
 
-    @ivar iQualified: Task series one instance of me is qualified to
-      perform. Usually left blank, unless you want only some workers
-      doing certain tasks.
+    @ivar iQualified: A task series that this instance of me is
+      qualified to perform. Usually left blank, unless you want only
+      some workers doing certain tasks.
+
+    @ivar tasks: A list of pending tasks.
+
+    @ivar t: An instance of L{ThreadLooper}.
+    
+    @keyword series: A list of one or more task series that this
+        particular instance of me is qualified to handle.
+
+    @keyword raw: Set C{True} if you want raw iterators to be returned
+        instead of L{iteration.Deferator} instances. You can override
+        this in with the same keyword set C{False} in a call.
     """
     cQualified = ['thread', 'local']
 
     def __init__(self, series=[], raw=False):
-        """
-        Constructs me with a L{ThreadLooper} and an empty list of tasks.
-        
-        @param series: A list of one or more task series that this
-          particular instance of me is qualified to handle.
-
-        @param raw: Set C{True} if you want raw iterators to be
-          returned instead of L{iteration.Deferator} instances. You
-          can override this in with the same keyword set C{False} in a
-          call.
-        """
+        """C{ThreadWorker}(series=[], raw=False)"""
         self.tasks = []
         # Is this really necessary?
         # -----------------------------------------
@@ -145,7 +147,7 @@ class ThreadWorker(object):
     def run(self, task):
         """
         Returns a C{Deferred} that fires only after the threaded call is
-        done.
+        done for the supplied I{task}.
 
         I do basic FIFO queuing of calls to this method, but priority
         queuing is above my paygrade and you'd best honor my deferred
@@ -205,10 +207,9 @@ class ThreadWorker(object):
 
     def crash(self):
         """
-        Unfortunately, a thread can only terminate itself, so calling
-        this method only forces firing of the deferred returned from a
-        previous call to L{stop} and returns the task that hung the
-        thread.
+        Since a thread can only terminate itself, calling this method only
+        forces firing of the deferred returned from a previous call to
+        L{stop} and returns the task that hung the thread.
         """
         self.t.stop()
         return self.tasks
@@ -235,10 +236,14 @@ class ThreadLooper(object):
       checking for a pending deferred and firing it with a timeout
       error. Otherwise, it simply waits another minute, and it can do
       that forever with no problem.
+
+    @keyword raw: Set C{True} to have calls return (deferred)
+        iterators rather than instances of L{Prefetcherator}.
     """
     timeout = 60
     
     def __init__(self, raw=False):
+        """C{ThreadLooper}(raw=False)"""
         # Just a simple attribute to indicate if the thread loop is
         # running, mostly for unit testing
         self.threadRunning = True
@@ -292,7 +297,7 @@ class ThreadLooper(object):
     def call(self, f, *args, **kw):
         """
         Runs the supplied callable function with any args and keywords in
-        a dedicated thread, returning a deferred that fires with a
+        a dedicated thread, returning a C{Deferred} that fires with a
         status/result tuple.
 
         Calls are done in the order received, unless you set
@@ -339,11 +344,13 @@ class ThreadLooper(object):
     def dr2ip(self, dr, consumer=None):
         """
         Converts a L{Deferator} into an L{iteration.IterationProducer},
-        with a consumer registered if you supply one. Then each
-        iteration will be written to your consumer, and the deferred
-        returned will fire when the iterations are done. Otherwise,
-        the deferred will fire with an L{iteration.IterationProducer}
-        and you will have to register with and run it yourself.
+        with a consumer registered if you supply one.
+
+        Then each iteration will be written to your consumer, and the
+        deferred returned will fire when the iterations are
+        done. Otherwise, the deferred will fire with an
+        L{iteration.IterationProducer} and you will have to register
+        with and run it yourself.
         """
         ip = iteration.IterationProducer(dr)
         if consumer:
@@ -380,9 +387,9 @@ class ThreadLooper(object):
 
     def stop(self):
         """
-        @return: A C{Deferred} that fires when all tasks and Deferators
-        are done, the task loop has ended, and its thread has
-        terminated.
+        Returns a C{Deferred} that fires when all tasks and instances of
+        L{Deferator} are done, the task loop has ended, and its thread
+        has terminated.
         """
         def deferatorsDone(null):
             if self.threadRunning:
@@ -406,6 +413,9 @@ class PoolUser(object):
     @classmethod
     def setup(cls, maxThreads=None):
         """
+        Sets up stuff class-wide, with all the potential pitfalls that
+        entails.
+        
         Sets up all present and future instances of L{Consumerator},
         L{Filerator}, L{OrderedItemProducer}, and any other subclasses
         of me with a thread pool having at least two and no more than
@@ -416,6 +426,14 @@ class PoolUser(object):
         from the current value, it adjusts the maximum thread pool
         size for B{all} instances, current and future, absent yet
         another call with still different values.
+
+        @note: In the several years that have gone by since I wrote
+            this, I realized that it's almost always a terrible idea
+            to make class-wide settings of anything. But it's mature
+            code and hasn't given me any trouble.
+
+        @keyword maxThreads: Set to a maximum number of threads to
+            use, for all present and future instances.
         """
         if maxThreads:
             if hasattr(cls, '_pool') and maxThreads != cls.maxThreads:
@@ -433,6 +451,10 @@ class PoolUser(object):
     
     @classmethod
     def shutdown(cls):
+        """
+        Shuts down all threads, returning a C{Deferred} that fires when
+        everything's done, class-wide.
+        """
         def ready(null):
             if hasattr(cls, '_pool'):
                 cls._pool.stop()
@@ -478,6 +500,7 @@ class IterationGetter(PoolUser):
         pass
 
     def __init__(self, maxThreads=None):
+        """C{IterationGetter(maxThreads=None)}"""
         self.setup(maxThreads)
         self.runState = 'init'
         self.dList = []
@@ -580,9 +603,10 @@ class IterationGetter(PoolUser):
 class Consumerator(IterationGetter):
     """
     I act like an C{IConsumer} for your Twisted code and an iterator
-    for your blocking code running via a L{ThreadWorker}. This is
-    handy when you are using a conventional library that relies on an
-    iterator as its input::
+    for your blocking code running via a L{ThreadWorker}.
+
+    This is handy when you are using a conventional library that
+    relies on an iterator as its input::
 
       def render(request):
           w = png.Writer()
@@ -600,13 +624,13 @@ class Consumerator(IterationGetter):
     @ivar runState: 'init', 'started', 'running', 'stopping', 'stopped'
 
     @ivar d: A C{Deferred} that fires when iterations are done.
+
+    @keyword producer: The producer for my instance to register, if
+        you want to supply an C{IPushProducer} one on
+        instantiation. Otherwise, use L{registerProducer}.
     """
     def __init__(self, producer=None, maxThreads=None):
-        """
-        @param producer: The producer for me to register, if you want to
-          supply an C{IPushProducer} one on instantiation. Otherwise,
-          use L{registerProducer}.
-        """
+        """C{Consumerator(producer=None, maxThreads=None)}"""
         super(Consumerator, self).__init__(maxThreads)
         self.dLock = util.DeferredLock()
         if producer:
@@ -615,10 +639,11 @@ class Consumerator(IterationGetter):
     def loop(self):
         """
         Runs a loop in a dedicated thread that waits for new iterations to
-        be produced. When I get an instance of
-        L{IterationGetter.IterationStopper}, the loop exits. I then
-        call my "all done" C{Deferred} and delete my reference to the
-        producer.
+        be produced.
+
+        When I get an instance of L{IterationGetter.IterationStopper},
+        the loop exits. I then call my "all done" C{Deferred} and
+        delete my reference to the producer.
         """
         self.runState = 'running'
         while True:
@@ -650,9 +675,11 @@ class Consumerator(IterationGetter):
         """
         Good manners urge you to call this to cleanly break out of a loop
         of my iterations so that my producer doesn't keep working for
-        nothing. Calling this method at the Twisted main-loop level is
-        also a fine way to quit producing and iterating when you know
-        you're done.
+        nothing.
+
+        Calling this method at the Twisted main-loop level is also a
+        fine way to quit producing and iterating when you know you're
+        done.
 
         Not part of the official iterator implementation, but
         useful for a Twisted way of iterating. You need a way of
@@ -721,6 +748,7 @@ class Filerator(IterationGetter):
     You must call my L{close} method to stop me from iterating.
     """
     def __init__(self, maxThreads=None):
+        """C{Filerator}(maxThreads=None)"""
         super(Filerator, self).__init__(maxThreads)
         self.itemBuffer = []
         self.start()

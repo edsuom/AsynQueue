@@ -2,7 +2,7 @@
 # Asynchronous task queueing based on the Twisted framework, with task
 # prioritization and a powerful worker interface.
 #
-# Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+# Copyright (C) 2006-2007, 2015, 2019 by Edwin A. Suominen,
 # http://edsuom.com/AsynQueue
 #
 # See edsuom.com for API documentation as well as information about
@@ -25,9 +25,11 @@ Miscellaneous useful stuff.
 
 L{callAfterDeferred} is a cool little function that looks for a
 C{Deferred} as an attribute of some namespace (i.e., object) and does
-a call after it fires. L{DeferredTracker} lets you to track and wait
-for deferreds without actually having received a reference to
-them. L{DeferredLock} lets you shut things down when you get the lock.
+a call after it fires.
+
+L{DeferredTracker} lets you to track and wait for deferreds without
+actually having received a reference to them. L{DeferredLock} lets you
+shut things down when you get the lock.
 
 L{CallRunner} is used by L{threads.ThreadWorker} and
 L{process.ProcessWorker}. You probably won't need to use it yourself,
@@ -96,9 +98,10 @@ def callAfterDeferred(namespace, dName, f, *args, **kw):
 def killProcess(pid):
     """
     Kills the process with the supplied PID, returning a deferred that
-    fires when it's no longer running. The return value is C{True} if
-    the process was alive and had to be killed, C{False} if it was
-    already dead.
+    fires when it's no longer running.
+
+    The return value is C{True} if the process was alive and had to be
+    killed, C{False} if it was already dead.
     """
     def isDead():
         try:
@@ -159,7 +162,7 @@ class ProcessProtocol(object):
     I am a simple protocol for spawning a subordinate process.
 
     @ivar d: A C{Deferred} that fires with an initial chunch of stdout
-    from the process.
+        from the process.
     """
     def __init__(self, stopper=None):
         self.stopper = lambda x: None if stopper is None else stopper
@@ -197,9 +200,11 @@ class DeferredTracker(object):
     def addWait(self):
         """
         Adds a wait condition for me to track that gets removed when you
-        call L{release}. Calling this multiple times before release
-        will add nested wait conditions. Make sure you do a call to
-        L{release} for each L{lock} call!
+        call L{release}.
+
+        Calling this multiple times before release will add nested
+        wait conditions. Make sure you do a call to L{release} for
+        each L{lock} call!
         """
         self.dCount += 1
 
@@ -225,10 +230,12 @@ class DeferredTracker(object):
     def deferToAll(self, timeout=None):
         """
         Return a C{Deferred} that tracks all active deferreds that haven't
-        yet fired. When all the tracked deferreds fire, the returned
-        deferred fires, too, with C{True}. The tracked deferreds do
-        not get bogged down by the callback chain for the Deferred
-        returned by this method.
+        yet fired.
+
+        When all the tracked deferreds fire, the returned deferred
+        fires, too, with C{True}. The tracked deferreds do not get
+        bogged down by the callback chain for the Deferred returned by
+        this method.
 
         If the tracked deferreds never fire and a specified I{timeout}
         expires, the returned deferred will fire with C{False}.
@@ -273,9 +280,11 @@ class DeferredLock(defer.DeferredLock):
     def acquire(self, vip=False):
         """
         Like C{defer.DeferredLock.acquire} except with a I{vip}
-        option. That lets you cut ahead of everyone in the regular
-        waiting list and gets the next lock, after anyone else in the
-        VIP line who is waiting from their own call of this method.
+        option.
+
+        This lets you cut ahead of everyone in the regular waiting
+        list and gets the next lock, after anyone else in the VIP line
+        who is waiting from their own call of this method.
 
         If I'm stopped, calling this method simply returns an
         immediate C{Deferred}.
@@ -300,6 +309,9 @@ class DeferredLock(defer.DeferredLock):
         return d
 
     def acquireAndRelease(self, vip=False):
+        """
+        Acquires the lock and immediately releases it.
+        """
         return self.acquire(vip).addCallback(lambda x: x.release())
 
     def release(self):
@@ -315,10 +327,11 @@ class DeferredLock(defer.DeferredLock):
     def addStopper(self, f, *args, **kw):
         """
         Add a callable (along with any args and kw) to be run when
-        shutting things down. The callable may return a deferred, and
-        more than one can be added. They will be called, and their
-        result awaited, in the order received.
+        shutting things down.
 
+        The callable may return a deferred, and more than one can be
+        added. They will be called, and their result awaited, in the
+        order received.
         """
         self.stoppers.append([f, args, kw])
     
@@ -341,20 +354,20 @@ class CallRunner(object):
     """
     I'm used by L{threads.ThreadLooper} and
     L{process.ProcessUniverse}.
+
+    @keyword raw: Set C{True} to return raw iterators by default instead
+      of doing L{iteration} magic.
+    
+    @keyword callStats: Set C{True} to accumulate a list of
+      I{callTimes} for each call. B{Caution:} Can get big with
+      lots of calls!
+    
+    @keyword reactor: Set to an instance of
+      C{twisted.internet.reactor} to have calls run in the
+      reactor.
     """
     def __init__(self, raw=False, callStats=False, reactor=None):
-        """
-        @param raw: Set C{True} to return raw iterators by default instead
-          of doing L{iteration} magic.
-        
-        @param callStats: Set C{True} to accumulate a list of
-          I{callTimes} for each call. B{Caution:} Can get big with
-          lots of calls!
-        
-        @param reactor: Set to an instance of
-          C{twisted.internet.reactor} to have calls run in the
-          reactor.
-        """
+        """C{CallRunner}(raw=False, callStats=False, reactor=None)"""
         self.raw = raw
         self.info = info.Info()
         self.callStats = callStats

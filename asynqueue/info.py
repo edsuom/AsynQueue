@@ -193,6 +193,7 @@ class Info(object):
     change it) later with L{setCall}.
     """
     def __init__(self, remember=False, whichThread=False):
+        """C{Info}(remember=False, whichThread=False)"""
         self.cv = Converter()
         self.lastMetaArgs = None
         if remember:
@@ -383,7 +384,7 @@ class Info(object):
 
     def nn(self, ID=None, raw=False):
         """
-        Namespace-name parser
+        Namespace-name parser.
         
         For my current callable or a previous one identified by I{ID},
         returns a 3-tuple namespace-ID-name combination suitable for

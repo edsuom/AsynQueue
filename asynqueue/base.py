@@ -269,8 +269,8 @@ class TaskQueue(object):
     one or more worker objects.
 
     You can construct me with one or more workers, or you can attach
-    them later with L{attachWorker}, in which you'll receive an ID
-    that you can use to detach the worker.
+    them later with L{attachWorker}, in which case you'll receive an
+    ID that you can use to detach the worker.
 
     @keyword timeout: A number of seconds after which to more
       drastically terminate my workers if they haven't gracefully shut
@@ -284,13 +284,14 @@ class TaskQueue(object):
       or result in errors.
 
     @keyword spew: Log all task calls, whether they raise errors or
-      not. Can generate huge logs! Implies verbose=True.
+      not. Can generate huge logs! Implies C{verbose=True}.
 
     @keyword returnFailure: If a task raises an exception, call its
       errback with a Failure. Default is to either log an error (if
       'warn' is set) or stop the reactor.
     """
     def __init__(self, *args, **kw):
+        """C{TaskQueue}(self, *args, **kw)"""
         # Options
         self.timeout = kw.get('timeout', None)
         self.warn = kw.get('warn', False)
@@ -365,7 +366,7 @@ class TaskQueue(object):
         the queue.
 
         @return: A C{Deferred} that fires with an integer ID uniquely
-        identifying the worker.
+            identifying the worker.
 
         @see: L{tasks.TaskHandler.hire}.
         """
@@ -381,8 +382,10 @@ class TaskQueue(object):
     def detachWorker(self, workerOrID, reassign=False, crash=False):
         """
         Detaches and terminates the worker supplied or specified by its
-        ID, returning a C{Deferred} that fires with a list of tasks
-        left unfinished by the worker.
+        ID.
+
+        Returns a C{Deferred} that fires with a list of any tasks left
+        unfinished by the worker.
 
         If I{reassign} is set C{True}, any tasks left unfinished by
         the worker are put into new assignments for other or future
@@ -528,7 +531,7 @@ class TaskQueue(object):
 
     def newTask(self, func, args, kw):
         """
-        Make a new L{tasks.Task} object from a func-args-kw combo. You
+        Makes a new L{tasks.Task} object from a func-args-kw combo. You
         won't call this directly.
         """
         if not self.isRunning():
@@ -614,10 +617,12 @@ class TaskQueue(object):
         """
         Sets an update task from I{func} with any supplied arguments and
         keywords to be run directly on all current and future
-        workers. Returns a C{Deferred} to the result of the call on
-        all current workers, though there is no mechanism for
-        obtaining such results for new hires, so it's probably best
-        not to rely too much on them.
+        workers.
+
+        Returns a C{Deferred} to the result of the call on all current
+        workers, though there is no mechanism for obtaining such
+        results for new hires, so it's probably best not to rely too
+        much on them.
 
         The updates are run directly via L{tasks.TaskHandler.update},
         not through the queue. Because of the disconnect between
