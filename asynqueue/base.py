@@ -323,7 +323,14 @@ class TaskQueue(object):
         disposal.
         """
         return len(self.th.roster())
-        
+
+    def __nonzero__(self):
+        """
+        I evaluate as C{True} if I am running and have at least one
+        worker.
+        """
+        return self.isRunning() and len(self)
+    
     def isRunning(self):
         """
         Returns C{True} if shutdown has not been initiated and both my
