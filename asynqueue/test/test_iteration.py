@@ -21,10 +21,10 @@
 # governing permissions and limitations under the License.
 
 """
-Unit tests for asynqueue.util
+Unit tests for L{iteration}.
 """
 
-import random
+import random, time
 from copy import copy
 
 from twisted.internet import defer
@@ -57,6 +57,45 @@ class IteratorGetter(object):
         return d
 
 
+class TestDelay(TestCase):
+    verbose = False
+
+    def setUp(self):
+        self.do = iteration.Delay()
+        self.event = False
+
+    def makeEvent(self, *args):
+        self.event = True
+
+    def hadEvent(self):
+        return self.event
+        
+    @defer.inlineCallbacks
+    def test_call(self):
+        t0 = time.time()
+        yield self.do(0.2)
+        self.assertWithinFivePercent(time.time()-t0, 0.2)
+
+    @defer.inlineCallbacks
+    def test_untilEvent(self):
+        t0 = time.time()
+        self.deferToDelay(0.5).addCallback(self.makeEvent)
+        yield self.do.untilEvent(self.hadEvent)
+        dt = time.time()-t0
+        self.assertGreater(dt, 0.5)
+        self.assertLess(dt, 0.6)
+
+    @defer.inlineCallbacks
+    def test_untilEvent_shutdown_interrupts(self):
+        t0 = time.time()
+        self.deferToDelay(0.5).addCallback(self.makeEvent)
+        self.deferToDelay(0.2).addCallback(lambda _: self.do.shutdown())
+        yield self.do.untilEvent(self.hadEvent)
+        dt = time.time()-t0
+        self.assertGreater(dt, 0.2)
+        self.assertLess(dt, 0.5)
+
+    
 class TestDeferator(TestCase):
     verbose = False
 

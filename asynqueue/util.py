@@ -206,7 +206,8 @@ class DeferredTracker(object):
         wait conditions. Make sure you do a call to L{release} for
         each L{lock} call!
         """
-        self.dCount += 1
+        if self.dCount is not None:
+            self.dCount += 1
 
     def removeWait(self):
         """
@@ -214,19 +215,33 @@ class DeferredTracker(object):
         you've called L{lock}!
         """
         if self.dCount: self.dCount -= 1
-    
+
+    def quitWaiting(self):
+        """
+        Call this to have me quit waiting for any pending or future
+        Deferreds. Only use this if you are aborting and really don't
+        need to wait!
+        """
+        self.dCount = None
+        
     def put(self, d):
         """
         Put another C{Deferred} in the tracker.
         """
         def transparentCallback(anything):
-            self.dCount -= 1
+            self.removeWait()
             return anything
 
-        self.dCount += 1
+        self.addWait()
         d.addBoth(transparentCallback)
         return d
 
+    def notWaiting(self):
+        """
+        Returns C{True} if I'm not waiting for any Deferreds to fire.
+        """
+        return not self.dCount
+    
     def deferToAll(self, timeout=None):
         """
         Return a C{Deferred} that tracks all active deferreds that haven't
@@ -240,10 +255,9 @@ class DeferredTracker(object):
         If the tracked deferreds never fire and a specified I{timeout}
         expires, the returned deferred will fire with C{False}.
         """
-        if self.dCount == 0:
+        if self.notWaiting():
             return defer.succeed(True)
-        return iteration.Delay(timeout=timeout).untilEvent(
-            lambda: self.dCount == 0)
+        return iteration.Delay(timeout=timeout).untilEvent(self.notWaiting)
 
 
 class DeferredLock(defer.DeferredLock):
@@ -367,7 +381,7 @@ class CallRunner(object):
       reactor.
     """
     def __init__(self, raw=False, callStats=False, reactor=None):
-        """C{CallRunner}(raw=False, callStats=False, reactor=None)"""
+        """C{CallRunner(raw=False, callStats=False, reactor=None)}"""
         self.raw = raw
         self.info = info.Info()
         self.callStats = callStats
@@ -416,6 +430,3 @@ class CallRunner(object):
         if not raw and iteration.Deferator.isIterator(result):
             return ('i', result)
         return ('r', result)
-
-        
-

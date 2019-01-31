@@ -435,11 +435,35 @@ class TestCase(MsgBase, unittest.TestCase):
     # aren't apparent until the timeout stops the test.
     timeout = 10
 
+    def __init__(self, *args, **kw):
+        self.pendingCalls = {}
+        super(TestCase, self).__init__(*args, **kw)
+    
     def doCleanups(self):
         if hasattr(self, 'msgAlready'):
             del self.msgAlready
         return super(TestCase, self).doCleanups()
 
+    def tearDown(self):
+        while self.pendingCalls:
+            call = self.pendingCalls.keys()[0]
+            if call.active():
+                self.pendingCalls[call].callback(None)
+                call.cancel()
+
+    def oops(self, failureObj):
+        print "FAIL!!!!!!!\n{}\n{}".format('-'*40, failureObj.value)
+        import pdb; pdb.set_trace()
+
+    def deferToDelay(self, t):
+        def delayOver(null):
+            self.pendingCalls.pop(call, None)
+            
+        d = defer.Deferred().addCallbacks(delayOver, self.oops)
+        call = reactor.callLater(t, d.callback, None)
+        self.pendingCalls[call] = d
+        return d
+    
     def multiplerator(self, N, expected):
         def check(null):
             self.assertEqual(resultList, expected)
@@ -505,3 +529,8 @@ class TestCase(MsgBase, unittest.TestCase):
                 s2 = segment(b)
                 msg += "\nFrom #1: '{}'\nFrom #2: '{}'".format(s1, s2)
                 self.fail(msg)
+
+    def assertWithinFivePercent(self, x, xExpected):
+        ratio = x / xExpected
+        msg = "{} not within 5% of {}".format(x, xExpected)
+        self.assertAlmostEqual(0.2*ratio, 0.2, 2, msg)

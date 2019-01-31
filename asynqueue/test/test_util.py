@@ -74,7 +74,7 @@ class TestDeferredTracker(TestCase):
         return defer.succeed(None).addCallback(
             lambda _: setattr(self, '_flag', True))
         
-    def _slowStuff(self, N, delay=None, maxDelay=0.2):
+    def _slowStuff(self, N, delay=None, maxDelay=0.2, minDelay=0):
         def done(null, k):
             self._flag = False
             self._count -= 1
@@ -83,8 +83,8 @@ class TestDeferredTracker(TestCase):
         for k in xrange(N):
             self._count += 1
             if delay is None:
-                delay = maxDelay*random.random()
-            d = deferToDelay(delay).addCallback(done, k)
+                delay = minDelay + (maxDelay-minDelay)*random.random()
+            d = self.deferToDelay(delay).addCallback(done, k)
             dList.append(d)
         return dList
     
@@ -101,12 +101,15 @@ class TestDeferredTracker(TestCase):
         yield self.dt.deferToAll()
         self.assertEqual(self._count, 0)
         # Put some in with the same delay and defer to all
+        t0 = time.time()
         for d in self._slowStuff(3, delay=0.5):
             self.dt.put(d)
         self.dt.put(self._setFlag())
         yield self.dt.deferToAll()
         self.assertFalse(self._flag)
         self.assertEqual(self._count, 0)
+        self.assertGreater(time.time()-t0, 0.5)
+        self.assertLess(time.time()-t0, 0.6)
 
     @defer.inlineCallbacks
     def test_deferToAll_multiple(self):
@@ -115,7 +118,9 @@ class TestDeferredTracker(TestCase):
             self.dt.put(d)
         # Wait for all, twice
         yield self.dt.deferToAll()
+        t0 = time.time()
         yield self.dt.deferToAll()
+        self.assertLess(time.time()-t0, 0.001)
         
     def test_memory(self):
         def doneDelaying(null, k):
@@ -132,10 +137,21 @@ class TestDeferredTracker(TestCase):
                 self.assertTrue(newCounts[k] < counts[k]+10)
         counts = gc.get_count()
         for k in xrange(1000):
-            d = deferToDelay(0.1*random.random())
+            d = self.deferToDelay(0.1*random.random())
             d.addCallback(doneDelaying, k)
             self.dt.put(d)
         return self.dt.deferToAll().addCallback(done)
+    
+    @defer.inlineCallbacks
+    def test_deferToAll_quitWaiting(self):
+        # Put some in and supposedly wait for them
+        for d in self._slowStuff(3, minDelay=0.4, maxDelay=0.6):
+            self.dt.put(d)
+        # Wait for all
+        t0 = time.time()
+        self.deferToDelay(0.2).addCallback(lambda _: self.dt.quitWaiting())
+        yield self.dt.deferToAll()
+        self.assertWithinFivePercent(time.time()-t0, 0.2)
 
         
 class TestCallRunner(TestCase):

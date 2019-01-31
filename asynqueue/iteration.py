@@ -93,47 +93,83 @@ class Delay(object):
             raise ValueError(
                 "Unworkable backoff {:f}, keep it in 1.0-1.3 range".format(
                     self.backoff))
+        self.pendingCalls = {}
+        self.triggerID = reactor.addSystemEventTrigger(
+            'before', 'shutdown', self.shutdown)
 
+    def shutdown(self):
+        """
+        This gets called before the reactor shuts down. Causes any pending
+        delays or L{untilEvent} calls to finish up pronto.
+
+        Does not return a C{Deferred}, because it doesn't return until
+        it's forced everything to wind up.
+        """
+        if self.triggerID is None:
+            return
+        reactor.removeSystemEventTrigger(self.triggerID)
+        self.triggerID = None
+        while self.pendingCalls:
+            call = self.pendingCalls.keys()[0]
+            if call.active():
+                self.pendingCalls[call].callback(None)
+                call.cancel()
+        
     def __call__(self, delay=None):
         """
         Returns a C{Deferred} that fires after my default delay interval
-        or one you specify. You can have it fire in the next reactor
-        iteration by setting I{delay} to zero (not C{None}, as that
-        will use the default delay instead).
+        or one you specify.
+
+        You can have it fire in the next reactor iteration by setting
+        I{delay} to zero (not C{None}, as that will use the default
+        delay instead).
 
         The default interval is 10ms unless you override that in by
         setting my I{interval} attribute to something else.
         """
+        def delayOver(null):
+            self.pendingCalls.pop(call, None)
+        
+        if self.triggerID is None:
+            return defer.succeed(None)
         if delay is None:
             delay = self.interval
-        d = defer.Deferred()
-        reactor.callLater(delay, d.callback, None)
+        d = defer.Deferred().addCallback(delayOver)
+        call = reactor.callLater(delay, d.callback, None)
+        self.pendingCalls[call] = d
         return d
     
     @defer.inlineCallbacks
     def untilEvent(self, eventChecker, *args, **kw):
         """
         Returns a C{Deferred} that fires when a call to the supplied
-        event-checking callable returns an affirmative (not C{None},
-        C{False}, etc.) result, or until the optional timeout limit is
-        reached. The result of the C{Deferred} is C{True} if the event
-        actually happened, or C{False} if a timeout occurred.
+        event-checking callable returns an affirmative result, or
+        until the optional timeout limit is reached.
+
+        An affirmative result evaluates at C{True}. (Not C{None},
+        C{False}, zero, etc.) The result of the C{Deferred} is C{True}
+        if the event actually happened, or C{False} if a timeout
+        occurred. Call with:
+
+            - I{eventChecker}: A no-argument callable that returns an
+              immediate boolean value indicating if an event occurred.
+
+            - I{*args}: Any args for the event checker callable.
+
+            - I{**kw}: Any keywords for the event checker callable.
 
         The event checker should B{not} return a C{Deferred}. I call
         the event checker less and less frequently as the wait goes
         on, depending on the backoff exponent (default is C{1.04}).
-
-        @param eventChecker: A no-argument callable that returns an
-          immediate boolean value indicating if an event occurred.
         """
         if not callable(eventChecker):
             raise TypeError("You must supply a callable event checker")
 
         # We do two very quick checks before entering the delay loop,
         # to minimize overhead when dealing with very fast events.
-        if eventChecker(*args, **kw):
-            # First, if the event has happened right away, we don't
-            # enter the loop at all.
+        if self.triggerID is None or eventChecker(*args, **kw):
+            # First, if I have been shut down or the event has
+            # already happened, we don't enter the loop at all.
             defer.returnValue(True)
         else:
             t0 = time.time()
@@ -142,7 +178,7 @@ class Delay(object):
             # to do another check, as the first and possibly only loop
             # iteration.
             yield self(0)
-            while True:
+            while self.triggerID is not None:
                 if eventChecker(*args, **kw):
                     defer.returnValue(True)
                     break

@@ -39,6 +39,7 @@ class TestThreadQueue(Tasks, TestCase):
     verbose = False
 
     def tearDown(self):
+        TestCase.tearDown(self)
         if hasattr(self, 'q'):
             return self.q.shutdown()
 
@@ -143,6 +144,7 @@ class TestThreadWorker(Tasks, TestCase):
         self.queue.attachWorker(self.worker)
 
     def tearDown(self):
+        TestCase.tearDown(self)
         return self.queue.shutdown()
 
     def test_shutdown(self):
@@ -290,6 +292,7 @@ class TestThreadLooper(TestCase):
         self.t = threads.ThreadLooper()
 
     def tearDown(self):
+        TestCase.tearDown(self)
         return self.t.stop()
         
     def test_loop(self):
@@ -450,6 +453,7 @@ class TestIterationGetter(Tasks, TestCase):
         self.tig = TestableIterationGetter(self.maxThreads)
 
     def tearDown(self):
+        TestCase.tearDown(self)
         return self.tig.shutdown()
 
     def test_basic(self):
@@ -492,6 +496,7 @@ class TestConsumerator(Tasks, TestCase):
 
     @defer.inlineCallbacks
     def tearDown(self):
+        TestCase.tearDown(self)
         yield self.c.shutdown()
         yield self.q.shutdown()
     
@@ -573,6 +578,7 @@ class TestFilerator(Tasks, TestCase):
 
     @defer.inlineCallbacks
     def tearDown(self):
+        TestCase.tearDown(self)
         yield self.f.shutdown()
         yield self.q.shutdown()
         
@@ -625,6 +631,7 @@ class TestOrderedItemProducer(Tasks, TestCase):
         self.p = threads.OrderedItemProducer()
 
     def tearDown(self):
+        TestCase.tearDown(self)
         return self.p.shutdown()
 
     def fb(self, i):
