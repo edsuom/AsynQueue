@@ -33,7 +33,7 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version':           "0.9.5",
+kw = {'version':           "0.9.6",
       'license':           "Apache License (2.0)",
       'platforms':         "OS Independent",
 
@@ -92,6 +92,9 @@ kw['classifiers'] = [
 ]
 
 # You get 77 characters. Use them wisely.
+#----------------------------------------------------------------------------
+#        10        20        30        40        50        60        70
+#2345678901234567890123456789012345678901234567890123456789012345678901234567
 kw['description'] =\
 "Asynchronous task queueing with Twisted: threaded, multicore, and remote."
 
