@@ -33,37 +33,38 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version':           "0.9.6",
-      'license':           "Apache License (2.0)",
-      'platforms':         "OS Independent",
+kw = {'version': "0.9.7",
+      'license': "Apache License (2.0)",
+      'platforms': "OS Independent",
 
-      'url':               "http://edsuom.com/{}.html".format(NAME),
-      'project_urls':      {
-          'GitHub':     "https://github.com/edsuom/{}".format(NAME),
-          'API':        "http://edsuom.com/{}/{}.html".format(
+      'url': "http://edsuom.com/{}.html".format(NAME),
+      'project_urls': {
+          'GitHub': "https://github.com/edsuom/{}".format(NAME),
+          'API': "http://edsuom.com/{}/{}.html".format(
               NAME, NAME.lower()),
           },
-      'author':            "Edwin A. Suominen",
-      'author_email':      "foss@edsuom.com",
-      'maintainer':        "Edwin A. Suominen",
-      'maintainer_email':  "foss@edsuom.com",
+      'author': "Edwin A. Suominen",
+      'author_email': "foss@edsuom.com",
+      'maintainer': "Edwin A. Suominen",
+      'maintainer_email': "foss@edsuom.com",
       
-      'install_requires':  required,
-      'packages':          [
+      'install_requires': required,
+      'packages': [
           'asynqueue', 'asynqueue.test',
           'mcmandelbrot', 'mcmandelbrot.test'
       ],
-      'package_data':      {
+      'package_data': {
           'mcmandelbrot': [
               'server-install.sh', 'mcm.*', 'blank.jpg'
           ],
       },
-      'entry_points':      {
+      'entry_points': {
           'console_scripts': [
               'mcmandelbrot = mcmandelbrot.main:run',
           ],
       },
-      'test_suite':        "asynqueue.test",
+      'test_suite': "asynqueue.test",
+      'long_description_content_type': "text/markdown",
 }
 
 kw['keywords'] = [
@@ -87,8 +88,8 @@ kw['classifiers'] = [
 
     'Topic :: System :: Clustering',
     'Topic :: System :: Distributed Computing',
-    'Topic :: Software Development :: Object Brokering',
     'Topic :: Software Development :: Libraries :: Python Modules',
+    'Topic :: System :: Hardware :: Symmetric Multi-processing',
 ]
 
 # You get 77 characters. Use them wisely.
@@ -121,10 +122,10 @@ come back and intelligently buffered for iterating in a proper
 sequence to a third-party PNG library that wouldn't ordinarily play
 nice with Twisted.
 
-You can try things out after installation by running "mcmandelbrot"
+You can try things out after installation by running `mcmandelbrot`
 (with a few options and arguments) from the console. The output of the
 script is a PNG file, which you can view by piping to the free Feh
-image viewer: Just add "|feh -" at the end of the command line.
+image viewer: Just add `|feh -` at the end of the command line.
 
 There was some effort toward Python 3 compatiblity a while ago, but
 it's still not yet supported.

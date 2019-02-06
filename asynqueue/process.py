@@ -311,7 +311,11 @@ class ProcessWorker(object):
             yield self.delay.untilEvent(self.cMain.poll)
             if self.callStats:
                 self.callTimes.append(time()-t0)
-            status, result = self.cMain.recv()
+            try:
+                status, result = self.cMain.recv()
+            except:
+                status = 'e'
+                result = "Pipe disconnect"
             self.dLock.release()
             if status == 'i':
                 # What we get from the process is an ID to an iterator
@@ -384,8 +388,8 @@ class ProcessUniverse(object):
         should only be a single Twisted reactor running, the one in
         the main process.
 
-        @param connection: The sub-process end of an interprocess
-        connection.
+        Call with the sub-process end of an interprocess
+        I{connection}.
         """
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         while True:

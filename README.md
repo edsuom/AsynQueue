@@ -25,13 +25,14 @@ become available.
 There's a detailed usage example below. Also, see the one provided in
 the example package "mcmandelbrot" that accompanies this README file
 and installs with asynqueue. There is a console entry point for
-"mcm". Give it a try and see what asynchronous multiprocessing can do.
+`mcm`. Give it a try and see what asynchronous multiprocessing can do.
 
 
 ### Multicore Made Easy
 
 Here is a simplified example of how I use it to get a few CPU cores
-parsing logfiles:
+parsing logfiles in the [logalyzer](http://edsuom.com/logalyzer.html)
+package:
 
 ```python
 class Reader:
@@ -94,17 +95,20 @@ class Reader:
 
 ### Process Queueing
 
-The **Reader** object has a **ProcessReader** object, referenced by its
-*self.pr* attribute. The process reader is passed to subordinate
-Python processes for doing the logfile parsing.
+The
+[Reader](http://edsuom.com/logalyzer/logalyzer.logread.Reader.html)
+object has a
+[ProcessReader](http://edsuom.com/logalyzer/logalyzer.logread.ProcessReader.html)
+object, referenced by its `self.pr` attribute. The process reader is
+passed to subordinate Python processes for doing the logfile parsing.
 
 In fact, each call to the reader object's task queue,
 [base.TaskQueue.call](http://edsuom.com/AsynQueue/asynqueue.base.TaskQueue.html#call)
 via the
 [process.ProcessQueue](http://edsuom.com/AsynQueue/asynqueue.process.ProcessQueue.html)
-subclass instance, passes along a reference to *self.pr* as a
+subclass instance, passes along a reference to `self.pr` as a
 callable. But that's not a problem, even over the interprocess
-pipe. Python's built-in L{multiprocessing} module pickles the
+pipe. Python's built-in `multiprocessing` module pickles the
 reference very efficiently, and almost no CPU time is spent doing so.
 
 Everything done by each subordinate Python process is contained in the
@@ -152,12 +156,13 @@ def loop(self, connection):
 ### Bridging the Blocking Gap
 
 Yes, the process blocks when it waits for the next call with
-**connection.recv**. So what? It's not running Twisted; the
-subordinate Python interpreter's whole purpose in life is to run tasks
-sent to it via the task queue. And on the main Twisted-running
-interpreter, here's what **process.ProcessWorker** does. Note the
-magic that happens in the line with "yield
-self.delay.untilEvent(self.cMain.poll)":
+`connection.recv`. No a problem in this case, because it's not running
+Twisted; the subordinate Python interpreter's whole purpose in life is
+to run tasks sent to it via the task queue. And on the main
+Twisted-running interpreter, here's what
+[process.ProcessWorker](http://edsuom.com/AsynQueue/asynqueue.workers.ProcessWorker.html)
+does. Note the magic that happens in the line with `yield
+self.delay.untilEvent(self.cMain.poll)`:
 
 ```python
 @defer.inlineCallbacks
@@ -219,21 +224,22 @@ works very well.
 ### Iterations, Twisted-Style
 
 The main Reader object running on the main Python interpreter also has
-a **RecordKeeper** object, reference by *self.rk*, that can provide
-implementors of **twisted.internet.interfaces.IConsumer**. Those
-consumer objects receive the iterations that are produced by
-**iteration.IterationProducer** instances, iterating asynchronously
+a
+[RecordKeeper](http://edsuom.com/logalyzer/logalyzer.records.RecordKeeper.html)
+object, referenced by `self.rk`, that can provide implementors of
+`twisted.internet.interfaces.IConsumer`. Those consumer objects
+receive the iterations that are produced by
+`iteration.IterationProducer` instances, iterating asynchronously
 "over the wire" (actually, over the interprocess connection pipe).
 
 
 ### License
 
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen
+Copyright (C) 2006-2007, 2015, 2018-19 by Edwin A. Suominen
 
 See [edsuom.com](http://edsuom.com) for API documentation as well as
 information about Ed's background and other projects, software and
-otherwise.  for API documentation as well as information about Ed's
-background and other projects, software and otherwise.
+otherwise.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the
