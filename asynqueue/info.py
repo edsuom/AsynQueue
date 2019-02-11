@@ -539,8 +539,9 @@ class Info(object):
             if inspect.ismethod(func):
                 text = "{}.{}".format(func.im_self, text)
                 return text
-        try:
-            func = str(func)
-        except:
-            func = repr(func)
+            try: func = str(func)
+            except: func = repr(func)
+            return func
+        try: func = str(func)
+        except: func = repr(func)
         return "{}[Not Callable!]".format(func)
