@@ -161,7 +161,7 @@ class ProcessProtocol(object):
     """
     I am a simple protocol for spawning a subordinate process.
 
-    @ivar d: A C{Deferred} that fires with an initial chunch of stdout
+    @ivar d: A C{Deferred} that fires with an initial chunk of STDOUT
         from the process.
     """
     def __init__(self, stopper=None):
@@ -200,19 +200,19 @@ class DeferredTracker(object):
     def addWait(self):
         """
         Adds a wait condition for me to track that gets removed when you
-        call L{release}.
+        call L{removeWait}.
 
         Calling this multiple times before release will add nested
-        wait conditions. Make sure you do a call to L{release} for
-        each L{lock} call!
+        wait conditions. Make sure you do a call to L{removeWait} for
+        each L{addWait} call!
         """
         if self.dCount is not None:
             self.dCount += 1
 
     def removeWait(self):
         """
-        Removes a wait condition added by L{lock}. Don't call this unless
-        you've called L{lock}!
+        Removes a wait condition added by L{addWait}. Don't call this unless
+        you've called L{addWait}!
         """
         if self.dCount: self.dCount -= 1
 
