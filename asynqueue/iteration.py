@@ -151,8 +151,8 @@ class Delay(object):
         if the event actually happened, or C{False} if a timeout
         occurred. Call with:
 
-            - I{eventChecker}: A no-argument callable that returns an
-              immediate boolean value indicating if an event occurred.
+            - I{eventChecker}: A callable that returns an immediate
+              boolean value indicating if an event occurred.
 
             - I{*args}: Any args for the event checker callable.
 
