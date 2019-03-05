@@ -190,9 +190,12 @@ class ProcessProtocol(object):
 
 class DeferredTracker(object):
     """
-    I allow you to track and wait for Deferreds without actually
-    having received a reference to them, or interfering with their
-    callback chains.
+    I allow you to track and wait for Twisted C{Deferred} objects
+    without actually having received a reference to them, or
+    interfering with their callback chains.
+
+    Uses instances of L{iteration.Delay} to check a count of pending
+    deferreds that have been tracked with calls to L{put} or L{addWait}.
     """
     def __init__(self, interval=None, backoff=None):
         self.dCount = 0
@@ -215,14 +218,21 @@ class DeferredTracker(object):
         """
         Removes a wait condition added by L{addWait}. Don't call this unless
         you've called L{addWait}!
+
+        B{Caution:} Calling this will cause any pending L{deferToAny}
+        calls to fire. It will also reduce the number of pending
+        deferreds that any calls to L{deferUntilFewer} are waiting on.
         """
         if self.dCount: self.dCount -= 1
 
     def quitWaiting(self):
         """
         Call this to have me quit waiting for any pending or future
-        Deferreds. Only use this if you are aborting and really don't
-        need to wait!
+        Deferreds. Only use this if you B{really} don't need me to
+        wait on anything ever again.
+
+        Useful for quickly clearing everybody off the stage (and
+        keeping them there!) during shutdown.
         """
         self.dCount = None
         
@@ -266,13 +276,13 @@ class DeferredTracker(object):
     def deferToAny(self, timeout=None):
         """
         Returns a C{Deferred} that fires with C{True} when B{any} of the
-        active deferreds fire. The tracked deferreds do not get bogged
-        down by the callback chain for the returned one.
+        active deferreds fire.
 
-        If the tracked deferreds never fire and a I{timeout} specified
-        in seconds expires, the returned deferred will fire with
-        C{False}. Calling L{quitWaiting} will make it fire almost
-        immediately, with C{True}.
+        The tracked deferreds do not get bogged down by the callback
+        chain for the returned one. If some of them never fire and a
+        I{timeout} specified in seconds expires, the returned deferred
+        will fire with C{False}. Calling L{quitWaiting} will make it
+        fire almost immediately, with C{True}.
 
         B{Caution:} Don't add any deferreds with calls to L{put} while
         waiting for this method to finish, because it will mess up the
@@ -291,17 +301,47 @@ class DeferredTracker(object):
     def deferUntilFewer(self, N, timeout=None):
         """
         Returns a C{Deferred} that fires with C{True} when there are fewer
-        than I{N} tracked deferreds pending. They don't get bogged
-        down by the callback chain for the returned one.
+        than I{N} tracked deferreds pending.
 
-        If the tracked deferreds never fire and a I{timeout} specified
-        in seconds expires, the returned deferred will fire with
+        The tracked deferreds do not get bogged down by the callback
+        chain for the returned one. If not enough of the tracked
+        deferreds ever fire and a I{timeout} specified in seconds
+        expires, the returned deferred will fire with
         C{False}. Calling L{quitWaiting} will make it fire almost
         immediately, with C{True}.
 
         You can add deferreds with calls to L{put} while waiting for
-        this method to finish. It will just add to the number of
+        this method to finish. That will just add to the number of
         tracked deferreds pending.
+
+        See the U{source<http://edsuom.com/ade/ade.population.py>} for
+        the U{ade<http://edsuom.com/ade.html>} package's C{Population}
+        object to see a simple example of this in action. Here's the
+        pertinent code::
+
+            @defer.inlineCallbacks
+            def populate():
+                k = 0
+                while running():
+                    i = getIndividual()
+                    if blank:
+                        i.SSE = np.inf
+                        addIndividual(i)
+                        continue
+                    k += 1
+                    d = i.evaluate()
+                    d.addCallback(evaluated, d)
+                    d.addErrback(oops)
+                    dt.put(d)
+                    yield dt.deferUntilFewer(self.N_maxParallel)
+                    if k >= self.Np:
+                        break
+                yield dt.deferToAll()
+
+        The C{Deferred} that gets yielded while the loop is running
+        fires immediately if there are fewer evaluations going on at
+        once than the limit. Otherwise, it fires when enough
+        evaluations finish to put things below the limit.
         """
         def fewEnoughPending():
             return self.dCount is None or self.dCount < N
