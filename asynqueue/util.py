@@ -196,6 +196,7 @@ class DeferredTracker(object):
     """
     def __init__(self):
         self.dCount = 0
+        self.dCountAny = 0
 
     def addWait(self):
         """
@@ -223,6 +224,7 @@ class DeferredTracker(object):
         need to wait!
         """
         self.dCount = None
+        self.dCountAny = None
         
     def put(self, d):
         """
@@ -230,9 +232,13 @@ class DeferredTracker(object):
         """
         def transparentCallback(anything):
             self.removeWait()
+            if self.dCountAny:
+                self.dCountAny = 0
             return anything
 
         self.addWait()
+        if self.dCountAny is not None:
+            self.dCountAny += 1
         d.addBoth(transparentCallback)
         return d
 
@@ -244,7 +250,7 @@ class DeferredTracker(object):
     
     def deferToAll(self, timeout=None):
         """
-        Return a C{Deferred} that tracks all active deferreds that haven't
+        Returns a C{Deferred} that tracks all active deferreds that haven't
         yet fired.
 
         When all the tracked deferreds fire, the returned deferred
@@ -253,13 +259,41 @@ class DeferredTracker(object):
         this method.
 
         If the tracked deferreds never fire and a specified I{timeout}
-        expires, the returned deferred will fire with C{False}.
+        expires, the returned deferred will fire with
+        C{False}. Calling L{quitWaiting} will make it fire almost
+        immediately.
         """
         if self.notWaiting():
             return defer.succeed(True)
         return iteration.Delay(timeout=timeout).untilEvent(self.notWaiting)
 
+    def deferToAny(self, timeout=None):
+        """
+        Returns a C{Deferred} that fires with C{True} when B{any} of the
+        active deferreds fire. The tracked deferreds do not get bogged
+        down by the callback chain for the returned one.
 
+        If the tracked deferreds never fire and a I{timeout} specified
+        in seconds expires, the returned deferred will fire with
+        C{False}. Calling L{quitWaiting} will make it fire almost
+        immediately, with C{True}.
+
+        B{Caution:} Don't add another deferred with a call to L{put}
+        while waiting for this method to finish, because that new
+        deferred will B{also} have to fire before the returned
+        deferred fires.
+        """
+        def oneFired(dCount):
+            print "OF", dCount
+            return self.dCount is None or self.dCount < dCount
+        
+        if self.notWaiting():
+            return defer.succeed(True)
+        # Local dCount is frozen at my current dCount value
+        dCount = self.dCount
+        d = iteration.Delay(timeout=timeout).untilEvent(oneFired, dCount)
+
+    
 class DeferredLock(defer.DeferredLock):
     """
     I am a modified form of C{defer.DeferredLock} lock that lets you
