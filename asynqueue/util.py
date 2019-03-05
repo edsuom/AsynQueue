@@ -194,9 +194,10 @@ class DeferredTracker(object):
     having received a reference to them, or interfering with their
     callback chains.
     """
-    def __init__(self):
+    def __init__(self, interval=None, backoff=None):
         self.dCount = 0
-        self.dCountAny = 0
+        self.interval = interval
+        self.backoff = backoff
 
     def addWait(self):
         """
@@ -224,7 +225,6 @@ class DeferredTracker(object):
         need to wait!
         """
         self.dCount = None
-        self.dCountAny = None
         
     def put(self, d):
         """
@@ -232,13 +232,9 @@ class DeferredTracker(object):
         """
         def transparentCallback(anything):
             self.removeWait()
-            if self.dCountAny:
-                self.dCountAny = 0
             return anything
 
         self.addWait()
-        if self.dCountAny is not None:
-            self.dCountAny += 1
         d.addBoth(transparentCallback)
         return d
 
@@ -263,9 +259,9 @@ class DeferredTracker(object):
         C{False}. Calling L{quitWaiting} will make it fire almost
         immediately.
         """
-        if self.notWaiting():
-            return defer.succeed(True)
-        return iteration.Delay(timeout=timeout).untilEvent(self.notWaiting)
+        return iteration.Delay(
+            interval=self.interval,
+            backoff=self.backoff, timeout=timeout).untilEvent(self.notWaiting)
 
     def deferToAny(self, timeout=None):
         """
@@ -278,20 +274,41 @@ class DeferredTracker(object):
         C{False}. Calling L{quitWaiting} will make it fire almost
         immediately, with C{True}.
 
-        B{Caution:} Don't add another deferred with a call to L{put}
-        while waiting for this method to finish, because that new
-        deferred will B{also} have to fire before the returned
-        deferred fires.
+        B{Caution:} Don't add any deferreds with calls to L{put} while
+        waiting for this method to finish, because it will mess up the
+        count. You will have to wait for one more deferred to fire for
+        each new one you add before the returned deferred fires.
         """
         def oneFired(dCount):
-            print "OF", dCount
             return self.dCount is None or self.dCount < dCount
         
-        if self.notWaiting():
-            return defer.succeed(True)
-        # Local dCount is frozen at my current dCount value
         dCount = self.dCount
-        d = iteration.Delay(timeout=timeout).untilEvent(oneFired, dCount)
+        # Local dCount has been frozen at my current dCount value
+        return iteration.Delay(
+            interval=self.interval,
+            backoff=self.backoff, timeout=timeout).untilEvent(oneFired, dCount)
+
+    def deferUntilFewer(self, N, timeout=None):
+        """
+        Returns a C{Deferred} that fires with C{True} when there are fewer
+        than I{N} tracked deferreds pending. They don't get bogged
+        down by the callback chain for the returned one.
+
+        If the tracked deferreds never fire and a I{timeout} specified
+        in seconds expires, the returned deferred will fire with
+        C{False}. Calling L{quitWaiting} will make it fire almost
+        immediately, with C{True}.
+
+        You can add deferreds with calls to L{put} while waiting for
+        this method to finish. It will just add to the number of
+        tracked deferreds pending.
+        """
+        def fewEnoughPending():
+            return self.dCount is None or self.dCount < N
+        
+        return iteration.Delay(
+            interval=self.interval,
+            backoff=self.backoff, timeout=timeout).untilEvent(fewEnoughPending)
 
     
 class DeferredLock(defer.DeferredLock):

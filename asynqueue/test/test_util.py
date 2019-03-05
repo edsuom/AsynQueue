@@ -74,7 +74,7 @@ class TestDeferredTracker(TestCase):
         return defer.succeed(None).addCallback(
             lambda _: setattr(self, '_flag', True))
         
-    def _slowStuff(self, N, delay=None, maxDelay=0.2, minDelay=0):
+    def _slowStuff(self, N, delay=None, maxDelay=0.2, minDelay=0, ramp=False):
         def done(null, k):
             self._flag = False
             self._count -= 1
@@ -83,8 +83,11 @@ class TestDeferredTracker(TestCase):
         for k in xrange(N):
             self._count += 1
             if delay is None:
-                delay = minDelay + (maxDelay-minDelay)*random.random()
-            d = self.deferToDelay(delay).addCallback(done, k)
+                if ramp:
+                    delay_k = minDelay + (maxDelay-minDelay)*k/N
+                else: delay_k = minDelay + (maxDelay-minDelay)*random.random()
+            else: delay_k = delay
+            d = self.deferToDelay(delay_k).addCallback(done, k)
             dList.append(d)
         return dList
     
@@ -121,6 +124,53 @@ class TestDeferredTracker(TestCase):
         t0 = time.time()
         yield self.dt.deferToAll()
         self.assertLess(time.time()-t0, 0.001)
+
+    @defer.inlineCallbacks
+    def test_deferToAny_basic(self):
+        # Put some in and wait any for them to fire
+        for d in self._slowStuff(10, minDelay=0.1, maxDelay=0.5):
+            self.dt.put(d)
+        # Wait for just one
+        t0 = time.time()
+        yield self.dt.deferToAny()
+        elapsed = time.time()-t0
+        self.assertGreater(elapsed, 0.1)
+        self.assertLess(elapsed, 0.3)
+        yield self.dt.deferToAll()
+
+    @defer.inlineCallbacks
+    def test_deferToAny_and_deferToAll(self):
+        def justOne(null):
+            OK.append(True)
+            elapsed = time.time()-t0
+            self.assertGreater(elapsed, 0.1)
+            self.assertLess(elapsed, 0.3)
+
+        OK = []
+        # Put some in
+        for d in self._slowStuff(10, minDelay=0.1, maxDelay=0.5):
+            self.dt.put(d)
+        # Wait for just one, and for any
+        t0 = time.time()
+        yield defer.DeferredList([
+            self.dt.deferToAny().addCallback(justOne), self.dt.deferToAll()])
+        self.assertTrue(OK)
+
+    @defer.inlineCallbacks
+    def test_deferUntilFewer(self):
+        N = 100
+        # Put some in
+        for d in self._slowStuff(N, minDelay=0.0, maxDelay=1.0, ramp=True):
+            self.dt.put(d)
+        # Wait for there to be half as many
+        t0 = time.time()
+        yield self.dt.deferUntilFewer(N/2)
+        elapsed = time.time()-t0
+        self.assertGreater(elapsed, 0.5)
+        self.assertLess(elapsed, 0.55)
+        self.assertGreater(self.dt.dCount, N/2-7)
+        self.assertLess(self.dt.dCount, N/2)
+        yield self.dt.deferToAll()
         
     def test_memory(self):
         def doneDelaying(null, k):

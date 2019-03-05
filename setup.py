@@ -33,7 +33,7 @@ required = ['Twisted']
 
 
 ### Define setup options
-kw = {'version': "0.9.7",
+kw = {'version': "0.9.8",
       'license': "Apache License (2.0)",
       'platforms': "OS Independent",
 
@@ -68,8 +68,8 @@ kw = {'version': "0.9.7",
 }
 
 kw['keywords'] = [
-    'twisted', 'asynchronous', 'async', 'threads',
-    'parallel', 'distributed',
+    'twisted', 'asynchronous', 'async', 'defer', 'deferred',
+    'threads', 'parallel', 'distributed',
     'task', 'queue', 'priority', 'multicore', 'fractal',
 ]
 
@@ -100,27 +100,41 @@ kw['description'] =\
 "Asynchronous task queueing with Twisted: threaded, multicore, and remote."
 
 kw['long_description'] = """
-Asynchronous task queueing based on the Twisted framework, with task
+Asynchronous task queueing based on the *Twisted* framework, with task
 prioritization and a powerful worker interface. Worker implementations
 are included for running tasks asynchronously in the main thread, in
 separate threads, in separate Python interpreters (multiprocessing),
-and even on separate devices using Twisted's Asynchronouse Message
+and even on separate devices using Twisted's Asynchronous Message
 Protocol.
 
 Includes deferred iteration capability: Calling a task that returns an
-iterator can return a Deferator_ instead, which does the iteration in
-a Twisted-friendly fashion, even over a network connection. You can
-also supply an object conforming to Twisted's IConsumer interface and
-iterations will be fed to it as they become available.
+iterator can return a
+[Deferator](http://edsuom.com/AsynQueue/asynqueue.iteration.Deferator.html)
+instead, which does the iteration in a Twisted-friendly fashion, even
+over a network connection. You can also supply an object conforming to
+Twisted's *IConsumer* interface and iterations will be fed to it as they
+become available.
 
-Includes an example package mcMandelbrot_ that generates Mandelbrot
-set images, row by row, demonstrating the power of asynchronous
-multi-core processing. An instance of ProcessQueue_ dispatches the
-computations for each row of pixels to workers running on separate
-Python processes. The color-mapped RGB results are collected as they
-come back and intelligently buffered for iterating in a proper
-sequence to a third-party PNG library that wouldn't ordinarily play
-nice with Twisted.
+The *util* module contains a
+[DeferredTracker](http://edsuom.com/AsynQueue/asynqueue.util.DeferredTracker.html)
+object that makes the import worthwhile all on its own. You can use
+its **put** method to track Twisted *Deferred* objects without inserting
+anything into their callback chains. Then you can wait in non-blocking
+Twisted fashion for all, any, or some of the tracked deferreds to fire
+(again, without getting tangled up with any of their callbacks) using
+the tracker's **deferToAll**, **deferToAny**, and **deferUntilFewer**
+methods.
+
+Includes an example package
+[mcMandelbrot](http://edsuom.com/mcMandelbrot.html) that generates
+Mandelbrot set images, row by row, demonstrating the power of
+asynchronous multi-core processing. An instance of
+[ProcessQueue](http://edsuom.com/AsynQueue/asynqueue.process.ProcessQueue.html)
+dispatches the computations for each row of pixels to workers running
+on separate Python processes. The color-mapped RGB results are
+collected as they come back and intelligently buffered for iterating
+in a proper sequence to a third-party PNG library that wouldn't
+ordinarily play nice with Twisted.
 
 You can try things out after installation by running `mcmandelbrot`
 (with a few options and arguments) from the console. The output of the
@@ -129,12 +143,6 @@ image viewer: Just add `|feh -` at the end of the command line.
 
 There was some effort toward Python 3 compatiblity a while ago, but
 it's still not yet supported.
-
-.. _mcMandelbrot: http://edsuom.com/mcMandelbrot.html
-
-.. _ProcessQueue: http://edsuom.com/AsynQueue/asynqueue.process.ProcessQueue.html
-
-.. _Deferator: http://edsuom.com/AsynQueue/asynqueue.iteration.Deferator.html
 """
 
 ### Finally, run the setup

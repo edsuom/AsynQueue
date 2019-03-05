@@ -1,5 +1,5 @@
 ## AsynQueue
-*Priority queueing of tasks to one or more threaded or asynchronous workers.*
+*Asynchronous task queueing with Twisted: threaded, multicore, and remote.*
 
 * [API Docs](http://edsuom.com/AsynQueue/asynqueue.html)
 * [PyPI Page](https://pypi.python.org/pypi/AsynQueue/)
@@ -21,6 +21,16 @@ instead, which does the iteration in a Twisted-friendly fashion, even
 over a network connection. You can also supply an object conforming to
 Twisted's IConsumer interface and iterations will be fed to it as they
 become available.
+
+The *util* module contains a
+[DeferredTracker](http://edsuom.com/AsynQueue/asynqueue.util.DeferredTracker.html)
+object that makes the import worthwhile all on its own. You can use
+its **put** method to track Twisted *Deferred* objects without inserting
+anything into their callback chains. Then you can wait in non-blocking
+Twisted fashion for all, any, or some of the tracked deferreds to fire
+(again, without getting tangled up with any of their callbacks) using
+the tracker's **deferToAll**, **deferToAny**, and **deferUntilFewer**
+methods.
 
 There's a detailed usage example below. Also, see the one provided in
 the example package "mcmandelbrot" that accompanies this README file

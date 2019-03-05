@@ -73,7 +73,7 @@ class Delay(object):
 
     With event delays of 100 ms to 1 second (in
     L{process.ProcessWorker}, setting I{backoff} to 1.10 seems more
-    efficient than 1.05 or 1.20, with the (initial) I{interval} of 50
+    efficient than 1.05 or 1.20, with an (initial) I{interval} of 50
     ms. However, you may want to tune things for your application and
     system.
 
