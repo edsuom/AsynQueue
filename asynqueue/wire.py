@@ -225,12 +225,12 @@ class WireWorker(object):
             series=[], raw=False, thread=False, N_concurrent=1):
         """
         Constructs me with a reference I{wwu} to a L{WireWorkerUniverse}
-        and a client connection I{description} and immediately
-        connects to a L{WireServer} running on another Python
-        interpreter via the AMP protocol.
+        and a client connection I{description}.
+
+        Immediately connects to a L{WireServer} running on another
+        Python interpreter via the AMP protocol.
 
         @keyword N_concurrent: The number of tasks I can have outstanding.
-        
         """
         def connected(ap):
             self.ap = ap
