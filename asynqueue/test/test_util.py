@@ -80,7 +80,7 @@ class TestDeferredTracker(TestCase):
             self._count -= 1
             return k
         dList = []
-        for k in xrange(N):
+        for k in range(N):
             self._count += 1
             if delay is None:
                 if ramp:
@@ -183,10 +183,10 @@ class TestDeferredTracker(TestCase):
             # Can't have more than 9 counts left after iteration than
             # we started with, for any generation. Should be able to
             # repeat this test (with -u) all day.
-            for k in xrange(3):
+            for k in range(3):
                 self.assertTrue(newCounts[k] < counts[k]+10)
         counts = gc.get_count()
-        for k in xrange(1000):
+        for k in range(1000):
             d = self.deferToDelay(0.1*random.random())
             d.addCallback(doneDelaying, k)
             self.dt.put(d)
@@ -213,7 +213,7 @@ class TestCallRunner(TestCase):
     def test_withStats(self):
         runner = util.CallRunner(callStats=True)
         z = []
-        for x in xrange(1000, 2000):
+        for x in range(1000, 2000):
             result = runner((self._divide, (x, 2), {}))
             self.assertEqual(result[0], 'r')
             z.append(result[1])

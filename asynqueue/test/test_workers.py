@@ -29,7 +29,7 @@ from twisted.internet import defer
 
 from util import TestStuff
 import base, tasks, workers
-from testbase import deferToDelay, TestCase, IterationConsumer
+from test.testbase import deferToDelay, TestCase, IterationConsumer
 
 
 class TestAsyncWorker(TestCase):
@@ -55,14 +55,14 @@ class TestAsyncWorker(TestCase):
 
     def test_multipleTasks(self):
         N = 5
-        expected = [2*x for x in xrange(N)]
+        expected = [2*x for x in range(N)]
         for k in self.multiplerator(N, expected):
             self.d = self.queue.call(self._twistyTask, k)
         return self.dm
 
     def test_multipleCalls(self):
         N = 5
-        expected = [('r', 2*x) for x in xrange(N)]
+        expected = [('r', 2*x) for x in range(N)]
         worker = workers.AsyncWorker()
         for k in self.multiplerator(N, expected):
             task = tasks.Task(self._twistyTask, (k,), {}, 0, None)

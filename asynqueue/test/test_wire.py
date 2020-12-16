@@ -132,7 +132,7 @@ class BigObject(object):
             N = min([self.N-Nsf, self.itemSize])
             self.stuff.append("".join([
                 characters[random.randint(0, len(characters)-1)]
-                for k in xrange(N)]))
+                for k in range(N)]))
             Nsf += N
         return self
 
@@ -199,7 +199,7 @@ class TestWireRunner(TestCase):
             resultList.append(float(p2o(response['result'])))
         dList = []
         resultList = []
-        for x in xrange(5):
+        for x in range(5):
             d = self.wr.call(self.tm.divide, float(x), 1)
             d.addCallback(gotResponse)
             dList.append(d)
@@ -243,7 +243,7 @@ class TestWireRunner(TestCase):
         self.assertEqual(
             type(self.wr.iterators[ID]),
             type(self.tm.stufferator()))
-        for k in xrange(N1+1):
+        for k in range(N1+1):
             response = yield self.wr.getNext(ID)
             chunk = response['value']
             if k < N1:

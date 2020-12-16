@@ -164,14 +164,14 @@ class TestProcessWorker(TestCase):
             self.failUnlessEqual(len(mutable), N)
             self.failUnlessEqual(
                 sum(mutable),
-                sum([2*x for x in xrange(N)]))
+                sum([2*x for x in range(N)]))
 
         # Create and attach two more workers, for a total of three
-        for null in xrange(2):
+        for null in range(2):
             worker = process.ProcessWorker()
             self.queue.attachWorker(worker)
         dList = []
-        for x in xrange(N):
+        for x in range(N):
             d = self.queue.call(blockingTask, x)
             d.addCallback(gotResult)
             dList.append(d)
@@ -237,7 +237,7 @@ class TestProcessWorkerStats(TestCase):
     def _runCall(self, f, xMin, xMax, delay):
         dList = []
         t0 = time()
-        for x in xrange(xMin, xMax):
+        for x in range(xMin, xMax):
             dList.append(self.queue.call(f, x, delay))
         yield defer.DeferredList(dList)
         dispatchTime = time() - t0

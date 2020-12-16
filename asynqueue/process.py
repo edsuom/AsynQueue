@@ -71,7 +71,7 @@ class ProcessQueue(TaskQueue):
         """
         callStats = kw.pop('callStats', False)
         TaskQueue.__init__(self, **kw)
-        for null in xrange(N):
+        for null in range(N):
             worker = ProcessWorker(callStats=callStats)
             self.attachWorker(worker)
 

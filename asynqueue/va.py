@@ -32,9 +32,9 @@ class VA(object):
     """
     def __init__(self):
         import sys
-        if sys.version_info < (3, 0):
+        self.py3 = (sys.version_info.major >= 3)
+        if not self.py3:
             # Python 2.x
-            self.py3 = False
             self.buffer = buffer
             self.long = long
             self.unicode = unicode
@@ -42,7 +42,6 @@ class VA(object):
             import cPickle as p
         else:
             # Python 3.x
-            self.py3 = True
             self.buffer = memoryview
             self.long = int
             self.unicode = str

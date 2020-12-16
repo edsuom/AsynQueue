@@ -37,7 +37,7 @@ from testbase import deferToDelay, \
 generator = (2*x for x in range(10))
 
 def generatorFunction(x, N=7):
-    for y in xrange(N):
+    for y in range(N):
         yield x*y
 
 
@@ -280,7 +280,7 @@ class TestIterationProducer(TestCase):
         result = yield ip.deferUntilDone()
         self.assertEqual(result, consumer)
         self.assertEqual(len(consumer.data), N)
-        for k in xrange(N):
+        for k in range(N):
             self.assertEqual(consumer.data[k], "x"*k)
 
     @defer.inlineCallbacks
@@ -294,7 +294,7 @@ class TestIterationProducer(TestCase):
         result = yield ip.run()
         self.assertEqual(result, consumer)
         self.assertEqual(len(consumer.data), N)
-        for k in xrange(N):
+        for k in range(N):
             self.assertEqual(consumer.data[k], "x"*k)
             
     @defer.inlineCallbacks
@@ -308,7 +308,7 @@ class TestIterationProducer(TestCase):
         result = yield ip.deferUntilDone()
         self.assertEqual(result, consumer)
         self.assertEqual(len(consumer.data), N)
-        for k in xrange(N):
+        for k in range(N):
             self.assertEqual(consumer.data[k], "x"*k)
 
 
@@ -328,6 +328,6 @@ class TestListConsumer(TestCase):
         ip = yield iteration.iteratorToProducer(gf, consumer)
         z = yield consumer()
         self.assertEqual(len(z), N)
-        for k in xrange(N):
+        for k in range(N):
             self.assertEqual(z[k], ['foo', "x"*k])
         

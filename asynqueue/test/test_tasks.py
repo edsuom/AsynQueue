@@ -88,7 +88,7 @@ class TestTaskFactory(TestCase):
 
     def test_serialOneSeries(self):
         serialNumbers = []
-        for null in xrange(5):
+        for null in range(5):
             this = self.tf._serial(None)
             self.failUnless(isinstance(this, float))
             self.failIf(this in serialNumbers)
@@ -97,7 +97,7 @@ class TestTaskFactory(TestCase):
 
     def test_serialMultipleSeriesConcurrently(self):
         serialNumbers = []
-        for null in xrange(5):
+        for null in range(5):
             x = self.tf._serial(1)
             y = self.tf._serial(2)
             serialNumbers.extend([x,y])
@@ -108,10 +108,10 @@ class TestTaskFactory(TestCase):
         
     def test_serialAnotherSeriesComingLate(self):
         serialNumbers = []
-        for null in xrange(5):
+        for null in range(5):
             x = self.tf._serial(1)
             serialNumbers.append(x)
-        for null in xrange(5):
+        for null in range(5):
             y = self.tf._serial(2)
             serialNumbers.append(y)
         self.listInOrder(serialNumbers)
@@ -294,7 +294,7 @@ class TestTaskHandlerRun(TestCase):
 
         self.th.hire(worker)
         dList = []
-        for null in xrange(N):
+        for null in range(N):
             task = MockTask(lambda x: x, ('foo',), {}, 100, None)
             # For this test, we don't care about when assignments are accepted
             self.th(task)
@@ -318,7 +318,7 @@ class TestTaskHandlerRun(TestCase):
         self.th.hire(workerFast)
         self.th.hire(workerSlow)
         dList = []
-        for null in xrange(N):
+        for null in range(N):
             task = MockTask(lambda : mutable.append(None), (), {}, 100, None)
             # For this test, we don't care about when assignments are accepted
             self.th(task)

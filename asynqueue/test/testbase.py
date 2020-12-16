@@ -85,7 +85,7 @@ class MsgBase(object):
 
 class Tasks(MsgBase):
     def _producterator(self, x, N=7):
-        for y in xrange(N):
+        for y in range(N):
             yield x*y
 
     def _divideBy(self, x, y):
@@ -177,7 +177,7 @@ class ProcessProtocol(MsgBase):
 @implementer(IProducer)
 class RangeProducer(object):
     """
-    Produces an integer range of values like C{xrange}.
+    Produces an integer range of values like C{range}.
 
     Fires a C{Deferred} accessible via my I{d} attribute when the
     range has been produced.
@@ -243,7 +243,7 @@ class RangeProducer(object):
 @implementer(IProducer)
 class RangeWriter(object):
     """
-    Writes an integer range of values like C{xrange} to a file-like
+    Writes an integer range of values like C{range} to a file-like
     object I{fh} and then closes it.
 
     Fires a C{Deferred} accessible via my I{d} attribute when the
@@ -452,7 +452,7 @@ class TestCase(MsgBase, unittest.TestCase):
                 call.cancel()
 
     def oops(self, failureObj):
-        print "FAIL!!!!!!!\n{}\n{}".format('-'*40, failureObj.value)
+        print("FAIL!!!!!!!\n{}\n{}".format('-'*40, failureObj.value))
         import pdb; pdb.set_trace()
 
     def deferToDelay(self, t):
@@ -471,7 +471,7 @@ class TestCase(MsgBase, unittest.TestCase):
         
         dList = []
         resultList = []
-        for k in xrange(N):
+        for k in range(N):
             yield k
             self.d.addCallback(resultList.append)
             dList.append(self.d)

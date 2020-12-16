@@ -31,7 +31,7 @@ L{ServerManager} is just the thing for that.
 
 import sys, os, os.path, tempfile, shutil, inspect
 
-from zope.interface import implements
+from zope.interface import implementer
 from twisted.python import reflect
 from twisted.internet import reactor, defer, endpoints
 from twisted.protocols import amp
@@ -87,13 +87,13 @@ class RunTask(amp.Command):
            value. So you get an ID string for calls to C{GetNext}.
     """
     arguments = [
-        ('methodName', amp.String()),
-        ('args', amp.String()),
-        ('kw', amp.String()),
+        (b'methodName', amp.String()),
+        (b'args', amp.String()),
+        (b'kw', amp.String()),
     ]
     response = [
-        ('status', amp.String()),
-        ('result', amp.String()),
+        (b'status', amp.String()),
+        (b'result', amp.String()),
     ]
 
 
@@ -110,12 +110,12 @@ class GetNext(amp.Command):
     string, I{isRaw} will be set C{True}.
     """
     arguments = [
-        ('ID', amp.String())
+        (b'ID', amp.String())
     ]
     response = [
-        ('value', amp.String()),
-        ('isValid', amp.Boolean()),
-        ('isRaw', amp.Boolean()),
+        (b'value', amp.String()),
+        (b'isValid', amp.Boolean()),
+        (b'isRaw', amp.Boolean()),
     ]
 
 
@@ -175,6 +175,7 @@ class WireWorkerUniverse(amp.CommandLocator):
         return self.wr.getNext(ID)
         
 
+@implementer(IWorker)
 class WireWorker(object):
     """
     Runs tasks "over the wire," via Twisted AMP running on an
@@ -201,7 +202,6 @@ class WireWorker(object):
     set the I{thread} keyword C{True} for it and it will run via an
     instance of L{threads.ThreadLooper}.
     """
-    implements(IWorker)
     pList = []
     tempDir = []
     cQualified = ['wire', 'remote']

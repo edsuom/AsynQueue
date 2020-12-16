@@ -36,10 +36,10 @@ class TestMethods:
         return x/y
     def setStuff(self, N1, N2):
         self.stuff = []
-        for j in xrange(N1):
+        for j in range(N1):
             self.stuff.append("".join(
                 [self.chars[k % len(self.chars)]
-                 for k in xrange(N2)]))
+                 for k in range(N2)]))
     def getStuff(self):
         return self.stuff
     def stuffSize(self):

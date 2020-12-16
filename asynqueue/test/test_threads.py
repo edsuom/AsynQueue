@@ -180,14 +180,14 @@ class TestThreadWorker(Tasks, TestCase):
 
     def test_multipleTasks(self):
         N = 5
-        expected = [2*x for x in xrange(N)]
+        expected = [2*x for x in range(N)]
         for k in self.multiplerator(N, expected):
             self.d = self.queue.call(self._blockingTask, k)
         return self.dm
 
     def test_multipleCalls(self):
         N = 5
-        expected = [('r', 2*x) for x in xrange(N)]
+        expected = [('r', 2*x) for x in range(N)]
         worker = threads.ThreadWorker()
         for k in self.multiplerator(N, expected):
             task = tasks.Task(self._blockingTask, (k,), {}, 0, None)
@@ -207,14 +207,14 @@ class TestThreadWorker(Tasks, TestCase):
             self.assertEqual(len(mutable), N)
             self.assertEqual(
                 sum(mutable),
-                sum([2*x for x in xrange(N)]))
+                sum([2*x for x in range(N)]))
 
         # Create and attach two more workers, for a total of three
-        for null in xrange(2):
+        for null in range(2):
             worker = threads.ThreadWorker()
             self.queue.attachWorker(worker)
         dList = []
-        for x in xrange(N):
+        for x in range(N):
             d = self.queue.call(self._blockingTask, x)
             d.addCallback(gotResult)
             dList.append(d)
@@ -267,7 +267,7 @@ class Stuff(object):
         return x/y
 
     def iterate(self, N, maxDelay=0.2):
-        for k in xrange(N):
+        for k in range(N):
             if maxDelay > 0:
                 time.sleep(maxDelay*random.random())
             yield k
@@ -278,7 +278,7 @@ class Stuff(object):
             while time.time() - t0 < 0.2:
                 time.sleep(0.05)
             return time.time() - t0
-        for k in xrange(5):
+        for k in range(5):
             time.sleep(0.02)
             yield wait()
 
@@ -348,7 +348,7 @@ class TestThreadLooper(TestCase):
 
     @defer.inlineCallbacks
     def test_iterator_basic(self):
-        for k in xrange(100):
+        for k in range(100):
             N = random.randrange(5, 20)
             self.msg("Repeat #{:d}, iterating {:d} times...", k+1, N)
             status, result = yield self.t.call(self.stuff.iterate, N, 0)
@@ -465,7 +465,7 @@ class TestIterationGetter(Tasks, TestCase):
     @defer.inlineCallbacks
     def test_reuse(self):
         xList = []
-        for x in xrange(4*self.maxThreads):
+        for x in range(4*self.maxThreads):
             xList.append(x)
             self.tig.start()
             self.tig.value = x
@@ -479,7 +479,7 @@ class TestIterationGetter(Tasks, TestCase):
     @defer.inlineCallbacks
     def test_waitForFreeThread(self):
         dList = []
-        for x in xrange(4*self.maxThreads):
+        for x in range(4*self.maxThreads):
             dList.append(
                 self.tig.deferToThreadInPool(self._blockingTask, x, 0.1))
         yList = yield defer.gatherResults(dList)
@@ -547,7 +547,7 @@ class TestConsumerator(Tasks, TestCase):
         N = 100
         cList = []
         dList = []
-        for k in xrange(Nc):
+        for k in range(Nc):
             c = self.c if k == 0 else threads.Consumerator()
             cList.append(c)
             totalTime = 0.1
@@ -604,7 +604,7 @@ class TestFilerator(Tasks, TestCase):
         # with "trial -b" or when repeated with "trial -u"?
         def blockingWriter(interval):
             t0 = time.time()
-            for x in xrange(N):
+            for x in range(N):
                 self.f.write(x)
                 time.sleep(interval)
             self.f.close()
@@ -661,7 +661,7 @@ class TestOrderedItemProducer(Tasks, TestCase):
         bDelay = 0.04
         yield self.p.start(self._blockingIteratorUser, maxTime=bDelay)
         inputs2x = []
-        for x in xrange(100):
+        for x in range(100):
             delay = random.uniform(0, pDelay)
             item = yield self.p.produceItem(self.fp, x, delay)
             inputs2x.append(2*item)
@@ -676,7 +676,7 @@ class TestOrderedItemProducer(Tasks, TestCase):
         bDelay = 0.04
         yield self.p.start(self._blockingIteratorUser, maxTime=bDelay)
         inputs2x = []
-        for x in xrange(100):
+        for x in range(100):
             delay = random.uniform(0, pDelay)
             self.p.produceItem(
                 self.fp, x, delay).addCallback(produced, x)
@@ -698,7 +698,7 @@ class TestOrderedItemProducer(Tasks, TestCase):
         bDelay = 0.04
         yield self.p.start(self._unreliableIteratorUser)
         inputs = []
-        for x in xrange(100):
+        for x in range(100):
             delay = random.uniform(0, pDelay)
             item = yield self.p.produceItem(self.fp, x, delay)
             inputs.append(item)
