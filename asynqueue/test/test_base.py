@@ -29,8 +29,8 @@ import logging
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 
-from asynqueue import base
-from asynqueue.test.testbase import DeferredIterable, MockWorker, TestCase
+from .. import base
+from .testbase import DeferredIterable, MockWorker, TestCase
 
 
 VERBOSE = False

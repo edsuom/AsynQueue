@@ -29,8 +29,8 @@ from copy import copy
 
 from twisted.internet import defer
 
-import errors, iteration
-from testbase import deferToDelay, \
+from .. import errors, iteration
+from .testbase import deferToDelay, \
     TestCase, DeferredIterable, IterationConsumer
 
 

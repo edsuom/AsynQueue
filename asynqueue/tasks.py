@@ -190,6 +190,12 @@ class Task(object):
             return False
         return self.priority == other.priority
 
+    def __hash__(self):
+        """
+        This was necessary to make Python 3 happy for some reason.
+        """
+        return id(self)
+    
     
 class TaskFactory(object):
     """

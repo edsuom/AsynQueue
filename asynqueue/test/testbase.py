@@ -1,9 +1,9 @@
-# Twisted Goodies:
-# Miscellaneous add-ons and improvements to the separately maintained and
-# licensed Twisted (TM) asynchronous framework. Permission to use the name was
-# graciously granted by Twisted Matrix Laboratories, http://twistedmatrix.com.
+# AsynQueue:
+# Asynchronous task queueing based on the Twisted framework, with task
+# prioritization and a powerful worker interface.
 #
-# Copyright (C) 2006-2007 by Edwin A. Suominen, http://www.eepatents.com
+# Copyright (C) 2006-2007, 2015, 2019 by Edwin A. Suominen,
+# http://edsuom.com/AsynQueue
 #
 # See edsuom.com for API documentation as well as information about
 # Ed's background and other projects, software and otherwise.
@@ -446,7 +446,7 @@ class TestCase(MsgBase, unittest.TestCase):
 
     def tearDown(self):
         while self.pendingCalls:
-            call = self.pendingCalls.keys()[0]
+            call = list(self.pendingCalls.keys())[0]
             if call.active():
                 self.pendingCalls[call].callback(None)
                 call.cancel()
