@@ -200,7 +200,7 @@ class TestPrefetcherator(TestCase):
     def test_getNext_withNextCallable_immediate(self):
         listOfStuff = ["57", None, "1.3", "whatever"]
         pf = iteration.Prefetcherator()
-        status = yield pf.setup(iter(listOfStuff).next)
+        status = yield pf.setup(iter(listOfStuff).__next__)
         self.assertTrue(status)
         k = 0
         self.msg(" k{}\tisValid\tmoreLeft", " "*10, "-")

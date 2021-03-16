@@ -25,6 +25,9 @@ I provide a ready-made convenience object for all your Python
 version agnosticism needs.
 """
 
+import six
+
+
 class VA(object):
     """
     I provide version-agnostic attributes and a I{py3} attribute that

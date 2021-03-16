@@ -70,7 +70,7 @@ class AsyncWorker(object):
 
         @param raw: Set C{True} if you want raw iterators to be
           returned instead of L{iteration.Deferator} instances. You
-          can override this in with the same keyword set C{False} in a
+          can override this with the same keyword set C{False} in a
           call.
         """
         self.iQualified = series

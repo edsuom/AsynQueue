@@ -29,7 +29,7 @@ NAME = "AsynQueue"
 from setuptools import setup
 
 ### Define requirements
-required = ['Twisted']
+required = ['Twisted', 'six']
 
 
 ### Define setup options

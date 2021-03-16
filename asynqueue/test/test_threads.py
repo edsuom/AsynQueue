@@ -35,7 +35,7 @@ from asynqueue.test.testbase import deferToDelay, RangeProducer, RangeWriter, \
     Tasks, IterationConsumer, TestHandler, TestCase, StringIO
 
 
-class TestThreadQueue(Tasks, TestCase):
+class Test_ThreadQueue(Tasks, TestCase):
     verbose = False
 
     def tearDown(self):
@@ -135,7 +135,7 @@ class TestThreadQueue(Tasks, TestCase):
 
         
         
-class TestThreadWorker(Tasks, TestCase):
+class Test_ThreadWorker(Tasks, TestCase):
     verbose = False
     
     def setUp(self):
@@ -283,7 +283,7 @@ class Stuff(object):
             yield wait()
 
 
-class TestThreadLooper(TestCase):
+class Test_ThreadLooper(TestCase):
     verbose = False
 
     def setUp(self):
@@ -357,7 +357,7 @@ class TestThreadLooper(TestCase):
             for d in result:
                 item = yield d
                 resultList.append(item)
-            self.assertEqual(resultList, range(N))
+            self.assertEqual(resultList, list(range(N)))
     
     @defer.inlineCallbacks
     def test_iterator_fast(self):
@@ -368,7 +368,7 @@ class TestThreadLooper(TestCase):
         for d in result:
             item = yield d
             resultList.append(item)
-        self.assertEqual(resultList, range(10))
+        self.assertEqual(resultList, list(range(10)))
         status, result = yield dRegular
         self.assertEqual(status, 'r')
         self.assertEqual(result, 1.5)
@@ -445,7 +445,7 @@ class TestableIterationGetter(threads.IterationGetter):
         self.runState = 'stopping'
 
 
-class TestIterationGetter(Tasks, TestCase):
+class Test_IterationGetter(Tasks, TestCase):
     verbose = True
     maxThreads = 5
 
@@ -460,7 +460,7 @@ class TestIterationGetter(Tasks, TestCase):
         self.tig.start()
         self.tig.value = 'foo'
         self.tig.cLock.release()
-        self.assertEqual(self.tig.next(), 'foo')
+        self.assertEqual(self.tig.__next__(), 'foo')
 
     @defer.inlineCallbacks
     def test_reuse(self):
@@ -470,7 +470,7 @@ class TestIterationGetter(Tasks, TestCase):
             self.tig.start()
             self.tig.value = x
             self.tig.cLock.release()
-            self.assertEqual(self.tig.next(), x)
+            self.assertEqual(self.tig.__next__(), x)
         # This is really just to also test the deferUntilDone method
         # while we're at it
         yield self.tig.deferUntilDone()
@@ -483,10 +483,10 @@ class TestIterationGetter(Tasks, TestCase):
             dList.append(
                 self.tig.deferToThreadInPool(self._blockingTask, x, 0.1))
         yList = yield defer.gatherResults(dList)
-        self.assertEqual(yList, range(0, 8*self.maxThreads, 2))
+        self.assertEqual(yList, list(range(0, 8*self.maxThreads, 2)))
 
 
-class TestConsumerator(Tasks, TestCase):
+class Test_Consumerator(Tasks, TestCase):
     verbose = False
     maxThreads = 3
     
@@ -511,7 +511,7 @@ class TestConsumerator(Tasks, TestCase):
             "Consumed {:d} iterations in {:f} seconds",
             len(values), timeSpent)
         self.assertEqual(len(values), N)
-        self.assertEqual(values, range(0, 2*N, 2))
+        self.assertEqual(values, list(range(0, 2*N, 2)))
         self.assertAlmostEqual(timeSpent, 1.1*totalTime, 1)
         yield self.c.deferUntilDone()
 
@@ -526,7 +526,7 @@ class TestConsumerator(Tasks, TestCase):
             "Consumed {:d} iterations in {:f} seconds",
             len(values), timeSpent)
         self.assertEqual(len(values), N)
-        self.assertEqual(values, range(0, 2*N, 2))
+        self.assertEqual(values, list(range(0, 2*N, 2)))
         self.assertAlmostEqual(timeSpent, 1.05*totalTime, 1)
         yield self.c.deferUntilDone()
         
@@ -538,7 +538,7 @@ class TestConsumerator(Tasks, TestCase):
         values = yield self.q.call(self._blockingIteratorUser, self.c, 0.03)
         yield self.c.deferUntilDone()
         self.assertEqual(len(values), N)
-        self.assertEqual(values, range(0, 2*N, 2))
+        self.assertEqual(values, list(range(0, 2*N, 2)))
         yield producer.d
 
     @defer.inlineCallbacks
@@ -561,12 +561,12 @@ class TestConsumerator(Tasks, TestCase):
         previousValues = None
         for values in valueLists:
             self.assertEqual(len(values), N)
-            self.assertEqual(values, range(0, 2*N, 2))
+            self.assertEqual(values, list(range(0, 2*N, 2)))
             self.assertNotEqual(id(values), previousValues)
             previousValues = values
         
 
-class TestFilerator(Tasks, TestCase):
+class Test_Filerator(Tasks, TestCase):
     verbose = False
 
     def setUp(self):
@@ -594,7 +594,7 @@ class TestFilerator(Tasks, TestCase):
             "Consumed {:d} iterations in {:f} seconds",
             len(values), timeSpent)
         self.assertEqual(len(values), N)
-        self.assertEqual(values, range(0, 2*N, 2))
+        self.assertEqual(values, list(range(0, 2*N, 2)))
         self.assertAlmostEqual(timeSpent, 1.1*totalTime, 1)
         yield self.f.deferUntilDone()
 
@@ -619,12 +619,12 @@ class TestFilerator(Tasks, TestCase):
             "Consumed {:d} iterations in {:f} seconds",
             len(values), timeSpent)
         self.assertEqual(len(values), N)
-        self.assertEqual(values, range(0, 2*N, 2))
+        self.assertEqual(values, list(range(0, 2*N, 2)))
         self.assertAlmostEqual(timeSpent, totalTime, 1)
         yield self.f.deferUntilDone()
 
         
-class TestOrderedItemProducer(Tasks, TestCase):
+class Test_OrderedItemProducer(Tasks, TestCase):
     verbose = False
 
     def setUp(self):

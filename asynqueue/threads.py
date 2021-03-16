@@ -580,7 +580,7 @@ class IterationGetter(PoolUser):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         # Wait for the next iteration to be produced
         self.bLock.acquire()
         # Get a local reference to the iteration value

@@ -37,15 +37,14 @@ unless perhaps you come up with an entirely new kind of
 L{interfaces.IWorker} implementation.
 """
 
-import os, signal
 from time import time
+import os, signal, pickle
 import cProfile as profile
 from contextlib import contextmanager
 
 from twisted.internet import defer, reactor, protocol
 from twisted.python.failure import Failure
 
-from asynqueue.va import va
 from asynqueue import errors, info, iteration
 
 
@@ -56,7 +55,7 @@ def o2p(obj):
     """
     if isinstance(obj, (list, tuple, dict)) and not obj:
         return ""
-    return va.pickle.dumps(obj)#, pickle.HIGHEST_PROTOCOL)
+    return pickle.dumps(obj)#, pickle.HIGHEST_PROTOCOL)
 
 def p2o(pickledString, defaultObj=None):
     """
@@ -69,7 +68,7 @@ def p2o(pickledString, defaultObj=None):
     """
     if not pickledString:
         return defaultObj
-    return va.pickle.loads(pickledString)
+    return pickle.loads(pickledString)
 
 def callAfterDeferred(namespace, dName, f, *args, **kw):
     """

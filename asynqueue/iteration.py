@@ -46,7 +46,6 @@ from twisted.python.failure import Failure
 from twisted.internet.interfaces import IPushProducer, IConsumer
 
 from asynqueue import errors
-from asynqueue.va import va
 
 
 def deferToDelay(delay):
@@ -110,7 +109,7 @@ class Delay(object):
         reactor.removeSystemEventTrigger(self.triggerID)
         self.triggerID = None
         while self.pendingCalls:
-            call = self.pendingCalls.keys()[0]
+            call = list(self.pendingCalls)[0]
             if call.active():
                 self.pendingCalls[call].callback(None)
                 call.cancel()
@@ -256,8 +255,7 @@ class Deferator(object):
     L{Prefetcherator} will be constructed internally.
     """
     builtIns = (
-        str, va.unicode,
-        list, tuple, bytearray, va.buffer, dict, set, frozenset)
+        str, list, tuple, bytearray, memoryview, dict, set, frozenset)
     
     @classmethod
     def isIterator(cls, obj):
@@ -271,7 +269,7 @@ class Deferator(object):
             return False
         if inspect.isgenerator(obj) or inspect.isgeneratorfunction(obj):
             return True
-        for attrName in ('__iter__', 'next'):
+        for attrName in ('__iter__', '__next__'):
             if not callable(getattr(obj, attrName, None)):
                 return False
         return True
@@ -279,7 +277,7 @@ class Deferator(object):
     def __init__(self, objOrRep, *args, **kw):
         self.d = defer.Deferred()
         self.moreLeft = True
-        if isinstance(objOrRep, (str, unicode)):
+        if isinstance(objOrRep, str):
             # Use supplied string representation
             self.representation = objOrRep.strip('<>')
         else:
@@ -337,7 +335,7 @@ class Deferator(object):
         """
         return self
 
-    def next(self):
+    def __next__(self):
         """
         One of two methods needed for me to act like an iterator. The
         result (unless C{StopIteration} is raised) is a C{Deferred} to
@@ -434,13 +432,13 @@ class Prefetcherator(object):
                 return False
             if Deferator.isIterator(args[0]):
                 iterator = args[0]
-                if not hasattr(iterator, 'next'):
+                if not hasattr(iterator, '__next__'):
                     iterator = iter(iterator)
-                if not hasattr(iterator, 'next'):
+                if not hasattr(iterator, '__next__'):
                     raise AttributeError(
                         "Can't get a nextCallTuple from so-called "+\
                         "iterator '{}'".format(repr(args[0])))
-                self.nextCallTuple = (iterator.next, [], {})
+                self.nextCallTuple = (iterator.__next__, [], {})
                 return True
             if callable(args[0]):
                 self.nextCallTuple = (args[0], args[1:], kw)
@@ -530,15 +528,15 @@ class ListConsumer(object):
         self.count = 0
         self.dPending = []
         self.dp = defer.Deferred()
-        for name, value in kw.iteritems():
-            setattr(self, name, value)
+        for name in kw:
+            setattr(self, name, kw[name])
 
     def __call__(self):
         """
         Call to get a (deferred) list of what I consumed.
         """
         def done(null):
-            return [self.x[key] for key in sorted(va.keys(self.x))]
+            return [self.x[key] for key in sorted(list(self.x))]
         
         dList = [d for d in self.dPending if not d.called]
         if hasattr(self, 'dp'):

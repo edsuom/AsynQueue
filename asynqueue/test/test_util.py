@@ -202,8 +202,7 @@ class TestDeferredTracker(TestCase):
         self.deferToDelay(0.2).addCallback(lambda _: self.dt.quitWaiting())
         yield self.dt.deferToAll()
         td = time.time()-t0
-        # Don't know why the delay is so much longer with py3
-        self.assertWithinFivePercent(td, 0.22 if util.va.py3 else 0.2)
+        self.assertWithinFivePercent(td, 0.22)
 
         
 class TestCallRunner(TestCase):

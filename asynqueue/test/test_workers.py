@@ -27,13 +27,13 @@ Unit tests for asynqueue.workers
 import time, random
 from twisted.internet import defer
 
-from util import TestStuff
-import base, tasks, workers
-from test.testbase import deferToDelay, TestCase, IterationConsumer
+from ..util import TestStuff
+from .. import base, tasks, workers
+from .testbase import deferToDelay, TestCase, IterationConsumer
 
 
 class TestAsyncWorker(TestCase):
-    verbose = False
+    verbose = True
     
     def setUp(self):
         self.worker = workers.AsyncWorker()
