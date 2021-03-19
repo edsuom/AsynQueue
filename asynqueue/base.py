@@ -324,7 +324,7 @@ class TaskQueue(object):
         """
         return len(self.th.roster())
 
-    def __nonzero__(self):
+    def __bool__(self):
         """
         I evaluate as C{True} if I am running and have at least one
         worker.
@@ -382,7 +382,7 @@ class TaskQueue(object):
     def _getWorkerID(self, workerOrID):
         if workerOrID in self.th.workers:
             return workerOrID
-        for thisID, worker in self.th.workers.iteritems():
+        for thisID, worker in self.th.workers.items():
             if worker == workerOrID:
                 return thisID
     
@@ -426,7 +426,7 @@ class TaskQueue(object):
         attached, in no particular order, will be returned instead.
         """
         if ID is None:
-            return self.th.workers.values()
+            return list(self.th.workers.values())
         return self.th.workers.get(ID, None)
         
     def taskDone(self, statusResult, task, **kw):

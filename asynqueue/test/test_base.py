@@ -36,7 +36,7 @@ from .testbase import DeferredIterable, MockWorker, TestCase
 VERBOSE = False
 
 
-class TestPriority(TestCase):
+class Test_Priority(TestCase):
     def setUp(self):
         self.heap = base.Priority()
 
@@ -74,7 +74,7 @@ class TestPriority(TestCase):
             lambda _: self.failUnlessEqual(items, [0,1,3,4]))
 
 
-class TestTaskQueue(TestCase):
+class Test_TaskQueue(TestCase):
     verbose = False
     spew = False
     
@@ -165,7 +165,7 @@ class TestTaskQueue(TestCase):
                 "Expected {:d} iterations, got {:d}".format(N, count))
 
 
-class TestTaskQueueErrors(TestCase):
+class Test_TaskQueueErrors(TestCase):
     verbose = False
     
     class TestHandler(logging.Handler):

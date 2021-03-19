@@ -43,7 +43,6 @@ else:
 from asynqueue.info import Info
 from asynqueue.interfaces import IWorker
 from asynqueue.errors import ImplementationError
-from asynqueue.va import va
 
 
 class Task(object):
@@ -144,7 +143,7 @@ class Task(object):
         func = self.callTuple[0]
         args = ", ".join([str(x) for x in self.callTuple[1]])
         kw = "".join(
-            [", %s=%s" % item for item in va.iteritems(self.callTuple[2])])
+            [", %s=%s" % item for item in list(self.callTuple[2].items())])
         if func.__class__.__name__ == "function":
             funcName = func.__name__
         elif callable(func):
@@ -297,7 +296,9 @@ class AssignmentFactory(object):
         """
         Cancel this worker's assignment requests
         """
-        for series, dList in va.iteritems(getattr(worker, 'assignments', {})):
+        assignments = getattr(worker, 'assignments', {})
+        for series in assignments:
+            dList = assignments[series]
             requestsWaiting = self.waiting.get(series, [])
             for d in dList:
                 if d in requestsWaiting:
@@ -405,7 +406,7 @@ class TaskHandler(object):
             return unfinishedTasks
 
         dList = []
-        for workerID in va.keys(self.workers):
+        for workerID in list(self.workers):
             d = self.terminate(workerID, timeout=timeout)
             dList.append(d)
         return defer.gatherResults(dList).addCallback(gotResults)
@@ -499,7 +500,8 @@ class TaskHandler(object):
             return defer.succeed([])
         worker.hired = False
         self.assignmentFactory.cancelRequests(worker)
-        for series, workerList in va.iteritems(self.laborPools):
+        for series in self.laborPools:
+            workerList = self.laborPools[series]
             if worker in workerList:
                 workerList.remove(worker)
         if crash:
@@ -522,7 +524,7 @@ class TaskHandler(object):
         specified series, or all my workers if no series specified.
         """
         if series is None:
-            return self.workers.values()
+            return list(self.workers.values())
         return self.laborPools.get(series, [])
 
     def update(self, task, ephemeral=False):

@@ -34,7 +34,7 @@ from asynqueue import util, info
 from asynqueue.test.testbase import deferToDelay, blockingTask, Picklable, TestCase
 
 
-class TestFunctions(TestCase):
+class Test_Functions(TestCase):
     verbose = False
 
     def setUp(self):
@@ -57,7 +57,7 @@ class TestFunctions(TestCase):
         self.checkHash({1:2, 2:'a'})
         
 
-class TestInfo(TestCase):
+class Test_Info(TestCase):
     verbose = False
 
     def setUp(self):

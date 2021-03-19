@@ -41,7 +41,7 @@ class AttrBogus(object):
     cQualified = 'foo'
 
 
-class TestTask(TestCase):
+class Test_Task(TestCase):
     def taskFactory(self, priority, series=0):
         return tasks.Task(lambda _: None, (None,), {}, priority, series)
 
@@ -72,7 +72,7 @@ class TestTask(TestCase):
         self.failUnless(taskA < None)
 
 
-class TestTaskFactory(TestCase):
+class Test_TaskFactory(TestCase):
     verbose = False
     
     def setUp(self):
@@ -117,7 +117,7 @@ class TestTaskFactory(TestCase):
         self.listInOrder(serialNumbers)
 
 
-class TestAssignmentFactory(TestCase):
+class Test_AssignmentFactory(TestCase):
     def setUp(self):
         self.af = tasks.AssignmentFactory()
     
@@ -139,7 +139,7 @@ class TestAssignmentFactory(TestCase):
         worker = MockWorker()
         worker.hired = False
         self.af.request(worker, None)
-        for dList in worker.assignments.itervalues():
+        for dList in worker.assignments.values():
             self.failUnlessEqual(
                 [isinstance(x, defer.Deferred) for x in dList], [True])
         d = self.af.new(task)
@@ -156,7 +156,7 @@ class TestAssignmentFactory(TestCase):
         return d
 
 
-class TestTaskHandlerHiring(TestCase):
+class Test_TaskHandlerHiring(TestCase):
     verbose = False
     
     def setUp(self):
@@ -174,10 +174,8 @@ class TestTaskHandlerHiring(TestCase):
     def _checkAssignments(self, workerID):
         worker = self.th.workers[workerID]
         assignments = getattr(worker, 'assignments', {})
-        for key in assignments.iterkeys():
-            self.failUnlessEqual(assignments.keys().count(key), 1)
         self.failUnless(isinstance(assignments, dict))
-        for assignment in assignments.itervalues():
+        for assignment in assignments.values():
             self.failUnlessEqual(
                 [True for x in assignment
                  if isinstance(x, defer.Deferred)], [True])
@@ -277,7 +275,7 @@ class TestTaskHandlerHiring(TestCase):
         self.assertFalse(task.d.called)
         
 
-class TestTaskHandlerRun(TestCase):
+class Test_TaskHandlerRun(TestCase):
     def setUp(self):
         self.th = tasks.TaskHandler()
 

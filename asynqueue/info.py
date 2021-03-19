@@ -37,15 +37,11 @@ Another useful object for development are my L{showResult} and
 L{whichThread} decorator functions, which you can use together.
 """
 
-import sys, traceback, inspect, threading
+import sys, traceback, inspect, threading, pickle
 from contextlib import contextmanager
 
 from twisted.internet import defer
 from twisted.python import reflect
-
-from asynqueue.va import va
-pickle = va.pickle
-unicode = va.unicode
 
 
 def hashIt(*args):
@@ -53,10 +49,10 @@ def hashIt(*args):
     Returns a pretty much unique 32-bit hash for pretty much any
     python object.
     """
-    total = va.long(0)
+    total = int(0)
     for x in args:
         if isinstance(x, dict):
-            for k, key in enumerate(sorted(va.keys(x))):
+            for k, key in enumerate(sorted(x.keys())):
                 total += hashIt(k, key, x[key])
         elif isinstance(x, (list, tuple)):
             for k, value in enumerate(x):
@@ -387,8 +383,8 @@ class Info(object):
         Namespace-name parser.
         
         For my current callable or a previous one identified by I{ID},
-        returns a 3-tuple namespace-ID-name combination suitable for
-        sending to a process worker via C{pickle}.
+        returns a 2-tuple suitable for sending to a process worker via
+        C{pickle}.
 
         The first element: If the callable is a method, a pickled or
         fully qualified name (FQN) version of its parent object. This
@@ -406,7 +402,6 @@ class Info(object):
         @param raw: Set C{True} to return the raw parent (or
           function) object instead of a pickle or FQN. All the type
           checking and round-trip testing still will be done.
-
         """
         if ID:
             pastInfo = self.getInfo(ID, 'wireVersion')
@@ -418,13 +413,13 @@ class Info(object):
             # No callable set
             return result
         func = callDict['f']
-        if isinstance(func, (str, unicode)):
+        if isinstance(func, str):
             # A callable defined as a string can only be a function
             # name, return its FQN or None if that doesn't work
             result = None, self.cv.strToFQN(func)
         elif inspect.ismethod(func):
             # It's a method, so get its parent
-            parent = getattr(func, 'im_self', None)
+            parent = getattr(func, '__self__', None)
             if parent:
                 processed = self.cv.processObject(parent)
                 if processed:
@@ -461,7 +456,7 @@ class Info(object):
         text += self._funcText(func) + "("
         if args:
             text += ", ".join([str(x) for x in args])
-        for name, value in va.iteritems(kw):
+        for name, value in kw.items():
             text += ", {}={}".format(name, value)
         text += ")"
         if 'thread' in callDict:
@@ -530,7 +525,7 @@ class Info(object):
         return "\n".join(lines)
     
     def _funcText(self, func):
-        if isinstance(func, (str, unicode)):
+        if isinstance(func, str):
             return func
         if callable(func):
             text = getattr(func, '__name__', None)
