@@ -25,7 +25,7 @@ Unit tests for asynqueue.interfaces
 """
 
 import multiprocessing as mp
-import zope.interface
+from zope.interface import implementer
 from twisted.internet import defer
 
 from asynqueue import errors, interfaces
@@ -35,23 +35,23 @@ from asynqueue.test.testbase import TestCase
 VERBOSE = True
 
 
+@implementer(interfaces.IWorker)
 class NoCAttr(object):
-    zope.interface.implements(interfaces.IWorker)
     def __init__(self):
         self.iQualified = []
 
+@implementer(interfaces.IWorker)
 class NoIAttr(object):
-    zope.interface.implements(interfaces.IWorker)
     cQualified = []
 
+@implementer(interfaces.IWorker)
 class AttrBogus(object):
-    zope.interface.implements(interfaces.IWorker)
     cQualified = 'foo'
     def __init__(self):
         iQualified = 'bar'
 
+@implementer(interfaces.IWorker)
 class AttrOK(object):
-    zope.interface.implements(interfaces.IWorker)
     cQualified = ['foo']
     def __init__(self):
         self.iQualified = ['bar']
