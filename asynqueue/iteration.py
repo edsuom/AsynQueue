@@ -244,7 +244,7 @@ class Deferator(object):
     This requires your get-more function to be one step ahead somehow,
     returning C{False} as its status indicator when the I{next} call
     would raise L{StopIteration}. Use L{Prefetcherator.getNext} after
-    setting the prefetcherator up with a suitable iterator or
+    setting up the prefetcherator with a suitable iterator or
     next-item callable.
 
     The object (or string representation) isn't strictly needed; it's
@@ -253,6 +253,7 @@ class Deferator(object):
     constructor argument. Or you can supply a Prefetcherator as the
     first and sole argument, or an iterator for which a
     L{Prefetcherator} will be constructed internally.
+
     """
     builtIns = (
         str, list, tuple, bytearray, memoryview, dict, set, frozenset)
@@ -265,6 +266,9 @@ class Deferator(object):
         @return: C{True} if the object is an iterator suitable for use
           with me, C{False} otherwise.
         """
+        print("\nII: {}, {}".format(obj, type(obj)))
+        if isinstance(obj, defer.Deferred):
+            return False
         if isinstance(obj, cls.builtIns):
             return False
         if inspect.isgenerator(obj) or inspect.isgeneratorfunction(obj):
@@ -347,6 +351,7 @@ class Deferator(object):
         out of the iterations early.
         """
         def gotNext(result):
+            print("\nGN: {}".format(result))
             value, isValid, self.moreLeft = result
             return value
         
@@ -355,6 +360,7 @@ class Deferator(object):
                 raise errors.NotReadyError(
                     "You didn't wait for the last deferred to fire!")
             f, args, kw = self.callTuple
+            print("\nDEF: {}, {}".format(f, args))
             self.dIterate = f(*args, **kw).addCallback(gotNext)
             self.dIterate.stop = self.stop
             return self.dIterate
@@ -446,9 +452,10 @@ class Prefetcherator(object):
             return False
 
         def done(result):
+            print("\nPF-DONE: {}".format(result))
             self.lastFetch = result
             return result[1]
-        
+
         if self.isBusy() or not parseArgs():
             return defer.succeed(False)
         return self._tryNext().addCallback(done)
@@ -472,7 +479,7 @@ class Prefetcherator(object):
 
     def getNext(self):
         """
-        Prefetch analog to C{next} on a regular iterator.
+        Prefetch analog to C{__next__} on a regular iterator.
         
         Gets the next value from my current iterator, or a deferred value
         from my current nextCallTuple, returning it along with a Bool

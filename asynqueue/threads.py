@@ -316,6 +316,7 @@ class ThreadLooper(object):
         # work on it, firing this deferred's callback with its result.
         self.event.set()
         statusResult = yield self.d
+        print("\nTLC-1:\n{}\n{}".format(self.d, statusResult))
         # The deferred lock is released after the call is done so
         # that another call can proceed. This is NOT the same as
         # the event used as a threading lock. It keeps the main
@@ -327,6 +328,8 @@ class ThreadLooper(object):
             ID = str(hash(result))
             pf = iteration.Prefetcherator(ID)
             ok = yield pf.setup(result)
+            print("\nTLC-2: {}, {}".format(result, ok))
+
             if ok:
                 # OK, we can iterate this
                 result = iteration.Deferator(
@@ -372,6 +375,7 @@ class ThreadLooper(object):
         will fire with an L{iteration.Deferator}.
         """
         def done(statusResult):
+            print("\nDTT: {}".format(statusResult))
             status, result = statusResult
             if status == 'e':
                 return Failure(errors.ThreadError(result))

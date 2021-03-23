@@ -85,7 +85,7 @@ class Test_ThreadQueue(Tasks, TestCase):
             self.msg("Bogus call result: {}", result)
         except Exception as e:
             self.fail("Exception raised")
-        self.assertIn("Exception 'integer division", result)
+        self.assertIn("Exception 'division by zero", result)
         self.assertIn("ERROR:", sys.stderr.getvalue())
         sys.stderr.close()
         sys.stderr = stderr
@@ -101,7 +101,7 @@ class Test_ThreadQueue(Tasks, TestCase):
             self.msg("Bogus call result: {}", result)
         except Exception as e:
             self.fail("Exception raised")
-        self.assertIn("Exception 'integer division", result)
+        self.assertIn("Exception 'division by zero", result)
         self.assertEqual(
             len(sys.stderr.getvalue()), 0,
             "STDERR not blank: '{}'".format(sys.stderr.getvalue()))
@@ -117,7 +117,7 @@ class Test_ThreadQueue(Tasks, TestCase):
     @defer.inlineCallbacks
     def test_error_returnFailure(self):
         def failed(failureObj):
-            self.assertIn('integer division', failureObj.getTraceback())
+            self.assertIn('division by zero', failureObj.getTraceback())
             self.failedAsExpected = True
         
         stderr = sys.stderr
@@ -273,18 +273,27 @@ class Stuff(object):
             yield k
 
     def stringerator(self):
+        """
+        Iterates five times, yielding the same callable each time that
+        returns the amount of elapsed time for a 0.2 second blocking
+        delay.
+        """
         def wait():
             t0 = time.time()
             while time.time() - t0 < 0.2:
                 time.sleep(0.05)
+            # DEBUG
+            print(t0)
             return time.time() - t0
         for k in range(5):
+            # DEBUG
+            print("\n{:d}\n{:s}".format(k, '-'*40))
             time.sleep(0.02)
             yield wait()
 
 
 class Test_ThreadLooper(TestCase):
-    verbose = False
+    verbose = True
 
     def setUp(self):
         self.stuff = Stuff()
