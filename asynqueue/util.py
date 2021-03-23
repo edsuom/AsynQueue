@@ -517,7 +517,6 @@ class CallRunner(object):
         except:
             result = self.info.setCall(f, args, kw).aboutException()
             return ('e', result)
-        print("\nCR-1:\n{}, {}, {}\n -> {}".format(f, args, kw, result))
         if not raw and iteration.Deferator.isIterator(result):
             return ('i', result)
         return ('r', result)

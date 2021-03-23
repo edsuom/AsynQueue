@@ -266,7 +266,6 @@ class Deferator(object):
         @return: C{True} if the object is an iterator suitable for use
           with me, C{False} otherwise.
         """
-        print("\nII: {}, {}".format(obj, type(obj)))
         if isinstance(obj, defer.Deferred):
             return False
         if isinstance(obj, cls.builtIns):
@@ -351,7 +350,6 @@ class Deferator(object):
         out of the iterations early.
         """
         def gotNext(result):
-            print("\nGN: {}".format(result))
             value, isValid, self.moreLeft = result
             return value
         
@@ -360,7 +358,6 @@ class Deferator(object):
                 raise errors.NotReadyError(
                     "You didn't wait for the last deferred to fire!")
             f, args, kw = self.callTuple
-            print("\nDEF: {}, {}".format(f, args))
             self.dIterate = f(*args, **kw).addCallback(gotNext)
             self.dIterate.stop = self.stop
             return self.dIterate
@@ -452,7 +449,6 @@ class Prefetcherator(object):
             return False
 
         def done(result):
-            print("\nPF-DONE: {}".format(result))
             self.lastFetch = result
             return result[1]
 

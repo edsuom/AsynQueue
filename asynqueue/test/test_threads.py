@@ -282,12 +282,8 @@ class Stuff(object):
             t0 = time.time()
             while time.time() - t0 < 0.2:
                 time.sleep(0.05)
-            # DEBUG
-            print(t0)
             return time.time() - t0
         for k in range(5):
-            # DEBUG
-            print("\n{:d}\n{:s}".format(k, '-'*40))
             time.sleep(0.02)
             yield wait()
 
