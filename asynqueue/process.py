@@ -217,7 +217,7 @@ class ProcessWorker(object):
         self.cMain.close()
         self.process.terminate()
 
-    def next(self, ID):
+    def do_next(self, ID):
         """
         Do a next call of the iterator held by my process, over the pipe
         and in Twisted fashion.
@@ -252,7 +252,7 @@ class ProcessWorker(object):
             for k, pTime in enumerate(pTimes):
                 result.append((self.callTimes[k], pTime))
             return result
-        return self.next("").addCallback(gotProcessTimes)
+        return self.do_next("").addCallback(gotProcessTimes)
 
     def memUsage(self):
         """
@@ -325,7 +325,7 @@ class ProcessWorker(object):
                 # to a consumer provided by the caller.
                 ID = result
                 pf = iteration.Prefetcherator(ID)
-                ok = yield pf.setup(self.next, ID)
+                ok = yield pf.setup(self.do_next, ID)
                 if ok:
                     # OK, we can iterate this
                     result = iteration.Deferator(pf)
@@ -409,7 +409,7 @@ class ProcessUniverse(object):
                         (getattr(self.runner, 'callTimes'), True))
                 else:
                     # A next-iteration call
-                    connection.send(self.next(callSpec))
+                    connection.send(self.do_next(callSpec))
             else:
                 status, result = self.runner(callSpec)
                 if status == 'i':
@@ -423,7 +423,7 @@ class ProcessUniverse(object):
         # Broken out of loop, ready for the process to end
         connection.close()
 
-    def next(self, ID):
+    def do_next(self, ID):
         """
         My L{loop} calls this when the interprocess pipe sends it a string
         identifier for one of the iterators I have pending.
@@ -436,7 +436,7 @@ class ProcessUniverse(object):
         """
         if ID in self.iterators:
             try:
-                value = self.iterators[ID].next()
+                value = self.iterators[ID].__next__()
             except StopIteration:
                 del self.iterators[ID]
                 return None, False

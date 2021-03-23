@@ -667,7 +667,7 @@ class ServerManager(object):
         if not hasattr(self, 'tempDir'):
             self.tempDir = tempfile.mkdtemp()
         socketFile = os.path.join(self.tempDir, "{}.sock".format(pName))
-        return b"unix:{}".format(socketFile)
+        return b"unix:" + bytes(socketFile, encoding='utf-8')
 
     @defer.inlineCallbacks
     def done(self, pid=None):

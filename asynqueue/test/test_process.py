@@ -25,15 +25,15 @@ Unit tests for asynqueue.process
 """
 
 import sys, logging
-from StringIO import StringIO
+from io import StringIO
 from time import time
 
 import numpy as np
 
 from twisted.internet import defer
 
-import base, process
-from testbase import blockingTask, Tasks, \
+from asynqueue import base, process
+from asynqueue.test.testbase import blockingTask, Tasks, \
     TestHandler, TestCase, IterationConsumer
 
 
@@ -57,7 +57,7 @@ class TestProcessQueue(TestCase):
             self.msg("Bogus call result: {}", result)
         except Exception as e:
             self.fail("Exception raised")
-        self.assertIn("Exception 'integer division", result)
+        self.assertIn("Exception 'division by zero", result)
         self.assertIn("ERROR:", sys.stderr.getvalue())
         sys.stderr.close()
         sys.stderr = stderr
@@ -73,7 +73,7 @@ class TestProcessQueue(TestCase):
             self.msg("Bogus call result: {}", result)
         except Exception as e:
             self.fail("Exception raised")
-        self.assertIn("Exception 'integer division", result)
+        self.assertIn("Exception 'division by zero", result)
         # Currently, it prints to STDERR. Is that so bad?
         self.assertEqual(
             len(sys.stderr.getvalue()), 0,
@@ -90,7 +90,7 @@ class TestProcessQueue(TestCase):
     @defer.inlineCallbacks
     def test_error_returnFailure(self):
         def failed(failureObj):
-            self.assertIn('integer division', failureObj.getTraceback())
+            self.assertIn('division by zero', failureObj.getTraceback())
             self.failedAsExpected = True
         
         stderr = sys.stderr
@@ -139,7 +139,7 @@ class TestProcessWorker(TestCase):
         t = Tasks()
         yield self.queue.call(t._memoryIntensiveTask, 1000)
         kb1 = self.worker.memUsage()
-        self.assertAlmostEqual(float(kb1-kb0)/35904, 1.0, 1)
+        self.assertAlmostEqual(float(kb1-kb0)/40550, 1.0, 1)
     
     def test_stop(self):
         d = self.queue.call(blockingTask, 0)
