@@ -165,7 +165,7 @@ class ThreadWorker(object):
         def done(statusResult):
             if task in self.tasks:
                 self.tasks.remove(task)
-            if statusResult[0] == 'i':
+            if statusResult[0] == b'i':
                 # What we got is a Deferator, but if a consumer was
                 # supplied, we need to couple an IterationProducer to
                 # it and fire the task callback with the deferred from
@@ -173,7 +173,7 @@ class ThreadWorker(object):
                 if consumer:
                     dr = statusResult[1]
                     ip = iteration.IterationProducer(dr, consumer)
-                    statusResult = ('i', ip)
+                    statusResult = (b'i', ip)
             task.d.callback(statusResult)
             if task in self.tasksPendingBeforeShutdown:
                 self.tasksPendingBeforeShutdown.pop(task).callback(None)
@@ -323,7 +323,7 @@ class ThreadLooper(object):
         # ready for that.
         self.dLock.release()
         status, result = statusResult
-        if status == 'i':
+        if status == b'i':
             ID = str(hash(result))
             pf = iteration.Prefetcherator(ID)
             ok = yield pf.setup(result)
@@ -374,9 +374,9 @@ class ThreadLooper(object):
         """
         def done(statusResult):
             status, result = statusResult
-            if status == 'e':
+            if status == b'e':
                 return Failure(errors.ThreadError(result))
-            elif status == 'i':
+            elif status == b'i':
                 if consumer:
                     ip = iteration.IterationProducer(dr, consumer)
                     return ip.run()

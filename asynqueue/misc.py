@@ -21,7 +21,7 @@
 # governing permissions and limitations under the License.
 
 """
-Miscellaneous stuff that is needed for testing and nothing else.
+Miscellaneous stuff that is needed for C{test_wire} and nothing else.
 """
 
 from asynqueue.wire import WireWorkerUniverse

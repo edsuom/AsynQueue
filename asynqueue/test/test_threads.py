@@ -187,7 +187,7 @@ class Test_ThreadWorker(Tasks, TestCase):
 
     def test_multipleCalls(self):
         N = 5
-        expected = [('r', 2*x) for x in range(N)]
+        expected = [(b'r', 2*x) for x in range(N)]
         worker = threads.ThreadWorker()
         for k in self.multiplerator(N, expected):
             task = tasks.Task(self._blockingTask, (k,), {}, 0, None)
@@ -311,11 +311,11 @@ class Test_ThreadLooper(TestCase):
     def test_call_OK_once(self):
         status, result = yield self.t.call(
             self.stuff.divide, 10, 2, delay=0.3)
-        self.assertEqual(status, 'r')
+        self.assertEqual(status, b'r')
         self.assertEqual(result, 5)
 
     def _gotOne(self, sr):
-        self.assertEqual(sr[0], 'r')
+        self.assertEqual(sr[0], b'r')
         self.resultList.append(sr[1])
 
     def _checkResult(self, null, expected):
@@ -345,7 +345,7 @@ class Test_ThreadLooper(TestCase):
     @defer.inlineCallbacks
     def test_call_error_once(self):
         status, result = yield self.t.call(self.stuff.divide, 1, 0)
-        self.assertEqual(status, 'e')
+        self.assertEqual(status, b'e')
         self.msg("Expected error message:", '-')
         self.msg(result)
         self.assertPattern(r'divide', result)
@@ -357,7 +357,7 @@ class Test_ThreadLooper(TestCase):
             N = random.randrange(5, 20)
             self.msg("Repeat #{:d}, iterating {:d} times...", k+1, N)
             status, result = yield self.t.call(self.stuff.iterate, N, 0)
-            self.assertEqual(status, 'i')
+            self.assertEqual(status, b'i')
             resultList = []
             for d in result:
                 item = yield d
@@ -367,7 +367,7 @@ class Test_ThreadLooper(TestCase):
     @defer.inlineCallbacks
     def test_iterator_fast(self):
         status, result = yield self.t.call(self.stuff.iterate, 10)
-        self.assertEqual(status, 'i')
+        self.assertEqual(status, b'i')
         dRegular = self.t.call(self.stuff.divide, 3.0, 2.0)
         resultList = []
         for d in result:
@@ -375,13 +375,13 @@ class Test_ThreadLooper(TestCase):
             resultList.append(item)
         self.assertEqual(resultList, list(range(10)))
         status, result = yield dRegular
-        self.assertEqual(status, 'r')
+        self.assertEqual(status, b'r')
         self.assertEqual(result, 1.5)
 
     @defer.inlineCallbacks
     def test_iterator_slow(self):
         status, result = yield self.t.call(self.stuff.stringerator)
-        self.assertEqual(status, 'i')
+        self.assertEqual(status, b'i')
         dRegular = self.t.call(self.stuff.divide, 3.0, 2.0)
         resultList = []
         for d in result:
@@ -391,7 +391,7 @@ class Test_ThreadLooper(TestCase):
         self.assertApproximates(
             sum(resultList), 1.0, 0.05)
         status, result = yield dRegular
-        self.assertEqual(status, 'r')
+        self.assertEqual(status, b'r')
         self.assertEqual(result, 1.5)
         
     def test_deferToThread_OK(self):

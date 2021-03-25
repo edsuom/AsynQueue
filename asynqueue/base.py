@@ -490,7 +490,7 @@ class TaskQueue(object):
         status, result = statusResult
         # Deal with any info for this task call
         with taskInfo(kw.get('ID', None)) as prefix:
-            if status == 'e':
+            if status == b'e':
                 # There was an error...
                 if prefix:
                     # ...log it
@@ -506,10 +506,10 @@ class TaskQueue(object):
                         sys.stderr.write("\n{}".format(msg))
                     self._dc = reactor.callLater(1.0, reactor.stop)
                 return result
-        if status in "rc":
+        if status in (b'r', b'c'):
             # A plain result, or a deferred to a chunked one
             return result
-        if status == 'i':
+        if status == b'i':
             # An iteration, possibly an IterationConsumer that we need
             # to run now
             if kw.get('consumer', None):
@@ -519,7 +519,7 @@ class TaskQueue(object):
                 # the iterations "done" right away.
                 return defer.succeed(None)
             return result
-        if status == 't':
+        if status == b't':
             # Timed out. Try again, once.
             if task in self.tasksBeingRetried:
                 self.tasksBeingRetried.remove(task)
@@ -527,10 +527,10 @@ class TaskQueue(object):
                     errors.TimeoutError(
                         "Timed out after two tries, gave up"))
             return retryTask()
-        if status == 'n':
+        if status == b'n':
             # None object
             return
-        if status == 'd':
+        if status == b'd':
             # Didn't run. Try again, hopefully with a different worker.
             return retryTask()
         return Failure(

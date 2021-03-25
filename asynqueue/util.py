@@ -54,7 +54,7 @@ def o2p(obj):
     empty container.
     """
     if isinstance(obj, (list, tuple, dict)) and not obj:
-        return ""
+        return b""
     return pickle.dumps(obj)#, pickle.HIGHEST_PROTOCOL)
 
 def p2o(pickledString, defaultObj=None):
@@ -516,7 +516,7 @@ class CallRunner(object):
             # call will not reach this point.
         except:
             result = self.info.setCall(f, args, kw).aboutException()
-            return ('e', result)
+            return (b'e', result)
         if not raw and iteration.Deferator.isIterator(result):
-            return ('i', result)
-        return ('r', result)
+            return (b'i', result)
+        return (b'r', result)

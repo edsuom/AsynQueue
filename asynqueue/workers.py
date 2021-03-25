@@ -34,10 +34,12 @@ from asynqueue import errors, info, util, iteration
 from asynqueue.interfaces import IWorker
 
 
-# Make all our workers importable from this module
+# Make all our workers (except WireWorker, because of asynqueue.wire
+# interpreter invocation) importable from this module
 from asynqueue.threads import ThreadWorker
 from asynqueue.process import ProcessWorker
-from asynqueue.wire import WireWorker
+# Not this one
+#from asynqueue.wire import WireWorker
 
 
 @implementer(IWorker)
@@ -100,9 +102,9 @@ class AsyncWorker(object):
                 else:
                     if consumer:
                         result = iteration.IterationProducer(result, consumer)
-                status = 'i'
+                status = b'i'
             else:
-                status = 'r'
+                status = b'r'
             # Hangs if release is done after the task callback
             self.dLock.release()
             task.callback((status, result))
@@ -110,7 +112,7 @@ class AsyncWorker(object):
         def oops(failureObj):
             #import pdb; pdb.set_trace()
             text = self.info.setCall(f, args, kw).aboutFailure(failureObj)
-            task.callback(('e', text))
+            task.callback((b'e', text))
 
         f, args, kw = task.callTuple
         raw = kw.pop('raw', None)

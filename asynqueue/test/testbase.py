@@ -25,6 +25,7 @@ Intelligent import, Mock objects, and an improved TestCase for AsynQueue
 """
 
 import re, sys, os.path, time, random, logging, threading
+from io import StringIO
 
 from zope.interface import implementer
 from twisted.internet import reactor, defer, task
@@ -35,10 +36,6 @@ from twisted.trial import unittest
 from asynqueue.info import Info
 from asynqueue.interfaces import IWorker
 from asynqueue import iteration
-
-from asynqueue.va import va
-StringIO = va.StringIO
-unicode = va.unicode
 
 
 VERBOSE = False
@@ -390,13 +387,13 @@ class MockWorker(MsgBase):
         try:
             result = f(*args, **kw)
         except:
-            status = 'e'
+            status = b'e'
             result = self.info.setCall(f, args, kw).aboutException()
         else:
-            status = 'r'
+            status = b'r'
         self.ran.append(self.task)
         if iteration.Deferator.isIterator(result):
-            status = 'i'
+            status = b'i'
             try:
                 result = iteration.Deferator(result)
             except:
@@ -509,9 +506,6 @@ class TestCase(MsgBase, unittest.TestCase):
         proto = "Pattern '{}' not in '{}'"
         if '\n' not in pattern:
             text = re.sub(r'\s*\n\s*', '', text)
-        if isinstance(text, unicode):
-            # What a pain unicode is...
-            proto = unicode(proto)
         self.assertTrue(
             bool(re.search(pattern, text)),
             proto.format(pattern, text))

@@ -29,11 +29,9 @@ threads (L{workers.ThreadWorker}), or on one or more subordinate
 Python processes (L{workers.ProcessWorker}).
 """
 
-from __future__ import absolute_import
-
-from .workers import *
+from .workers import AsyncWorker
 from .base import TaskQueue
-from .threads import ThreadQueue
-from .process import ProcessQueue
+from .threads import ThreadQueue, ThreadWorker
+from .process import ProcessQueue, ProcessWorker
 from .info import showResult, Info
 from .util import DeferredTracker, DeferredLock

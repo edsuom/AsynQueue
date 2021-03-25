@@ -62,7 +62,7 @@ class TestAsyncWorker(TestCase):
 
     def test_multipleCalls(self):
         N = 5
-        expected = [('r', 2*x) for x in range(N)]
+        expected = [(b'r', 2*x) for x in range(N)]
         worker = workers.AsyncWorker()
         for k in self.multiplerator(N, expected):
             task = tasks.Task(self._twistyTask, (k,), {}, 0, None)

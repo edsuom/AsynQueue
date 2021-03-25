@@ -45,8 +45,6 @@ from asynqueue.interfaces import IWorker
 from asynqueue.threads import ThreadLooper
 from asynqueue import errors, util, iteration
 
-from asynqueue.va import va
-
 
 DEFAULT_SOCKET = b"unix:/var/run/wire"
 DEFAULT_WWU_FQN = "asynqueue.wire.WireWorkerUniverse"
@@ -148,6 +146,7 @@ class WireWorkerUniverse(amp.CommandLocator):
         interpreter, with the supplied list I{args} of arguments and
         dict of keywords I{kw}, which may be empty.
         """
+        methodName = p2o(methodName)
         if not hasattr(self, 'wr'):
             self.wr = WireRunner()
             self.info = Info()
@@ -163,8 +162,8 @@ class WireWorkerUniverse(amp.CommandLocator):
         # Wasn't a legit method call
         text = self.info.setCall(methodName, args, kw).aboutCall()
         return {
-            'status': 'e',
-            'result': "Couldn't run call '{}'".format(text)
+            b'status': 'e',
+            b'result': "Couldn't run call '{}'".format(text)
         }
 
     @GetNext.responder
@@ -278,7 +277,7 @@ class WireWorker(object):
         defer.returnValue(p2o(pickleString))
 
     @defer.inlineCallbacks
-    def next(self, ID):
+    def do_next(self, ID):
         """
         Do a next call of the iterator held by my subordinate, over the
         wire (socket) and in Twisted fashion. Highest priority because
@@ -322,28 +321,32 @@ class WireWorker(object):
 
         self.tasks.append(task)
         doNext = task.callTuple[2].pop('doNext', False)
+        print("\nRUN-1", task)
         yield self.dLock.acquire(doNext)
         self.dLock.release()
         yield self.ds.acquire()
+        print("\nRUN-2", self.ap.transport.connected)
         # Run the task via AMP, but only if it's connected
         #-----------------------------------------------------------
         if not self.ap.transport.connected:
-            response = {'status':'d', 'result':None}
+            response = {'status':b'd', 'result':None}
         else:
             kw = {}
             consumer = task.callTuple[2].pop('consumer', None)
             for k, value in enumerate(task.callTuple):
-                name = RunTask.arguments[k][0]
-                kw[name] = value if isinstance(value, str) else o2p(value)
+                name = RunTask.arguments[k][0].decode()
+                kw[name] = o2p(value)
             if self.raw:
                 kw.setdefault('raw', True)
             if self.thread:
                 kw.setdefault('thread', True)
             # The heart of the matter
-            try:
-                response = yield self.ap.callRemote(RunTask, **kw)
-            except:
-                response = {'status':'d', 'result':None}
+            #try:
+            response = yield self.ap.callRemote(RunTask, **kw)
+            #except:
+            #    import pdb; pdb.set_trace(); 
+            #    response = {'status':b'd', 'result':None}
+        print("\nRUN-3", response)
         #-----------------------------------------------------------
         # One less task running now
         self.ds.release()
@@ -351,12 +354,12 @@ class WireWorker(object):
         # involves further remote calls, i.e., GetNext
         status = response['status']
         x = response['result']
-        if status == 'i':
+        if status == b'i':
             # What we get from the subordinate is an ID to an iterator
             # it is holding onto, but we need to give the task an
             # iterationProducer that hooks up to it.
             pf = iteration.Prefetcherator(x)
-            ok = yield pf.setup(self.next, x)
+            ok = yield pf.setup(self.do_next, x)
             if ok:
                 returnThis = iteration.Deferator(pf)
                 if consumer:
@@ -367,15 +370,15 @@ class WireWorker(object):
                 # one I could prefetch from. Probably empty.
                 returnThis = []
             result(returnThis)
-        elif status == 'c':
+        elif status == b'c':
             # Chunked result, which will take a while
             dResult = yield self.assembleChunkedResult(x)
             result(dResult)
-        elif status == 'r':
+        elif status == b'r':
             result(p2o(x))
-        elif status == 'n':
+        elif status == b'n':
             result(None)
-        elif status in ('e', 'd'):
+        elif status in (b'e', b'd'):
             result(x)
             self.resign()
         else:
@@ -407,7 +410,7 @@ class ChunkyString(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         if not hasattr(self, 'bigString'):
             raise StopIteration
         k1 = min([self.k0 + self.chunkSize, self.N])
@@ -442,17 +445,6 @@ class WireRunner(object):
         self.iterators[ID] = x
         return ID
 
-    def call(self, f, *args, **kw):
-        """
-        Run the f-args-kw combination, in the regular thread or in a
-        thread running if I have one.
-
-        @return: A C{Deferred} to the status and result.
-        """
-        d = self._call(f, *args, **kw)
-        self.dt.put(d)
-        return d
-
     @defer.inlineCallbacks
     def _call(self, f, *args, **kw):
         def oops(failureObj, ID=None):
@@ -461,8 +453,9 @@ class WireRunner(object):
                 self.info.forgetID(ID)
             else:
                 text = self.info.aboutFailure(failureObj)
-            return ('e', text)
-        
+            return (b'e', text)
+
+        print('\nCALL-A', f, args, kw)
         response = {}
         raw = kw.pop('raw', False)
         if kw.pop('thread', False):
@@ -482,35 +475,35 @@ class WireRunner(object):
                 status, result = result
             elif result is None:
                 # A None object
-                status = 'n'
-                result = ""
+                status = b'n'
+                result = b""
             elif not raw and iteration.Deferator.isIterator(result):
-                status = 'i'
+                status = b'i'
                 result = self._saveIterator(result)
             else:
-                status = 'r'
+                status = b'r'
                 result = o2p(result)
                 if len(result) > ChunkyString.chunkSize:
                     # Too big to send as a single pickled string
-                    status = 'c'
+                    status = b'c'
                     result = self._saveIterator(ChunkyString(result))
         # At this point, we have our result (blank string for C{None},
         # an ID for an iterator, or a pickled string
         response['status'] = status
         response['result'] = result
         defer.returnValue(response)
-    
-    def getNext(self, ID):
+
+    def call(self, f, *args, **kw):
         """
-        Gets the next item for the iterator specified by I{ID}, returning
-        a C{Deferred} that fires with a response containing the
-        pickled item and the I{isValid} status indicating if the item
-        is legit (C{False} = L{StopIteration}).
+        Run the f-args-kw combination, in the regular thread or in a
+        thread running if I have one.
+
+        @return: A C{Deferred} to the status and result.
         """
-        d = self._getNext(ID)
+        d = self._call(f, *args, **kw)
         self.dt.put(d)
         return d
-
+        
     @defer.inlineCallbacks
     def _getNext(self, ID):
         def oops(failureObj, ID):
@@ -525,7 +518,7 @@ class WireRunner(object):
             response['value'] = ""
             response['isValid'] = False
         def handleValue(value):
-            if isinstance(value, str):
+            if isinstance(value, (str, bytes)):
                 response['isRaw'] = True
                 response['value'] = value
             else:
@@ -537,13 +530,13 @@ class WireRunner(object):
             if hasattr(self, 't'):
                 # Get next iteration in a thread
                 value = yield self.t.deferToThread(
-                    self.iterators[ID].next).addErrback(oops, ID)
+                    self.iterators[ID].__next__).addErrback(oops, ID)
                 if response['isValid']:
                     handleValue(value)
             else:
                 # Get next iteration in main loop. No blocking!
                 try:
-                    value = self.iterators[ID].next()
+                    value = self.iterators[ID].__next__()
                     handleValue(value)
                 except StopIteration:
                     del self.iterators[ID]
@@ -552,6 +545,18 @@ class WireRunner(object):
             # No iterator, at least not anymore
             bogusResponse()
         defer.returnValue(response)
+
+    def getNext(self, ID):
+        """
+        Gets the next item for the iterator specified by I{ID}.
+
+        Returns a C{Deferred} that fires with a response containing
+        the pickled item and the I{isValid} status indicating if the
+        item is legit (C{False} = L{StopIteration}).
+        """
+        d = self._getNext(ID)
+        self.dt.put(d)
+        return d
 
 
 class WireServer(object):
@@ -640,7 +645,7 @@ class ServerManager(object):
             pt = reactor.spawnProcess(pp, sys.executable, args)
             response = yield pp.d
             self.processInfo[pt.pid] = {'pt':pt}
-            if "AsynQueue WireServer listening" in response:
+            if b"AsynQueue WireServer listening" in response:
                 result = pp
             else: self.done(pt.pid)
         else:
@@ -651,7 +656,7 @@ class ServerManager(object):
             yield checker.untilEvent(os.path.exists, socketPath)
             result = pid
         defer.returnValue(result)
-
+    
     def newSocket(self):
         """
         Assigns a unique name to a socket file in a temporary directory
@@ -667,12 +672,12 @@ class ServerManager(object):
         if not hasattr(self, 'tempDir'):
             self.tempDir = tempfile.mkdtemp()
         socketFile = os.path.join(self.tempDir, "{}.sock".format(pName))
-        return b"unix:" + bytes(socketFile, encoding='utf-8')
-
+        return 'unix:' + socketFile
+    
     @defer.inlineCallbacks
     def done(self, pid=None):
         if pid is None:
-            for pid in va.keys(self.processInfo):
+            for pid in list(self.processInfo.keys()):
                 yield self.done(pid)
         elif pid in self.processInfo:
             thisInfo = self.processInfo[pid]

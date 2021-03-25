@@ -216,7 +216,7 @@ class TestCallRunner(TestCase):
         z = []
         for x in range(1000, 2000):
             result = runner((self._divide, (x, 2), {}))
-            self.assertEqual(result[0], 'r')
+            self.assertEqual(result[0], b'r')
             z.append(result[1])
         self.assertEqual(len(z), 1000)
         self.assertEqual(z[0], 500)

@@ -314,10 +314,10 @@ class ProcessWorker(object):
             try:
                 status, result = self.cMain.recv()
             except:
-                status = 'e'
+                status = b'e'
                 result = "Pipe disconnect"
             self.dLock.release()
-            if status == 'i':
+            if status == b'i':
                 # What we get from the process is an ID to an iterator
                 # it is holding onto, but we need to hook up to it
                 # with a Prefetcherator and then make a Deferator,
@@ -412,7 +412,7 @@ class ProcessUniverse(object):
                     connection.send(self.do_next(callSpec))
             else:
                 status, result = self.runner(callSpec)
-                if status == 'i':
+                if status == b'i':
                     # Due to the pipe between worker and process, we
                     # hold onto the iterator here and just
                     # return an ID to it

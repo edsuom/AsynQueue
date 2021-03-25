@@ -35,8 +35,8 @@ from asynqueue.util import TestStuff, o2p, p2o
 from asynqueue.test.testbase import deferToDelay, TestCase
 
 
-class TestWireWorker(TestCase):
-    verbose = False
+class Test_WireWorker(TestCase):
+    verbose = True
 
     def setUp(self):
         self.queue = base.TaskQueue()
@@ -60,7 +60,9 @@ class TestWireWorker(TestCase):
     @defer.inlineCallbacks
     def test_basic(self):
         yield self.newServer(True)
+        print('A')
         result = yield self.queue.call('add', 1, 2)
+        print('B', result)
         self.assertEqual(result, 3)
 
     @defer.inlineCallbacks
@@ -95,7 +97,7 @@ class TestWireWorker(TestCase):
         self.assertEqual(result, 3)
         
 
-class TestChunkyString(TestCase):
+class Test_ChunkyString(TestCase):
     verbose = False
 
     def test_basic(self):
@@ -139,13 +141,13 @@ class BigObject(object):
     def iter(self):
         return self
 
-    def next(self):
+    def __next__(self):
         if self.stuff:
             return self.stuff.pop(0)
         raise StopIteration
 
         
-class TestWireRunner(TestCase):
+class Test_WireRunner(TestCase):
     verbose = False
 
     def setUp(self):
@@ -159,7 +161,7 @@ class TestWireRunner(TestCase):
     def test_call_single(self):
         response = yield self.wr.call(self.tm.divide, 5.0, 2)
         self.assertIsInstance(response, dict)
-        self.assertEqual(response['status'], 'r')
+        self.assertEqual(response['status'], b'r')
         self.assertEqual(response['result'], o2p(2.5))
 
     @defer.inlineCallbacks
@@ -169,7 +171,7 @@ class TestWireRunner(TestCase):
         self.assertIsInstance(response, dict)
         response = yield self.wr.call(self.tm.getStuff)
         self.assertIsInstance(response, dict)
-        self.assertEqual(response['status'], 'c')
+        self.assertEqual(response['status'], b'c')
         ID = response['result']
         self.assertIsInstance(ID, str)
         chunks = []
@@ -180,7 +182,7 @@ class TestWireRunner(TestCase):
                 chunks.append(response['value'])
             else:
                 break
-        stuff = p2o("".join(chunks))
+        stuff = p2o(b"".join(chunks))
         self.tm.setStuff(N1, N2)
         expectedStuff = self.tm.getStuff()
         self.assertEqual(stuff, expectedStuff)
@@ -189,13 +191,13 @@ class TestWireRunner(TestCase):
     def test_call_error(self):
         response = yield self.wr.call(self.tm.divide, 1.0, 0)
         self.assertIsInstance(response, dict)
-        self.assertEqual(response['status'], 'e')
+        self.assertEqual(response['status'], b'e')
         self.assertPattern(r'[dD]ivi', response['result'])
 
     @defer.inlineCallbacks
     def test_call_multiple(self):
         def gotResponse(response):
-            self.assertEqual(response['status'], 'r')
+            self.assertEqual(response['status'], b'r')
             resultList.append(float(p2o(response['result'])))
         dList = []
         resultList = []
@@ -237,7 +239,7 @@ class TestWireRunner(TestCase):
         stuff = p2o(response['result'])
         self.assertEqual(len(stuff), N1)
         response = yield self.wr.call(self.tm.stufferator)
-        self.assertEqual(response['status'], 'i')
+        self.assertEqual(response['status'], b'i')
         ID = response['result']
         self.assertIn(ID, self.wr.iterators)
         self.assertEqual(
