@@ -36,7 +36,7 @@ from asynqueue.test.testbase import deferToDelay, TestCase
 
 
 class Test_WireWorker(TestCase):
-    verbose = True
+    verbose = False
 
     def setUp(self):
         self.queue = base.TaskQueue()
@@ -60,9 +60,7 @@ class Test_WireWorker(TestCase):
     @defer.inlineCallbacks
     def test_basic(self):
         yield self.newServer(True)
-        print('A')
         result = yield self.queue.call('add', 1, 2)
-        print('B', result)
         self.assertEqual(result, 3)
 
     @defer.inlineCallbacks
@@ -124,7 +122,7 @@ class BigObject(object):
         self.N = N
 
     def getContents(self):
-        return "".join(self.stuff)
+        return b"".join(self.stuff)
         
     def setContents(self):
         Nsf = 0
@@ -132,9 +130,10 @@ class BigObject(object):
         characters = "XO-I"
         while Nsf < self.N:
             N = min([self.N-Nsf, self.itemSize])
-            self.stuff.append("".join([
+            stuff = "".join([
                 characters[random.randint(0, len(characters)-1)]
-                for k in range(N)]))
+                for k in range(N)])
+            self.stuff.append(stuff.encode())
             Nsf += N
         return self
 
@@ -173,7 +172,7 @@ class Test_WireRunner(TestCase):
         self.assertIsInstance(response, dict)
         self.assertEqual(response['status'], b'c')
         ID = response['result']
-        self.assertIsInstance(ID, str)
+        self.assertIsInstance(ID, bytes)
         chunks = []
         while True:
             response = yield self.wr.getNext(ID)
@@ -220,7 +219,7 @@ class Test_WireRunner(TestCase):
         while True:
             response = yield self.wr.getNext(ID)
             if not response['isValid']:
-                self.assertEqual(response['value'], "")
+                self.assertEqual(response['value'], b"")
                 break
             self.msg(
                 "Response #{:d}: {:d} chars",
@@ -228,9 +227,9 @@ class Test_WireRunner(TestCase):
             k += 1
             self.assertTrue(response['isRaw'])
             chunks.append(response['value'])
-        joined = "".join(chunks)
+        joined = b"".join(chunks)
         self.assertEqual(joined, stuff)
-        
+    
     @defer.inlineCallbacks
     def test_call_iterator(self):
         N1, N2 = 20, 10

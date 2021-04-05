@@ -32,7 +32,7 @@ L{ServerManager} is just the thing for that.
 import sys, os, os.path, tempfile, shutil, inspect
 
 from zope.interface import implementer
-from twisted.python import reflect
+from twisted.python import reflect, failure
 from twisted.internet import reactor, defer, endpoints
 from twisted.protocols import amp
 from twisted.internet.protocol import Factory
@@ -162,7 +162,7 @@ class WireWorkerUniverse(amp.CommandLocator):
         # Wasn't a legit method call
         text = self.info.setCall(methodName, args, kw).aboutCall()
         return {
-            b'status': 'e',
+            b'status': b'e',
             b'result': "Couldn't run call '{}'".format(text)
         }
 
@@ -276,20 +276,23 @@ class WireWorker(object):
                 break
         defer.returnValue(p2o(pickleString))
 
-    @defer.inlineCallbacks
     def do_next(self, ID):
         """
         Do a next call of the iterator held by my subordinate, over the
-        wire (socket) and in Twisted fashion. Highest priority because
-        something is waiting for possibly lots of calls of this to
-        complete.
+        wire (socket) and in Twisted fashion.
+        
+        This is done with highest priority because something is
+        waiting for possibly lots of calls of this to complete.
         """
-        yield self.dLock.acquire(vip=True)
-        isValid, value = yield self._handleNext(ID)
-        self.dLock.release()
-        if not isValid:
-            value = Failure(StopIteration)
-        defer.returnValue(value)
+        def ready(null):
+            return self._handleNext(ID).addCallback(gotNext)
+        def gotNext(stuff):
+            isValid, value = stuff
+            self.dLock.release()
+            if not isValid:
+                raise StopIteration
+            return value
+        return self.dLock.acquire(vip=True).addCallback(ready)
 
     def resign(self, *args):
         if hasattr(self, 'resignator'):
@@ -321,11 +324,9 @@ class WireWorker(object):
 
         self.tasks.append(task)
         doNext = task.callTuple[2].pop('doNext', False)
-        print("\nRUN-1", task)
         yield self.dLock.acquire(doNext)
         self.dLock.release()
         yield self.ds.acquire()
-        print("\nRUN-2", self.ap.transport.connected)
         # Run the task via AMP, but only if it's connected
         #-----------------------------------------------------------
         if not self.ap.transport.connected:
@@ -341,12 +342,10 @@ class WireWorker(object):
             if self.thread:
                 kw.setdefault('thread', True)
             # The heart of the matter
-            #try:
-            response = yield self.ap.callRemote(RunTask, **kw)
-            #except:
-            #    import pdb; pdb.set_trace(); 
-            #    response = {'status':b'd', 'result':None}
-        print("\nRUN-3", response)
+            try:
+                response = yield self.ap.callRemote(RunTask, **kw)
+            except:
+                response = {'status':b'd', 'result':None}
         #-----------------------------------------------------------
         # One less task running now
         self.ds.release()
@@ -439,12 +438,12 @@ class WireRunner(object):
             d = self.t.stop().addCallback(lambda _: delattr(self, 't'))
             self.dt.put(d)
         return self.dt.deferToAll()
-        
+    
     def _saveIterator(self, x):
-        ID = str(hash(x))
+        ID = str(hash(x)).encode()
         self.iterators[ID] = x
         return ID
-
+    
     @defer.inlineCallbacks
     def _call(self, f, *args, **kw):
         def oops(failureObj, ID=None):
@@ -455,7 +454,6 @@ class WireRunner(object):
                 text = self.info.aboutFailure(failureObj)
             return (b'e', text)
 
-        print('\nCALL-A', f, args, kw)
         response = {}
         raw = kw.pop('raw', False)
         if kw.pop('thread', False):
@@ -471,7 +469,7 @@ class WireRunner(object):
             result = yield defer.maybeDeferred(
                 f, *args, **kw).addErrback(oops, ID)
             self.info.forgetID(ID)
-            if isinstance(result, tuple) and result[0] == 'e':
+            if isinstance(result, tuple) and result[0] == b'e':
                 status, result = result
             elif result is None:
                 # A None object
@@ -515,10 +513,10 @@ class WireRunner(object):
                 response['value'] = self.info.setCall(
                     "getNext", [ID]).aboutFailure(failureObj)
         def bogusResponse():
-            response['value'] = ""
+            response['value'] = b""
             response['isValid'] = False
         def handleValue(value):
-            if isinstance(value, (str, bytes)):
+            if isinstance(value, bytes):
                 response['isRaw'] = True
                 response['value'] = value
             else:

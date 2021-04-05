@@ -419,6 +419,25 @@ class Prefetcherator(object):
         """
         return hasattr(self, 'nextCallTuple')
 
+    def _tryNext(self):
+        """
+        Returns a deferred that fires with the value from my
+        I{nextCallTuple} along with a C{bool} indicating if it's a
+        valid value.
+
+        Deletes the I{nextValue} reference after it returns with a
+        failure.
+        """
+        def done(value):
+            return value, True
+        def oops(failureObj):
+            del self.nextCallTuple
+            return None, False
+        if not hasattr(self, 'nextCallTuple'):
+            return defer.succeed((None, False))
+        f, args, kw = self.nextCallTuple
+        return defer.maybeDeferred(f, *args, **kw).addCallbacks(done, oops)
+
     def setup(self, *args, **kw):
         """
         Sets me up with an attempt at an initial prefetch.
@@ -455,23 +474,6 @@ class Prefetcherator(object):
         if self.isBusy() or not parseArgs():
             return defer.succeed(False)
         return self._tryNext().addCallback(done)
-        
-    def _tryNext(self):
-        """
-        Returns a deferred that fires with the value from my
-        I{nextCallTuple} along with a C{bool} indicating if it's a
-        valid value. Deletes the I{nextValue} reference after it
-        returns with a failure.
-        """
-        def done(value):
-            return value, True
-        def oops(failureObj):
-            del self.nextCallTuple
-            return None, False
-        if not hasattr(self, 'nextCallTuple'):
-            return defer.succeed((None, False))
-        f, args, kw = self.nextCallTuple
-        return defer.maybeDeferred(f, *args, **kw).addCallbacks(done, oops)
 
     def getNext(self):
         """

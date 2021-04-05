@@ -37,9 +37,10 @@ class TestMethods:
     def setStuff(self, N1, N2):
         self.stuff = []
         for j in range(N1):
-            self.stuff.append("".join(
+            stuff = "".join(
                 [self.chars[k % len(self.chars)]
-                 for k in range(N2)]))
+                 for k in range(N2)])
+            self.stuff.append(stuff.encode())
     def getStuff(self):
         return self.stuff
     def stuffSize(self):
