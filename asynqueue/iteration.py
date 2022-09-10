@@ -110,7 +110,7 @@ class Delay(object):
         reactor.removeSystemEventTrigger(self.triggerID)
         self.triggerID = None
         while self.pendingCalls:
-            call = self.pendingCalls.keys()[0]
+            call = list(self.pendingCalls.keys())[0]
             if call.active():
                 self.pendingCalls[call].callback(None)
                 call.cancel()
